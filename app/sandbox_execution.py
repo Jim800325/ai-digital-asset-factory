@@ -34,7 +34,7 @@ def _docker_base(workspace: Path, image: str) -> list[str]:
         "--cpus","1.0",
         "--user",f"{uid}:{gid}",
         "--tmpfs","/tmp:rw,nosuid,nodev,noexec,size=64m",
-        "--mount",f"type=bind,src={workspace},dst=/workspace,rw",
+        "--mount",f"type=bind,src={workspace},dst=/workspace",
         "--workdir","/workspace",
         image,
     ]
