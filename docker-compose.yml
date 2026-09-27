@@ -8,7 +8,6 @@ services:
       POSTGRES_PASSWORD: assetfactory
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U assetfactory -d assetfactory"]
       interval: 5s
