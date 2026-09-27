@@ -130,7 +130,7 @@ def generate_research_report(opportunity_id):
                  e.signal_strength,e.excerpt,e.discovered_at
           FROM opportunity_evidence oe
           JOIN evidence e ON e.id=oe.evidence_id
-          WHERE oe.opportunity_id=:id
+          WHERE oe.opportunity_id=CAST(:id AS uuid)
           ORDER BY e.signal_strength DESC,e.source_quality DESC,e.discovered_at DESC
         """),{"id":opportunity_id}).mappings().all()]
 
@@ -170,10 +170,13 @@ def generate_research_report(opportunity_id):
 def refresh_candidate_reports(limit: int = 100) -> int:
     with engine.connect() as db:
         ids=[row[0] for row in db.execute(text("""
-          SELECT id
-          FROM digital_asset_opportunities
-          WHERE status='CANDIDATE' AND evidence_gate_passed=true
-          ORDER BY updated_at DESC
+          SELECT o.id
+          FROM digital_asset_opportunities o
+          LEFT JOIN research_reports rr ON rr.opportunity_id=o.id
+          WHERE o.status='CANDIDATE'
+            AND o.evidence_gate_passed=true
+            AND (rr.id IS NULL OR o.updated_at>rr.updated_at)
+          ORDER BY o.updated_at DESC
           LIMIT :limit
         """),{"limit":max(1,min(limit,500))}).all()]
     generated=0
