@@ -13,8 +13,14 @@ COMMUNITY_DOMAINS = {"reddit.com", "news.ycombinator.com", "stackoverflow.com"}
 CODE_DOMAINS = {"github.com", "gitlab.com"}
 PRODUCT_DOMAINS = {"producthunt.com", "g2.com", "capterra.com"}
 
+def normalized_domain(url: str) -> str:
+    host=(urlparse(url or "").hostname or "").lower().strip(".")
+    if host.startswith("www."):
+        host=host[4:]
+    return host
+
 def source_class_for(source_type: str, url: str) -> str:
-    domain=urlparse(url).netloc.lower().removeprefix("www.")
+    domain=normalized_domain(url)
     st=(source_type or "").upper()
     if "GITHUB" in st or domain in CODE_DOMAINS:
         return "code"
@@ -36,9 +42,18 @@ def evidence_metrics(*, source_type: str, url: str, hits: int, pain: int, confid
 
 def diversity_score(source_classes) -> float:
     classes={c for c in source_classes if c and c!="unknown"}
-    if not classes:
+    count=len(classes)
+    if count == 0:
         return 0.0
-    return round(min(100.0, 35.0 + len(classes)*25.0),2)
+    if count == 1:
+        return 45.0
+    if count == 2:
+        return 70.0
+    if count == 3:
+        return 85.0
+    if count == 4:
+        return 95.0
+    return 100.0
 
 def evidence_quality(source_quality_values, signal_strength_values, diversity: float) -> float:
     if not source_quality_values:
