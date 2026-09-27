@@ -120,7 +120,9 @@ def aggregate_opportunity(opportunity_id) -> dict:
             if match_score>best_score:
                 best,best_score=row,match_score
 
+        merged=False
         if best is not None and best_score>=MATCH_THRESHOLD:
+            merged=True
             survivor=best["id"]
             _merge_into_survivor(db,survivor,opportunity_id)
             opportunity_id=survivor
@@ -212,4 +214,5 @@ def aggregate_opportunity(opportunity_id) -> dict:
             "evidence_gate_passed":gate,
             "status":status,
             "cluster_confidence":round(float(confidence),4),
+            "merged":merged,
         }
