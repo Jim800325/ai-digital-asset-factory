@@ -12,6 +12,7 @@ from app.ingest import ingest_discovery_item
 from app.providers.github import discover_github
 from app.research import refresh_candidate_reports
 from app.validation import refresh_candidate_validations
+from app.url_safety import is_public_http_url, safe_url_syntax
 
 def _clean(html: str):
     soup = BeautifulSoup(html, "html.parser")
@@ -26,9 +27,24 @@ def _discover_links(base: str, soup: BeautifulSoup):
     for a in soup.find_all("a", href=True):
         u=urljoin(base,a["href"])
         p=urlparse(u)
-        if p.scheme in ("http","https") and p.netloc:
+        if p.scheme in ("http","https") and p.netloc and safe_url_syntax(u):
             out.append(u.split("#")[0])
     return list(dict.fromkeys(out))
+
+def _safe_get(client: httpx.Client, url: str, max_redirects: int = 5):
+    current=url
+    for _ in range(max_redirects+1):
+        if not is_public_http_url(current):
+            return None
+        response=client.get(current)
+        if response.status_code in (301,302,303,307,308):
+            location=response.headers.get("location")
+            if not location:
+                return response
+            current=urljoin(str(response.url),location)
+            continue
+        return response
+    return None
 
 def _web_item(url: str, title: str, content: str) -> dict:
     fingerprint=hashlib.sha256(("WEB_PAGE|"+url).encode("utf-8")).hexdigest()
@@ -58,7 +74,7 @@ def run_pipeline():
         direct_reports=direct_validations=0
         seen=set()
 
-        with httpx.Client(headers={"User-Agent":settings.user_agent}, timeout=settings.request_timeout_seconds, follow_redirects=True) as client:
+        with httpx.Client(headers={"User-Agent":settings.user_agent}, timeout=settings.request_timeout_seconds, follow_redirects=False) as client:
             i=0
             while i < len(urls) and crawled < settings.max_pages_per_run:
                 url=urls[i]; i+=1
@@ -66,8 +82,8 @@ def run_pipeline():
                     continue
                 seen.add(url)
                 try:
-                    r=client.get(url)
-                    if r.status_code != 200 or "text/html" not in r.headers.get("content-type",""):
+                    r=_safe_get(client,url)
+                    if r is None or r.status_code != 200 or "text/html" not in r.headers.get("content-type",""):
                         continue
                     title,content,soup=_clean(r.text)
                     if len(content)<200:
