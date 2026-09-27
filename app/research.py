@@ -3,6 +3,8 @@ from sqlalchemy import text
 
 from app.db import engine
 
+GENERATOR_VERSION = "research-v0.2-deterministic"
+
 BUYER_HINTS = {
     "DATASET_API": "Potential buyer: developers, data teams, analysts, or products that need recurring structured data. Buyer is not yet independently validated.",
     "INTELLIGENCE_REPORT": "Potential buyer: operators, founders, analysts, or decision-makers who need recurring market intelligence. Buyer is not yet independently validated.",
@@ -140,9 +142,9 @@ def generate_research_report(opportunity_id):
         report_id=db.execute(text("""
           INSERT INTO research_reports(
             opportunity_id,problem,buyer,existing_alternatives,evidence,
-            monetization,build_complexity,risks,why_now,evidence_snapshot)
+            monetization,build_complexity,risks,why_now,evidence_snapshot,generator_version)
           VALUES(CAST(:opportunity_id AS uuid),:problem,:buyer,:existing_alternatives,:evidence,
-                 :monetization,:build_complexity,:risks,:why_now,CAST(:snapshot AS jsonb))
+                 :monetization,:build_complexity,:risks,:why_now,CAST(:snapshot AS jsonb),:generator_version)
           ON CONFLICT(opportunity_id) DO UPDATE SET
             report_status='GENERATED',
             problem=excluded.problem,buyer=excluded.buyer,
@@ -164,6 +166,7 @@ def generate_research_report(opportunity_id):
             "risks":sections["risks"],
             "why_now":sections["why_now"],
             "snapshot":snapshot,
+            "generator_version":GENERATOR_VERSION,
         }).scalar_one()
     return {"report_id":str(report_id),"opportunity_id":str(opportunity_id),"observe_only":True}
 
@@ -176,10 +179,17 @@ def refresh_candidate_reports(limit: int = 100) -> int:
           LEFT JOIN research_reports rr ON rr.opportunity_id=o.id
           WHERE o.status='CANDIDATE'
             AND o.evidence_gate_passed=true
-            AND (rr.id IS NULL OR o.updated_at>rr.updated_at)
+            AND (
+              rr.id IS NULL
+              OR rr.report_status<>'GENERATED'
+              OR rr.generator_version<>:generator_version
+            )
           ORDER BY o.updated_at DESC
           LIMIT :limit
-        """),{"limit":max(1,min(limit,500))}).all()]
+        """),{
+            "limit":max(1,min(limit,500)),
+            "generator_version":GENERATOR_VERSION,
+        }).all()]
     generated=0
     for opportunity_id in ids:
         if generate_research_report(opportunity_id):
