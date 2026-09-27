@@ -35,7 +35,9 @@ def opportunities(limit: int = 50):
     sql = text("""
       SELECT id,title,asset_type,score,demand_score,repeatability_score,
              automation_score,ownership_score,marginal_cost_score,evidence_score,
-             repeatable_sale,update_automation,status,independent_source_count,evidence_count,cluster_confidence,canonical_title,monetization_model,source_url,created_at
+             repeatable_sale,update_automation,status,independent_source_count,evidence_count,
+             evidence_quality_score,source_diversity_score,signal_strength_score,evidence_gate_passed,
+             cluster_confidence,canonical_title,monetization_model,source_url,created_at
       FROM digital_asset_opportunities
       ORDER BY score DESC, created_at DESC LIMIT :limit
     """)
@@ -47,6 +49,7 @@ def opportunities(limit: int = 50):
 def opportunity_evidence(opportunity_id: str):
     sql = text("""
       SELECT e.id,e.signal_type,e.excerpt,e.source_url,e.source_domain,
+             e.source_class,e.source_quality,e.signal_strength,
              e.confidence,e.discovered_at,d.title AS document_title
       FROM opportunity_evidence oe
       JOIN evidence e ON e.id=oe.evidence_id
