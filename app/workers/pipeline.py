@@ -55,6 +55,7 @@ def run_pipeline():
                 print(f"github discovery skipped: {exc}", flush=True)
 
         crawled=ev_count=opp_count=0
+        direct_reports=direct_validations=0
         seen=set()
 
         with httpx.Client(headers={"User-Agent":settings.user_agent}, timeout=settings.request_timeout_seconds, follow_redirects=True) as client:
@@ -79,6 +80,8 @@ def run_pipeline():
                     if result:
                         ev_count+=int(result["evidence_created"])
                         opp_count+=int(result["opportunity_created"])
+                        direct_reports+=int(result["research_report_generated"])
+                        direct_validations+=int(result["research_validation_generated"])
                 except Exception as exc:
                     print(f"web ingest skipped: {url}: {exc}", flush=True)
 
@@ -88,6 +91,8 @@ def run_pipeline():
                 if result:
                     ev_count+=int(result["evidence_created"])
                     opp_count+=int(result["opportunity_created"])
+                    direct_reports+=int(result["research_report_generated"])
+                    direct_validations+=int(result["research_validation_generated"])
             except Exception as exc:
                 print(f"github ingest skipped: {exc}", flush=True)
 
@@ -111,8 +116,9 @@ def run_pipeline():
                 evidence_created=:ec,opportunities_created=:oc,finished_at=now() WHERE id=:id
             """),{"pd":len(set(urls)),"pc":crawled,"ec":ev_count,"oc":opp_count,"id":run_id})
         return {"run_id":str(run_id),"crawled":crawled,"evidence":ev_count,
-                "opportunities":opp_count,"research_reports":reports_generated,
-                "research_validations":validations_generated}
+                "opportunities":opp_count,
+                "research_reports":direct_reports+reports_generated,
+                "research_validations":direct_validations+validations_generated}
     except Exception as exc:
         if run_id:
             with engine.begin() as db:
