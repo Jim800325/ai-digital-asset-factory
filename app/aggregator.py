@@ -42,6 +42,12 @@ def _merge_into_survivor(db, survivor, loser):
     """),{"survivor":survivor,"loser":loser})
 
     db.execute(text("""
+      UPDATE opportunity_fingerprints
+      SET opportunity_id=:survivor,last_seen_at=now()
+      WHERE opportunity_id=:loser
+    """),{"survivor":survivor,"loser":loser})
+
+    db.execute(text("""
       UPDATE digital_asset_opportunities AS s
       SET demand_score=GREATEST(s.demand_score,l.demand_score),
           repeatability_score=GREATEST(s.repeatability_score,l.repeatability_score),
