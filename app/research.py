@@ -144,6 +144,7 @@ def generate_research_report(opportunity_id):
           VALUES(CAST(:opportunity_id AS uuid),:problem,:buyer,:existing_alternatives,:evidence,
                  :monetization,:build_complexity,:risks,:why_now,CAST(:snapshot AS jsonb))
           ON CONFLICT(opportunity_id) DO UPDATE SET
+            report_status='GENERATED',
             problem=excluded.problem,buyer=excluded.buyer,
             existing_alternatives=excluded.existing_alternatives,evidence=excluded.evidence,
             monetization=excluded.monetization,build_complexity=excluded.build_complexity,
@@ -184,3 +185,13 @@ def refresh_candidate_reports(limit: int = 100) -> int:
         if generate_research_report(opportunity_id):
             generated+=1
     return generated
+
+
+def mark_research_report_stale(opportunity_id) -> None:
+    with engine.begin() as db:
+        db.execute(text("""
+          UPDATE research_reports
+          SET report_status='STALE',updated_at=now()
+          WHERE opportunity_id=CAST(:id AS uuid)
+            AND report_status<>'STALE'
+        """),{"id":opportunity_id})
