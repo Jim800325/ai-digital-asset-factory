@@ -43,13 +43,6 @@ def _web_item(url: str, title: str, content: str) -> dict:
 def run_pipeline():
     run_id=None
     try:
-        validations_generated=0
-        try:
-            validations_generated=refresh_candidate_validations()
-            print(f"research validations refreshed: {validations_generated}", flush=True)
-        except Exception as exc:
-            print(f"research validation refresh skipped: {exc}", flush=True)
-
         with engine.begin() as db:
             run_id=db.execute(text("INSERT INTO pipeline_runs DEFAULT VALUES RETURNING id")).scalar_one()
 
@@ -104,6 +97,13 @@ def run_pipeline():
             print(f"research reports refreshed: {reports_generated}", flush=True)
         except Exception as exc:
             print(f"research report refresh skipped: {exc}", flush=True)
+
+        validations_generated=0
+        try:
+            validations_generated=refresh_candidate_validations()
+            print(f"research validations refreshed: {validations_generated}", flush=True)
+        except Exception as exc:
+            print(f"research validation refresh skipped: {exc}", flush=True)
 
         with engine.begin() as db:
             db.execute(text("""
