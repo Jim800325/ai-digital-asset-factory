@@ -20,14 +20,24 @@ def create_run():
     job = q.enqueue(run_pipeline, job_timeout=900)
     return {"job_id": job.id, "status": "queued"}
 
+@app.get("/v1/runs")
+def runs(limit: int = 30):
+    sql = text("""
+      SELECT id,status,pages_discovered,pages_crawled,evidence_created,
+             opportunities_created,error,started_at,finished_at
+      FROM pipeline_runs ORDER BY started_at DESC LIMIT :limit
+    """)
+    with engine.connect() as conn:
+        return [dict(r._mapping) for r in conn.execute(sql, {"limit": min(limit, 200)})]
+
 @app.get("/v1/opportunities")
 def opportunities(limit: int = 50):
     sql = text("""
-      SELECT id, title, asset_type, score, repeatable_sale, update_automation,
-             monetization_model, source_url, created_at
+      SELECT id,title,asset_type,score,demand_score,repeatability_score,
+             automation_score,ownership_score,marginal_cost_score,evidence_score,
+             repeatable_sale,update_automation,status,monetization_model,source_url,created_at
       FROM digital_asset_opportunities
-      ORDER BY score DESC, created_at DESC
-      LIMIT :limit
+      ORDER BY score DESC, created_at DESC LIMIT :limit
     """)
     with engine.connect() as conn:
         return [dict(r._mapping) for r in conn.execute(sql, {"limit": min(limit, 200)})]
