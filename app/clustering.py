@@ -53,7 +53,7 @@ def cluster_key(asset_type: str, title: str) -> ClusterMatch:
     material=asset_type+"|"+"|".join(concepts)
     key=hashlib.sha256(material.encode("utf-8")).hexdigest()
     canonical=" ".join(concepts) if concepts else normalize_text(title)[:180]
-    return ClusterMatch(key,canonical,concepts,1.0)
+    return ClusterMatch(key,canonical,concepts,0.0)
 
 CONCEPT_GROUPS = [
     {"pricing"},
