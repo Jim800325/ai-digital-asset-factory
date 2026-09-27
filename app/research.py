@@ -172,7 +172,15 @@ def generate_research_report(opportunity_id):
 
 
 def refresh_candidate_reports(limit: int = 100) -> int:
-    with engine.connect() as db:
+    with engine.begin() as db:
+        db.execute(text("""
+          UPDATE research_reports rr
+          SET report_status='STALE',updated_at=now()
+          FROM digital_asset_opportunities o
+          WHERE rr.opportunity_id=o.id
+            AND (o.status<>'CANDIDATE' OR o.evidence_gate_passed=false)
+            AND rr.report_status<>'STALE'
+        """))
         ids=[row[0] for row in db.execute(text("""
           SELECT o.id
           FROM digital_asset_opportunities o
