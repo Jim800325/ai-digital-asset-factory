@@ -18,9 +18,22 @@ def score_asset(*, demand, repeatability, automation, ownership, margin, evidenc
     )
     return round(max(0, min(100, value)), 2)
 
-def status_for(score: float, independent_sources: int) -> str:
-    # v0.2: no candidate may graduate without independent evidence.
-    if score >= 75 and independent_sources >= 2:
+def status_for(
+    score: float,
+    independent_sources: int,
+    *,
+    evidence_quality: float = 0.0,
+    source_diversity: float = 0.0,
+    signal_strength: float = 0.0,
+) -> str:
+    # v0.2 evidence gate: score alone can never graduate an opportunity.
+    gate = (
+        independent_sources >= 2
+        and evidence_quality >= 65
+        and source_diversity >= 60
+        and signal_strength >= 55
+    )
+    if score >= 75 and gate:
         return "CANDIDATE"
     if score >= 60:
         return "RESEARCH"
