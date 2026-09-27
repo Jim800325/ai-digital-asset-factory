@@ -17,6 +17,10 @@ DIMENSION_WEIGHTS = {
     "market_gap": 25.0,
 }
 
+STRONG_LABELS = {
+    "pricing": {"currency_amount", "billing_period"},
+}
+
 PATTERNS = {
     "buyer": [
         ("buyer_role", re.compile(r"\b(customers?|users?|developers?|teams?|companies|businesses|founders?|analysts?|agencies|marketers?|creators?|sellers?|operators?)\b", re.I)),
@@ -42,6 +46,7 @@ PATTERNS = {
 def _match_dimension(rows: list[dict], dimension: str) -> dict:
     matches=[]
     domains=set()
+    strong_domains=set()
     patterns=PATTERNS[dimension]
     for row in rows:
         if float(row.get("source_quality") or 0) < 50:
@@ -55,6 +60,9 @@ def _match_dimension(rows: list[dict], dimension: str) -> dict:
         domain=normalized_domain(row.get("source_url") or "") or (row.get("source_domain") or "").lower()
         if domain:
             domains.add(domain)
+            strong_labels=STRONG_LABELS.get(dimension)
+            if not strong_labels or strong_labels.intersection(labels):
+                strong_domains.add(domain)
         matches.append({
             "source_url":row.get("source_url"),
             "source_domain":domain,
@@ -65,7 +73,7 @@ def _match_dimension(rows: list[dict], dimension: str) -> dict:
             "excerpt":(row.get("excerpt") or "").strip()[:500],
         })
 
-    if len(domains) >= 2 and len(matches) >= 2:
+    if len(domains) >= 2 and len(matches) >= 2 and len(strong_domains) >= 2:
         status="VALIDATED"
     elif matches:
         status="PARTIAL"
@@ -92,7 +100,7 @@ def build_validation(evidence_rows: list[dict]) -> dict:
     ),2)
     return {"dimensions":dimensions,"completeness_score":score}
 
-def _build_ready(opportunity: dict, result: dict) -> bool:
+def build_ready_for(opportunity: dict, result: dict) -> bool:
     d=result["dimensions"]
     return (
         opportunity["status"]=="CANDIDATE"
@@ -130,7 +138,7 @@ def validate_research(opportunity_id):
         """),{"id":opportunity_id}).mappings().all()]
 
     result=build_validation(rows)
-    ready=_build_ready(dict(opportunity),result)
+    ready=build_ready_for(dict(opportunity),result)
     readiness="BUILD_READY" if ready else "NOT_READY"
     dims=result["dimensions"]
     snapshot=json.dumps(result,ensure_ascii=False)
@@ -156,6 +164,7 @@ def validate_research(opportunity_id):
             validation_snapshot=excluded.validation_snapshot,
             validator_version=excluded.validator_version,
             observe_only=true,
+            validated_at=now(),
             updated_at=now()
           RETURNING id
         """),{
