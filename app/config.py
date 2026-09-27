@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    database_url: str
+    database_url: str = "postgresql+psycopg://assetfactory:assetfactory@postgres:5432/assetfactory"
     redis_url: str = "redis://redis:6379/0"
     user_agent: str = "AI-Digital-Asset-Factory/0.2"
     request_timeout_seconds: int = 20
