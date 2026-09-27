@@ -18,6 +18,20 @@ def score_asset(*, demand, repeatability, automation, ownership, margin, evidenc
     )
     return round(max(0, min(100, value)), 2)
 
+def evidence_gate_for(
+    independent_sources: int,
+    *,
+    evidence_quality: float,
+    source_diversity: float,
+    signal_strength: float,
+) -> bool:
+    return (
+        independent_sources >= 2
+        and evidence_quality >= 65
+        and source_diversity >= 60
+        and signal_strength >= 55
+    )
+
 def status_for(
     score: float,
     independent_sources: int,
@@ -26,12 +40,11 @@ def status_for(
     source_diversity: float = 0.0,
     signal_strength: float = 0.0,
 ) -> str:
-    # v0.2 evidence gate: score alone can never graduate an opportunity.
-    gate = (
-        independent_sources >= 2
-        and evidence_quality >= 65
-        and source_diversity >= 60
-        and signal_strength >= 55
+    gate=evidence_gate_for(
+        independent_sources,
+        evidence_quality=evidence_quality,
+        source_diversity=source_diversity,
+        signal_strength=signal_strength,
     )
     if score >= 75 and gate:
         return "CANDIDATE"
