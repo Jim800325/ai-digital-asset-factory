@@ -24,6 +24,17 @@ STACK = {
 }
 
 def _proposal_payload(opportunity: dict, report: dict, validation: dict) -> dict:
+    report_basis={
+        "problem":report["problem"],
+        "buyer":report["buyer"],
+        "monetization":report["monetization"],
+        "build_complexity":report["build_complexity"],
+        "why_now":report["why_now"],
+    }
+    report_basis_hash=hashlib.sha256(
+        json.dumps(report_basis,sort_keys=True,ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
     source_snapshot={
         "opportunity_id":str(opportunity["id"]),
         "asset_type":opportunity["asset_type"],
@@ -33,6 +44,7 @@ def _proposal_payload(opportunity: dict, report: dict, validation: dict) -> dict
         "report_id":str(report["id"]),
         "report_status":report["report_status"],
         "report_generator_version":report["generator_version"],
+        "report_basis_hash":report_basis_hash,
         "validation_id":str(validation["id"]),
         "validation_status":validation["validation_status"],
         "validation_gate_passed":bool(validation["validation_gate_passed"]),
@@ -53,13 +65,7 @@ def _proposal_payload(opportunity: dict, report: dict, validation: dict) -> dict
         f"Produce a sandbox-only prototype for {opportunity['title']} "
         f"as {artifact_type}. The output is for technical evaluation only."
     )
-    scope={
-        "problem":report["problem"],
-        "buyer":report["buyer"],
-        "monetization":report["monetization"],
-        "build_complexity":report["build_complexity"],
-        "why_now":report["why_now"],
-    }
+    scope=report_basis
     success_criteria=[
         "Prototype runs in an isolated sandbox without production credentials.",
         "Automated tests cover the primary happy path and at least one failure path.",
@@ -260,8 +266,16 @@ def ensure_build_proposal(opportunity_id):
 
 def decide_build_proposal(proposal_id, *, decision: str, reason: str, actor: str = "human"):
     normalized=decision.upper().strip()
+    clean_reason=(reason or "").strip()
+    clean_actor=(actor or "human").strip() or "human"
     if normalized not in {"APPROVE","REJECT"}:
         raise ValueError("decision must be APPROVE or REJECT")
+    if len(clean_reason) < 3:
+        raise ValueError("reason must contain at least 3 characters")
+
+    stale_error=None
+    regenerate_opportunity_id=None
+    response=None
 
     with engine.begin() as db:
         proposal=db.execute(text("""
@@ -279,7 +293,7 @@ def decide_build_proposal(proposal_id, *, decision: str, reason: str, actor: str
         if not _is_build_ready(opportunity,report,validation):
             db.execute(text("""
               UPDATE build_proposals
-              SET proposal_status='STALE',updated_at=now()
+              SET proposal_status='STALE',execution_enabled=false,updated_at=now()
               WHERE id=:id
             """),{"id":proposal["id"]})
             db.execute(text("""
@@ -287,48 +301,64 @@ def decide_build_proposal(proposal_id, *, decision: str, reason: str, actor: str
               SET build_proposal_status='STALE'
               WHERE id=:id
             """),{"id":proposal["opportunity_id"]})
-            raise RuntimeError("Proposal became stale because BUILD_READY is no longer current")
+            stale_error="Proposal became stale because BUILD_READY is no longer current"
+        else:
+            current=_proposal_payload(dict(opportunity),dict(report),dict(validation))
+            if current["source_fingerprint"]!=proposal["source_fingerprint"]:
+                db.execute(text("""
+                  UPDATE build_proposals
+                  SET proposal_status='STALE',execution_enabled=false,updated_at=now()
+                  WHERE id=:id
+                """),{"id":proposal["id"]})
+                db.execute(text("""
+                  UPDATE digital_asset_opportunities
+                  SET build_proposal_status='STALE'
+                  WHERE id=:id
+                """),{"id":proposal["opportunity_id"]})
+                stale_error="Proposal source state changed; a new revision is required"
+                regenerate_opportunity_id=proposal["opportunity_id"]
+            else:
+                status="APPROVED" if normalized=="APPROVE" else "REJECTED"
+                timestamp_column="approved_at" if normalized=="APPROVE" else "rejected_at"
+                db.execute(text(f"""
+                  UPDATE build_proposals
+                  SET proposal_status=:status,
+                      {timestamp_column}=now(),
+                      execution_enabled=false,
+                      updated_at=now()
+                  WHERE id=:id
+                """),{"status":status,"id":proposal["id"]})
+                db.execute(text("""
+                  UPDATE digital_asset_opportunities
+                  SET build_proposal_status=:status
+                  WHERE id=:id
+                """),{"status":status,"id":proposal["opportunity_id"]})
+                decision_id=db.execute(text("""
+                  INSERT INTO build_proposal_decisions(
+                    proposal_id,proposal_revision,decision,reason,actor)
+                  VALUES(:proposal_id,:revision,:decision,:reason,:actor)
+                  RETURNING id
+                """),{
+                    "proposal_id":proposal["id"],
+                    "revision":proposal["revision"],
+                    "decision":normalized,
+                    "reason":clean_reason[:4000],
+                    "actor":clean_actor[:200],
+                }).scalar_one()
+                response={
+                    "proposal_id":str(proposal["id"]),
+                    "opportunity_id":str(proposal["opportunity_id"]),
+                    "revision":proposal["revision"],
+                    "proposal_status":status,
+                    "decision_id":str(decision_id),
+                    "execution_enabled":False,
+                }
 
-        current=_proposal_payload(dict(opportunity),dict(report),dict(validation))
-        if current["source_fingerprint"]!=proposal["source_fingerprint"]:
-            raise RuntimeError("Proposal source state changed; regenerate before approval")
-
-        status="APPROVED" if normalized=="APPROVE" else "REJECTED"
-        timestamp_column="approved_at" if normalized=="APPROVE" else "rejected_at"
-        db.execute(text(f"""
-          UPDATE build_proposals
-          SET proposal_status=:status,
-              {timestamp_column}=now(),
-              execution_enabled=false,
-              updated_at=now()
-          WHERE id=:id
-        """),{"status":status,"id":proposal["id"]})
-        db.execute(text("""
-          UPDATE digital_asset_opportunities
-          SET build_proposal_status=:status
-          WHERE id=:id
-        """),{"status":status,"id":proposal["opportunity_id"]})
-        decision_id=db.execute(text("""
-          INSERT INTO build_proposal_decisions(
-            proposal_id,proposal_revision,decision,reason,actor)
-          VALUES(:proposal_id,:revision,:decision,:reason,:actor)
-          RETURNING id
-        """),{
-            "proposal_id":proposal["id"],
-            "revision":proposal["revision"],
-            "decision":normalized,
-            "reason":reason[:4000],
-            "actor":actor[:200],
-        }).scalar_one()
-
-    return {
-        "proposal_id":str(proposal["id"]),
-        "opportunity_id":str(proposal["opportunity_id"]),
-        "revision":proposal["revision"],
-        "proposal_status":status,
-        "decision_id":str(decision_id),
-        "execution_enabled":False,
-    }
+    if regenerate_opportunity_id is not None:
+        ensure_build_proposal(regenerate_opportunity_id)
+    if stale_error is not None:
+        raise RuntimeError(stale_error)
+    return response
 
 def refresh_build_proposals(limit: int = 100) -> int:
     with engine.connect() as db:
