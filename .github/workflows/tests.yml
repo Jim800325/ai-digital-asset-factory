@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  v03-build-proposal-acceptance:
+  v03-sandbox-execution-acceptance:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -39,6 +39,11 @@ jobs:
       GITHUB_DISCOVERY_ENABLED: "false"
       SEED_URLS: ""
       HUMAN_APPROVAL_KEY: ci-approval-key
+      SANDBOX_EXECUTION_ENABLED: "true"
+      SANDBOX_WORKSPACE_ROOT: /tmp/asset-factory-workspaces
+      SANDBOX_IMAGE: python:3.12-slim
+      OPENHANDS_ENABLED: "false"
+      OPENHANDS_RUNTIME: docker
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -52,7 +57,7 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q app tests
 
-      - name: Apply migrations 001 through 008
+      - name: Apply migrations 001 through 009
         run: python -m app.migrate
 
       - name: Verify migration set
@@ -69,6 +74,7 @@ jobs:
               "006_audit_integrity.sql",
               "007_research_validation.sql",
               "008_build_proposals.sql",
+              "009_sandbox_execution.sql",
           ]
           with engine.connect() as db:
               actual = [r[0] for r in db.execute(
@@ -78,10 +84,13 @@ jobs:
           print("migrations:", actual)
           PY
 
+      - name: Pre-pull sandbox image
+        run: docker pull python:3.12-slim
+
       - name: Run full test suite
         run: python -m pytest -q
 
-      - name: Verify final approved proposal remains non-executable
+      - name: Verify final sandbox artifact remains isolated and production-disabled
         run: |
           python - <<'PY'
           from sqlalchemy import text
@@ -94,13 +103,23 @@ jobs:
                          rv.validation_gate_passed,rv.observe_only,
                          bp.proposal_status,bp.requires_human_approval,
                          bp.execution_enabled,
-                         COUNT(d.id) AS decisions
+                         COUNT(DISTINCT d.id) AS decisions,
+                         sbr.request_status AS sandbox_status,
+                         sbr.network_policy,sbr.workspace_policy,
+                         sbr.external_side_effects,
+                         sr.container_network,sr.exit_code,
+                         COUNT(DISTINCT sa.id) AS artifacts,
+                         COUNT(DISTINCT str.id) FILTER (WHERE str.passed=true) AS passed_tests
                   FROM digital_asset_opportunities o
                   JOIN research_validations rv ON rv.opportunity_id=o.id
                   JOIN build_proposals bp ON bp.opportunity_id=o.id
                   LEFT JOIN build_proposal_decisions d ON d.proposal_id=bp.id
-                  GROUP BY o.id,rv.id,bp.id
-                  ORDER BY bp.updated_at DESC
+                  JOIN sandbox_build_requests sbr ON sbr.proposal_id=bp.id
+                  JOIN sandbox_runs sr ON sr.request_id=sbr.id
+                  LEFT JOIN sandbox_artifacts sa ON sa.run_id=sr.id
+                  LEFT JOIN sandbox_test_results str ON str.run_id=sr.id
+                  GROUP BY o.id,rv.id,bp.id,sbr.id,sr.id
+                  ORDER BY sr.finished_at DESC
                   LIMIT 1
               """)).mappings().one()
           assert row["status"] == "CANDIDATE", row
@@ -115,5 +134,13 @@ jobs:
           assert row["requires_human_approval"] is True, row
           assert row["execution_enabled"] is False, row
           assert row["decisions"] == 1, row
+          assert row["sandbox_status"] == "ARTIFACT_READY", row
+          assert row["network_policy"] == "DENY", row
+          assert row["workspace_policy"] == "ISOLATED_RW", row
+          assert row["external_side_effects"] == "DENY", row
+          assert row["container_network"] == "none", row
+          assert row["exit_code"] == 0, row
+          assert row["artifacts"] >= 2, row
+          assert row["passed_tests"] == 1, row
           print("acceptance:", dict(row))
           PY
