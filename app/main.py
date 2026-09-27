@@ -35,7 +35,7 @@ def opportunities(limit: int = 50):
     sql = text("""
       SELECT id,title,asset_type,score,demand_score,repeatability_score,
              automation_score,ownership_score,marginal_cost_score,evidence_score,
-             repeatable_sale,update_automation,status,monetization_model,source_url,created_at
+             repeatable_sale,update_automation,status,independent_source_count,evidence_count,cluster_confidence,canonical_title,monetization_model,source_url,created_at
       FROM digital_asset_opportunities
       ORDER BY score DESC, created_at DESC LIMIT :limit
     """)
