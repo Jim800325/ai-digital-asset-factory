@@ -106,7 +106,7 @@ def research_report(opportunity_id: UUID):
 def research_validations(limit: int = 50):
     sql=text("""
       SELECT rv.id,rv.opportunity_id,o.title,o.asset_type,o.score,o.status,
-             rv.buyer_status,rv.competitors_status,rv.pricing_status,
+             rv.validation_status,rv.buyer_status,rv.competitors_status,rv.pricing_status,
              rv.willingness_to_pay_status,rv.market_gap_status,
              rv.completeness_score,rv.validation_gate_passed,rv.build_readiness,
              rv.validator_version,rv.observe_only,rv.validated_at,rv.updated_at
@@ -122,7 +122,7 @@ def research_validations(limit: int = 50):
 def research_validation(opportunity_id: UUID):
     sql=text("""
       SELECT rv.id,rv.opportunity_id,o.title,o.asset_type,o.score,o.status,
-             rv.buyer_status,rv.competitors_status,rv.pricing_status,
+             rv.validation_status,rv.buyer_status,rv.competitors_status,rv.pricing_status,
              rv.willingness_to_pay_status,rv.market_gap_status,
              rv.completeness_score,rv.validation_gate_passed,rv.build_readiness,
              rv.validation_snapshot,rv.validator_version,rv.observe_only,
