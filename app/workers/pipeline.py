@@ -88,6 +88,7 @@ def run_pipeline():
             except Exception as exc:
                 print(f"github ingest skipped: {exc}", flush=True)
 
+        reports_generated=0
         try:
             reports_generated=refresh_candidate_reports()
             print(f"research reports refreshed: {reports_generated}", flush=True)
@@ -99,7 +100,8 @@ def run_pipeline():
               UPDATE pipeline_runs SET status='SUCCESS',pages_discovered=:pd,pages_crawled=:pc,
                 evidence_created=:ec,opportunities_created=:oc,finished_at=now() WHERE id=:id
             """),{"pd":len(set(urls)),"pc":crawled,"ec":ev_count,"oc":opp_count,"id":run_id})
-        return {"run_id":str(run_id),"crawled":crawled,"evidence":ev_count,"opportunities":opp_count}
+        return {"run_id":str(run_id),"crawled":crawled,"evidence":ev_count,
+                "opportunities":opp_count,"research_reports":reports_generated}
     except Exception as exc:
         if run_id:
             with engine.begin() as db:
