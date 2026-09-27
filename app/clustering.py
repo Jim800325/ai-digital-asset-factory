@@ -55,5 +55,23 @@ def cluster_key(asset_type: str, title: str) -> ClusterMatch:
     canonical=" ".join(concepts) if concepts else normalize_text(title)[:180]
     return ClusterMatch(key,canonical,concepts,1.0)
 
+CONCEPT_GROUPS = [
+    {"pricing"},
+    {"tracker","data"},
+    {"competitor"},
+    {"report","analysis"},
+    {"automate","workflow"},
+    {"api"},
+    {"tool"},
+]
+
 def similarity(title_a: str, title_b: str) -> float:
-    return jaccard(semantic_tokens(title_a),semantic_tokens(title_b))
+    a,b=semantic_tokens(title_a),semantic_tokens(title_b)
+    base=jaccard(a,b)
+    sa,sb=set(a),set(b)
+    shared_groups=sum(1 for group in CONCEPT_GROUPS if sa & group and sb & group)
+    # Shared high-value concepts can bridge different surface wording.
+    bonus=min(0.35, shared_groups * 0.18)
+    if "pricing" in sa and "pricing" in sb:
+        bonus=max(bonus,0.30)
+    return min(1.0, base+bonus)
