@@ -14,6 +14,11 @@ Each CANDIDATE is independently evaluated for:
 - Willingness-to-Pay
 - Market Gap
 
+Each validation record also has a lifecycle state:
+
+- CURRENT: reflects the current qualified CANDIDATE evidence set.
+- STALE: the opportunity lost CANDIDATE/evidence-gate qualification and must be revalidated if it later returns.
+
 Each dimension has one status:
 
 - VALIDATED: qualifying evidence exists across at least two independent source domains.
