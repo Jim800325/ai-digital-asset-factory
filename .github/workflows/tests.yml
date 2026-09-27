@@ -6,22 +6,100 @@ on:
   pull_request:
 
 jobs:
-  pytest:
+  v02-integration-acceptance:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: assetfactory
+          POSTGRES_USER: assetfactory
+          POSTGRES_PASSWORD: assetfactory
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U assetfactory -d assetfactory"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
       DATABASE_URL: postgresql+psycopg://assetfactory:assetfactory@localhost:5432/assetfactory
       REDIS_URL: redis://localhost:6379/0
+      GITHUB_DISCOVERY_ENABLED: "false"
+      SEED_URLS: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
+
       - name: Compile Python
         run: python -m compileall -q app tests
-      - name: Run tests
+
+      - name: Apply migrations 001 through 007
+        run: python -m app.migrate
+
+      - name: Verify migration set
+        run: |
+          python - <<'PY'
+          from sqlalchemy import text
+          from app.db import engine
+          expected = [
+              "001_initial.sql",
+              "002_hunter_v02.sql",
+              "003_cross_source_aggregator.sql",
+              "004_evidence_quality.sql",
+              "005_research_reports.sql",
+              "006_audit_integrity.sql",
+              "007_research_validation.sql",
+          ]
+          with engine.connect() as db:
+              actual = [r[0] for r in db.execute(
+                  text("SELECT version FROM schema_migrations ORDER BY version")
+              ).all()]
+          assert actual == expected, (actual, expected)
+          print("migrations:", actual)
+          PY
+
+      - name: Run full test suite
         run: pytest -q
+
+      - name: Verify final BUILD_READY acceptance state
+        run: |
+          python - <<'PY'
+          from sqlalchemy import text
+          from app.db import engine
+          with engine.connect() as db:
+              row = db.execute(text("""
+                  SELECT o.status,o.evidence_gate_passed,o.build_readiness,
+                         rv.validation_status,rv.completeness_score,
+                         rv.validation_gate_passed,rv.observe_only
+                  FROM digital_asset_opportunities o
+                  JOIN research_validations rv ON rv.opportunity_id=o.id
+                  ORDER BY rv.updated_at DESC
+                  LIMIT 1
+              """)).mappings().one()
+          assert row["status"] == "CANDIDATE", row
+          assert row["evidence_gate_passed"] is True, row
+          assert row["build_readiness"] == "BUILD_READY", row
+          assert row["validation_status"] == "CURRENT", row
+          assert float(row["completeness_score"]) >= 75, row
+          assert row["validation_gate_passed"] is True, row
+          assert row["observe_only"] is True, row
+          print("acceptance:", dict(row))
+          PY
