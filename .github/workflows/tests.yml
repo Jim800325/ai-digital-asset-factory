@@ -77,7 +77,7 @@ jobs:
           PY
 
       - name: Run full test suite
-        run: pytest -q
+        run: python -m pytest -q
 
       - name: Verify final BUILD_READY acceptance state
         run: |
