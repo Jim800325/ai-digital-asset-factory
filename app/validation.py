@@ -6,6 +6,8 @@ from sqlalchemy import text
 from app.db import engine
 from app.evidence_quality import normalized_domain
 
+VALIDATOR_VERSION = "validation-v0.2-deterministic"
+
 STATUS_FACTOR = {"UNKNOWN": 0.0, "PARTIAL": 0.5, "VALIDATED": 1.0}
 DIMENSION_WEIGHTS = {
     "buyer": 15.0,
@@ -138,10 +140,10 @@ def validate_research(opportunity_id):
           INSERT INTO research_validations(
             opportunity_id,buyer_status,competitors_status,pricing_status,
             willingness_to_pay_status,market_gap_status,completeness_score,
-            validation_gate_passed,build_readiness,validation_snapshot)
+            validation_gate_passed,build_readiness,validation_snapshot,validator_version)
           VALUES(
             CAST(:id AS uuid),:buyer,:competitors,:pricing,:wtp,:gap,:score,
-            :gate,:readiness,CAST(:snapshot AS jsonb))
+            :gate,:readiness,CAST(:snapshot AS jsonb),:validator_version)
           ON CONFLICT(opportunity_id) DO UPDATE SET
             buyer_status=excluded.buyer_status,
             competitors_status=excluded.competitors_status,
@@ -167,12 +169,12 @@ def validate_research(opportunity_id):
             "gate":ready,
             "readiness":readiness,
             "snapshot":snapshot,
+            "validator_version":VALIDATOR_VERSION,
         }).scalar_one()
         db.execute(text("""
           UPDATE digital_asset_opportunities
           SET research_validation_score=:score,
-              build_readiness=:readiness,
-              updated_at=now()
+              build_readiness=:readiness
           WHERE id=CAST(:id AS uuid)
         """),{
             "score":result["completeness_score"],
@@ -238,12 +240,14 @@ def refresh_candidate_validations(limit: int = 100) -> int:
             AND rr.report_status='GENERATED'
             AND (
               rv.id IS NULL
-              OR o.updated_at>rv.updated_at
-              OR rr.updated_at>rv.updated_at
+              OR rv.validator_version<>:validator_version
             )
           ORDER BY o.updated_at DESC
           LIMIT :limit
-        """),{"limit":max(1,min(limit,500))}).all()]
+        """),{
+            "limit":max(1,min(limit,500)),
+            "validator_version":VALIDATOR_VERSION,
+        }).all()]
 
     validated=0
     for opportunity_id in ids:
