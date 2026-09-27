@@ -39,6 +39,9 @@ def health():
         "mode":"OBSERVE",
         "approval_gate":"ENABLED" if settings.human_approval_key.strip() else "DISABLED",
         "build_execution":"DISABLED",
+        "sandbox_execution":"ENABLED" if settings.sandbox_execution_enabled else "DISABLED",
+        "openhands_adapter":"ENABLED" if settings.openhands_enabled else "DISABLED",
+        "openhands_runtime":settings.openhands_runtime,
     }
 
 @app.post("/v1/runs", status_code=202)
@@ -225,3 +228,69 @@ def build_proposal_decision(
         raise HTTPException(status_code=409,detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.get("/v1/sandbox-requests")
+def sandbox_requests(limit: int = 50):
+    sql=text("""
+      SELECT sbr.id,sbr.proposal_id,sbr.proposal_revision,sbr.executor_kind,
+             sbr.request_status,sbr.workspace_id,sbr.sandbox_image,
+             sbr.network_policy,sbr.workspace_policy,sbr.external_side_effects,
+             sbr.requested_by,sbr.requested_at,sbr.policy_checked_at,
+             sbr.started_at,sbr.finished_at,sbr.error
+      FROM sandbox_build_requests sbr
+      ORDER BY sbr.requested_at DESC
+      LIMIT :limit
+    """)
+    with engine.connect() as conn:
+        return [dict(r._mapping) for r in conn.execute(sql,{"limit":min(max(limit,1),200)})]
+
+@app.get("/v1/sandbox-requests/{request_id}")
+def sandbox_request(request_id: UUID):
+    sql=text("""
+      SELECT sbr.*,bp.opportunity_id,bp.proposal_status,bp.execution_enabled
+      FROM sandbox_build_requests sbr
+      JOIN build_proposals bp ON bp.id=sbr.proposal_id
+      WHERE sbr.id=:id
+    """)
+    with engine.connect() as conn:
+        row=conn.execute(sql,{"id":request_id}).mappings().one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404,detail="Sandbox request not found")
+    return dict(row)
+
+@app.get("/v1/sandbox-runs/{run_id}")
+def sandbox_run(run_id: UUID):
+    sql=text("""
+      SELECT id,request_id,workspace_id,executor_kind,container_image,
+             container_network,exit_code,stdout,stderr,started_at,finished_at
+      FROM sandbox_runs
+      WHERE id=:id
+    """)
+    with engine.connect() as conn:
+        row=conn.execute(sql,{"id":run_id}).mappings().one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404,detail="Sandbox run not found")
+    return dict(row)
+
+@app.get("/v1/sandbox-runs/{run_id}/artifacts")
+def sandbox_artifacts(run_id: UUID):
+    sql=text("""
+      SELECT id,run_id,relative_path,sha256,byte_size,media_type,captured_at
+      FROM sandbox_artifacts
+      WHERE run_id=:id
+      ORDER BY relative_path
+    """)
+    with engine.connect() as conn:
+        return [dict(r._mapping) for r in conn.execute(sql,{"id":run_id})]
+
+@app.get("/v1/sandbox-runs/{run_id}/tests")
+def sandbox_tests(run_id: UUID):
+    sql=text("""
+      SELECT id,run_id,test_command,exit_code,stdout,stderr,passed,captured_at
+      FROM sandbox_test_results
+      WHERE run_id=:id
+      ORDER BY captured_at,id
+    """)
+    with engine.connect() as conn:
+        return [dict(r._mapping) for r in conn.execute(sql,{"id":run_id})]
