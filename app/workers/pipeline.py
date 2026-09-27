@@ -11,6 +11,7 @@ from app.db import engine
 from app.ingest import ingest_discovery_item
 from app.providers.github import discover_github
 from app.research import refresh_candidate_reports
+from app.validation import refresh_candidate_validations
 
 def _clean(html: str):
     soup = BeautifulSoup(html, "html.parser")
@@ -42,6 +43,13 @@ def _web_item(url: str, title: str, content: str) -> dict:
 def run_pipeline():
     run_id=None
     try:
+        validations_generated=0
+        try:
+            validations_generated=refresh_candidate_validations()
+            print(f"research validations refreshed: {validations_generated}", flush=True)
+        except Exception as exc:
+            print(f"research validation refresh skipped: {exc}", flush=True)
+
         with engine.begin() as db:
             run_id=db.execute(text("INSERT INTO pipeline_runs DEFAULT VALUES RETURNING id")).scalar_one()
 
@@ -74,17 +82,19 @@ def run_pipeline():
                     final_url=str(r.url)
                     if crawled <= 5:
                         urls.extend(_discover_links(final_url,soup)[:10])
-                    if ingest_discovery_item(_web_item(final_url,title,content)):
-                        ev_count+=1
-                        opp_count+=1
+                    result=ingest_discovery_item(_web_item(final_url,title,content))
+                    if result:
+                        ev_count+=int(result["evidence_created"])
+                        opp_count+=int(result["opportunity_created"])
                 except Exception as exc:
                     print(f"web ingest skipped: {url}: {exc}", flush=True)
 
         for item in github_items:
             try:
-                if ingest_discovery_item(item):
-                    ev_count+=1
-                    opp_count+=1
+                result=ingest_discovery_item(item)
+                if result:
+                    ev_count+=int(result["evidence_created"])
+                    opp_count+=int(result["opportunity_created"])
             except Exception as exc:
                 print(f"github ingest skipped: {exc}", flush=True)
 
@@ -101,7 +111,8 @@ def run_pipeline():
                 evidence_created=:ec,opportunities_created=:oc,finished_at=now() WHERE id=:id
             """),{"pd":len(set(urls)),"pc":crawled,"ec":ev_count,"oc":opp_count,"id":run_id})
         return {"run_id":str(run_id),"crawled":crawled,"evidence":ev_count,
-                "opportunities":opp_count,"research_reports":reports_generated}
+                "opportunities":opp_count,"research_reports":reports_generated,
+                "research_validations":validations_generated}
     except Exception as exc:
         if run_id:
             with engine.begin() as db:
