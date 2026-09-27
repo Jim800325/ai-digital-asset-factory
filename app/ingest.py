@@ -54,6 +54,26 @@ def ingest_discovery_item(item: dict):
     ).hexdigest()
 
     with engine.begin() as db:
+        previous_evidence=db.execute(text("""
+          SELECT e.id,e.excerpt,e.confidence,e.source_domain,e.source_quality,
+                 e.signal_strength,e.source_class,d.content_hash
+          FROM evidence e
+          JOIN documents d ON d.id=e.document_id
+          WHERE e.fingerprint=:fp
+        """),{"fp":evidence_fingerprint}).mappings().one_or_none()
+
+        evidence_created=previous_evidence is None
+        evidence_changed=(
+            previous_evidence is None
+            or previous_evidence["content_hash"] != doc_hash
+            or previous_evidence["excerpt"] != content[:1200]
+            or float(previous_evidence["confidence"] or 0) != float(confidence)
+            or (previous_evidence["source_domain"] or "") != source_domain
+            or float(previous_evidence["source_quality"] or 0) != float(source_quality)
+            or float(previous_evidence["signal_strength"] or 0) != float(signal_strength)
+            or (previous_evidence["source_class"] or "") != source_class
+        )
+
         doc_id=db.execute(text("""
           INSERT INTO documents(url,title,content,content_hash)
           VALUES(:u,:t,:c,:h)
@@ -69,11 +89,6 @@ def ingest_discovery_item(item: dict):
             "c":content,
             "h":doc_hash,
         }).scalar_one()
-
-        existing_evidence=db.execute(text("""
-          SELECT id FROM evidence WHERE fingerprint=:fp
-        """),{"fp":evidence_fingerprint}).scalar()
-        evidence_created=existing_evidence is None
 
         ev_id=db.execute(text("""
           INSERT INTO evidence(
@@ -210,12 +225,15 @@ def ingest_discovery_item(item: dict):
         aggregation["status"]=="CANDIDATE"
         and aggregation["evidence_gate_passed"]
     )
+    report_generated=False
+    validation_generated=False
     if qualified:
-        try:
-            generate_research_report(aggregation["opportunity_id"])
-            validate_research(aggregation["opportunity_id"])
-        except Exception as exc:
-            print(f"research validation skipped: {exc}", flush=True)
+        if evidence_changed or opportunity_created or aggregation["merged"]:
+            try:
+                report_generated=bool(generate_research_report(aggregation["opportunity_id"]))
+                validation_generated=bool(validate_research(aggregation["opportunity_id"]))
+            except Exception as exc:
+                print(f"research validation skipped: {exc}", flush=True)
     else:
         try:
             mark_research_report_stale(aggregation["opportunity_id"])
@@ -231,4 +249,7 @@ def ingest_discovery_item(item: dict):
         "status":aggregation["status"],
         "evidence_gate_passed":aggregation["evidence_gate_passed"],
         "merged":aggregation["merged"],
+        "evidence_changed":evidence_changed,
+        "research_report_generated":report_generated,
+        "research_validation_generated":validation_generated,
     }
