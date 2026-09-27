@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from sqlalchemy import text
 from app.config import settings
 from app.db import engine
+from app.providers.github import discover_github
 
 ASSET_RULES = [
     ("DATASET_API", ["dataset","data","api","database","directory","tracker","prices","pricing"]),
@@ -50,6 +51,9 @@ def run_pipeline():
             run_id=db.execute(text("INSERT INTO pipeline_runs DEFAULT VALUES RETURNING id")).scalar_one()
 
         urls=list(settings.seeds)
+        github_items=[]
+        if settings.github_discovery_enabled:
+            github_items=discover_github(settings.github_results_per_query)
         crawled=ev_count=opp_count=0
         seen=set()
 
@@ -116,6 +120,16 @@ def run_pipeline():
                             if result: opp_count+=1
                 except Exception:
                     continue
+
+        if github_items:
+            from app.ingest import ingest_discovery_item
+            for item in github_items:
+                try:
+                    if ingest_discovery_item(item):
+                        ev_count += 1
+                        opp_count += 1
+                except Exception as exc:
+                    print(f"github ingest skipped: {exc}", flush=True)
 
         with engine.begin() as db:
             db.execute(text("""
