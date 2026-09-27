@@ -5,6 +5,7 @@ from app.db import engine
 from app.classifier import classify
 from app.scoring import score_asset, status_for
 from app.aggregator import aggregate_opportunity
+from app.evidence_quality import evidence_metrics
 
 def ingest_discovery_item(item: dict) -> bool:
     title=item.get("title") or item["url"]
@@ -15,6 +16,10 @@ def ingest_discovery_item(item: dict) -> bool:
     if hits < 1:
         return False
     doc_hash=hashlib.sha256(content.encode("utf-8")).hexdigest()
+    confidence=min(.95,.45+hits*.08+pain*.03)
+    source_class,source_quality,signal_strength=evidence_metrics(
+        source_type=item["source_type"],url=item["url"],hits=hits,pain=pain,confidence=confidence
+    )
     with engine.begin() as db:
         doc_id=db.execute(text("""
           INSERT INTO documents(url,title,content,content_hash)
@@ -24,15 +29,20 @@ def ingest_discovery_item(item: dict) -> bool:
           RETURNING id
         """),{"u":item["url"],"t":title,"c":content,"h":doc_hash}).scalar_one()
         ev_id=db.execute(text("""
-          INSERT INTO evidence(document_id,signal_type,excerpt,source_url,confidence,fingerprint,source_domain)
-          VALUES(:d,:s,:e,:u,:cf,:fp,:domain)
+          INSERT INTO evidence(
+            document_id,signal_type,excerpt,source_url,confidence,fingerprint,source_domain,
+            source_quality,signal_strength,source_class)
+          VALUES(:d,:s,:e,:u,:cf,:fp,:domain,:sq,:ss,:sc)
           ON CONFLICT(fingerprint) WHERE fingerprint IS NOT NULL
-          DO UPDATE SET excerpt=excluded.excerpt,confidence=excluded.confidence,discovered_at=now()
+          DO UPDATE SET excerpt=excluded.excerpt,confidence=excluded.confidence,
+            source_quality=excluded.source_quality,signal_strength=excluded.signal_strength,
+            source_class=excluded.source_class,discovered_at=now()
           RETURNING id
         """),{
           "d":doc_id,"s":item["source_type"],"e":content[:1200],"u":item["url"],
-          "cf":min(.95,.45+hits*.08+pain*.03),"fp":item["fingerprint"],
-          "domain":urlparse(item["url"]).netloc.lower()
+          "cf":confidence,"fp":item["fingerprint"],
+          "domain":urlparse(item["url"]).netloc.lower(),
+          "sq":source_quality,"ss":signal_strength,"sc":source_class
         }).scalar_one()
 
         demand=min(100,35+pain*10+hits*4)
