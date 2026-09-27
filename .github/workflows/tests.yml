@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  v02-integration-acceptance:
+  v03-build-proposal-acceptance:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -38,6 +38,7 @@ jobs:
       REDIS_URL: redis://localhost:6379/0
       GITHUB_DISCOVERY_ENABLED: "false"
       SEED_URLS: ""
+      HUMAN_APPROVAL_KEY: ci-approval-key
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -51,7 +52,7 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q app tests
 
-      - name: Apply migrations 001 through 007
+      - name: Apply migrations 001 through 008
         run: python -m app.migrate
 
       - name: Verify migration set
@@ -67,6 +68,7 @@ jobs:
               "005_research_reports.sql",
               "006_audit_integrity.sql",
               "007_research_validation.sql",
+              "008_build_proposals.sql",
           ]
           with engine.connect() as db:
               actual = [r[0] for r in db.execute(
@@ -79,7 +81,7 @@ jobs:
       - name: Run full test suite
         run: python -m pytest -q
 
-      - name: Verify final BUILD_READY acceptance state
+      - name: Verify final approved proposal remains non-executable
         run: |
           python - <<'PY'
           from sqlalchemy import text
@@ -87,11 +89,18 @@ jobs:
           with engine.connect() as db:
               row = db.execute(text("""
                   SELECT o.status,o.evidence_gate_passed,o.build_readiness,
+                         o.build_proposal_status,
                          rv.validation_status,rv.completeness_score,
-                         rv.validation_gate_passed,rv.observe_only
+                         rv.validation_gate_passed,rv.observe_only,
+                         bp.proposal_status,bp.requires_human_approval,
+                         bp.execution_enabled,
+                         COUNT(d.id) AS decisions
                   FROM digital_asset_opportunities o
                   JOIN research_validations rv ON rv.opportunity_id=o.id
-                  ORDER BY rv.updated_at DESC
+                  JOIN build_proposals bp ON bp.opportunity_id=o.id
+                  LEFT JOIN build_proposal_decisions d ON d.proposal_id=bp.id
+                  GROUP BY o.id,rv.id,bp.id
+                  ORDER BY bp.updated_at DESC
                   LIMIT 1
               """)).mappings().one()
           assert row["status"] == "CANDIDATE", row
@@ -101,5 +110,10 @@ jobs:
           assert float(row["completeness_score"]) >= 75, row
           assert row["validation_gate_passed"] is True, row
           assert row["observe_only"] is True, row
+          assert row["build_proposal_status"] == "APPROVED", row
+          assert row["proposal_status"] == "APPROVED", row
+          assert row["requires_human_approval"] is True, row
+          assert row["execution_enabled"] is False, row
+          assert row["decisions"] == 1, row
           print("acceptance:", dict(row))
           PY
