@@ -22,6 +22,14 @@ services:
     volumes:
       - redisdata:/data
 
+  migrate:
+    build: .
+    env_file: .env
+    command: ["python","-m","app.migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build: .
     restart: unless-stopped
@@ -29,8 +37,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_started
 
@@ -40,8 +48,8 @@ services:
     env_file: .env
     command: ["rq","worker","asset-factory","--url","redis://redis:6379/0"]
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_started
 
@@ -51,8 +59,8 @@ services:
     env_file: .env
     command: ["python","-m","app.scheduler"]
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_started
 
