@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS build_proposals (
   sandbox_policy jsonb NOT NULL DEFAULT '{}'::jsonb,
   proposed_stack jsonb NOT NULL DEFAULT '[]'::jsonb,
   source_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  source_fingerprint text NOT NULL,
   generator_version text NOT NULL DEFAULT 'build-proposal-v0.3-deterministic',
   requires_human_approval boolean NOT NULL DEFAULT true,
   execution_enabled boolean NOT NULL DEFAULT false,
