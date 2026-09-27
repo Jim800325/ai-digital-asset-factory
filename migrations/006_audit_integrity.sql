@@ -19,5 +19,15 @@ ON CONFLICT(fingerprint) DO UPDATE
 SET opportunity_id=excluded.opportunity_id,
     last_seen_at=now();
 
+INSERT INTO opportunity_fingerprints(fingerprint,opportunity_id)
+SELECT
+  encode(digest(o.asset_type || '|' || lower(left(a.alias,180)),'sha256'),'hex'),
+  a.opportunity_id
+FROM opportunity_aliases a
+JOIN digital_asset_opportunities o ON o.id=a.opportunity_id
+ON CONFLICT(fingerprint) DO UPDATE
+SET opportunity_id=excluded.opportunity_id,
+    last_seen_at=now();
+
 CREATE INDEX IF NOT EXISTS idx_opportunity_fingerprints_opportunity
   ON opportunity_fingerprints(opportunity_id);
