@@ -1,4 +1,9 @@
 $ErrorActionPreference = "Stop"
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+try { chcp 65001 | Out-Null } catch {}
+
 Set-Location (Resolve-Path "$PSScriptRoot\..\..")
 if (-not (Test-Path ".env")) { Copy-Item ".env.example" ".env"; Write-Host "Created .env from .env.example" }
 docker version | Out-Null
