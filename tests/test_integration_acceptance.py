@@ -7,6 +7,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.db import engine
 from app.main import app
+from app.sandbox_execution import create_sandbox_request, execute_sandbox_request
 from app.workers.pipeline import run_pipeline
 
 def _item(source_type: str, url: str, title: str, body: str):
@@ -36,6 +37,7 @@ def test_full_v02_integration_acceptance():
         "006_audit_integrity.sql",
         "007_research_validation.sql",
         "008_build_proposals.sql",
+        "009_sandbox_execution.sql",
     ]
 
     assert Redis.from_url(settings.redis_url).ping() is True
@@ -189,3 +191,45 @@ def test_full_v02_integration_acceptance():
         assert final["requires_human_approval"] is True
         assert final["execution_enabled"] is False
         assert final["decisions"] == 1
+
+    sandbox_request=create_sandbox_request(
+        proposal["id"],
+        requested_by="ci-human",
+        executor_kind="ACCEPTANCE",
+    )
+    assert sandbox_request["request_status"] == "POLICY_PASSED"
+    assert sandbox_request["policy"]["network"] == "DENY"
+    assert sandbox_request["policy"]["docker_network"] == "none"
+    assert sandbox_request["policy"]["filesystem_scope"] == "WORKSPACE_ONLY"
+    assert sandbox_request["policy"]["deployment"] == "DENY"
+    assert sandbox_request["policy"]["external_side_effects"] == "DENY"
+
+    sandbox_result=execute_sandbox_request(sandbox_request["request_id"])
+    assert sandbox_result["request_status"] == "ARTIFACT_READY"
+    assert sandbox_result["container_network"] == "none"
+    assert sandbox_result["test_passed"] is True
+    assert sandbox_result["artifact_count"] >= 2
+
+    with engine.connect() as db:
+        sandbox=db.execute(text("""
+          SELECT sbr.request_status,sbr.network_policy,sbr.workspace_policy,
+                 sbr.external_side_effects,sr.id AS run_id,
+                 sr.container_network,sr.exit_code,
+                 COUNT(DISTINCT sa.id) AS artifacts,
+                 COUNT(DISTINCT str.id) FILTER (WHERE str.passed=true) AS passed_tests
+          FROM sandbox_build_requests sbr
+          JOIN sandbox_runs sr ON sr.request_id=sbr.id
+          LEFT JOIN sandbox_artifacts sa ON sa.run_id=sr.id
+          LEFT JOIN sandbox_test_results str ON str.run_id=sr.id
+          WHERE sbr.id=CAST(:id AS uuid)
+          GROUP BY sbr.id,sr.id
+        """),{"id":sandbox_request["request_id"]}).mappings().one()
+
+        assert sandbox["request_status"] == "ARTIFACT_READY"
+        assert sandbox["network_policy"] == "DENY"
+        assert sandbox["workspace_policy"] == "ISOLATED_RW"
+        assert sandbox["external_side_effects"] == "DENY"
+        assert sandbox["container_network"] == "none"
+        assert sandbox["exit_code"] == 0
+        assert sandbox["artifacts"] >= 2
+        assert sandbox["passed_tests"] == 1
