@@ -27,3 +27,6 @@ INSERT INTO discovery_sources(name,source_type,base_url,priority) VALUES
  ('GitHub Topics AI','CODE','https://github.com/topics/artificial-intelligence',70),
  ('Product Hunt','PRODUCT','https://www.producthunt.com/',60)
 ON CONFLICT(name) DO NOTHING;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_evidence_fingerprint
+ON evidence(fingerprint) WHERE fingerprint IS NOT NULL;
