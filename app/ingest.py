@@ -5,6 +5,7 @@ from app.db import engine
 from app.classifier import classify
 from app.scoring import score_asset, status_for
 from app.aggregator import aggregate_opportunity
+from app.research import generate_research_report
 from app.evidence_quality import evidence_metrics
 
 def ingest_discovery_item(item: dict) -> bool:
@@ -74,5 +75,10 @@ def ingest_discovery_item(item: dict) -> bool:
           INSERT INTO opportunity_evidence(opportunity_id,evidence_id)
           VALUES(:o,:e) ON CONFLICT DO NOTHING
         """),{"o":opp_id,"e":ev_id})
-    aggregate_opportunity(opp_id)
+    aggregation=aggregate_opportunity(opp_id)
+    if aggregation["status"]=="CANDIDATE" and aggregation["evidence_gate_passed"]:
+        try:
+            generate_research_report(aggregation["opportunity_id"])
+        except Exception as exc:
+            print(f"research report skipped: {exc}", flush=True)
     return True
