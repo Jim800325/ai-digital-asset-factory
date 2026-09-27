@@ -1,10 +1,12 @@
 import hashlib
 
+from fastapi.testclient import TestClient
 from redis import Redis
 from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine
+from app.main import app
 from app.workers.pipeline import run_pipeline
 
 def _item(source_type: str, url: str, title: str, body: str):
@@ -33,6 +35,7 @@ def test_full_v02_integration_acceptance():
         "005_research_reports.sql",
         "006_audit_integrity.sql",
         "007_research_validation.sql",
+        "008_build_proposals.sql",
     ]
 
     assert Redis.from_url(settings.redis_url).ping() is True
@@ -68,6 +71,7 @@ def test_full_v02_integration_acceptance():
     assert result["opportunities"] == 1
     assert result["research_reports"] >= 1
     assert result["research_validations"] >= 1
+    assert result["build_proposals"] >= 1
 
     with engine.connect() as db:
         run=db.execute(text("""
@@ -127,3 +131,61 @@ def test_full_v02_integration_acceptance():
         assert validation["validation_gate_passed"] is True
         assert validation["build_readiness"] == "BUILD_READY"
         assert validation["observe_only"] is True
+
+        proposal=db.execute(text("""
+          SELECT id,revision,proposal_status,requires_human_approval,
+                 execution_enabled,source_fingerprint
+          FROM build_proposals
+          WHERE opportunity_id=:id
+        """),{"id":opportunity["id"]}).mappings().one()
+
+        assert proposal["revision"] == 1
+        assert proposal["proposal_status"] == "PENDING_APPROVAL"
+        assert proposal["requires_human_approval"] is True
+        assert proposal["execution_enabled"] is False
+        assert proposal["source_fingerprint"]
+
+    client=TestClient(app)
+
+    denied=client.post(
+        f"/v1/build-proposals/{proposal['id']}/decision",
+        json={
+            "decision":"APPROVE",
+            "reason":"acceptance approval",
+            "actor":"ci-human",
+        },
+    )
+    assert denied.status_code == 403
+
+    approved=client.post(
+        f"/v1/build-proposals/{proposal['id']}/decision",
+        headers={"X-Approval-Key":settings.human_approval_key},
+        json={
+            "decision":"APPROVE",
+            "reason":"acceptance approval",
+            "actor":"ci-human",
+        },
+    )
+    assert approved.status_code == 200
+    approved_body=approved.json()
+    assert approved_body["proposal_status"] == "APPROVED"
+    assert approved_body["execution_enabled"] is False
+
+    with engine.connect() as db:
+        final=db.execute(text("""
+          SELECT o.build_proposal_status,bp.proposal_status,
+                 bp.requires_human_approval,bp.execution_enabled,
+                 COUNT(d.id) AS decisions
+          FROM digital_asset_opportunities o
+          JOIN build_proposals bp ON bp.opportunity_id=o.id
+          LEFT JOIN build_proposal_decisions d ON d.proposal_id=bp.id
+          WHERE bp.id=:id
+          GROUP BY o.build_proposal_status,bp.proposal_status,
+                   bp.requires_human_approval,bp.execution_enabled
+        """),{"id":proposal["id"]}).mappings().one()
+
+        assert final["build_proposal_status"] == "APPROVED"
+        assert final["proposal_status"] == "APPROVED"
+        assert final["requires_human_approval"] is True
+        assert final["execution_enabled"] is False
+        assert final["decisions"] == 1
