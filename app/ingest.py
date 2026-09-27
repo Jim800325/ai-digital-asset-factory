@@ -4,6 +4,7 @@ from sqlalchemy import text
 from app.db import engine
 from app.workers.pipeline import _classify
 from app.scoring import score_asset, status_for
+from app.aggregator import aggregate_opportunity
 
 def ingest_discovery_item(item: dict) -> bool:
     title=item.get("title") or item["url"]
@@ -63,4 +64,5 @@ def ingest_discovery_item(item: dict) -> bool:
           INSERT INTO opportunity_evidence(opportunity_id,evidence_id)
           VALUES(:o,:e) ON CONFLICT DO NOTHING
         """),{"o":opp_id,"e":ev_id})
+    aggregate_opportunity(opp_id)
     return True
