@@ -121,7 +121,7 @@ def generate_research_report(opportunity_id):
                  independent_source_count,evidence_count,evidence_quality_score,
                  source_diversity_score,signal_strength_score,evidence_gate_passed
           FROM digital_asset_opportunities
-          WHERE id=:id
+          WHERE id=CAST(:id AS uuid)
         """),{"id":opportunity_id}).mappings().one_or_none()
         if not opportunity or opportunity["status"]!="CANDIDATE" or not opportunity["evidence_gate_passed"]:
             return None
@@ -141,7 +141,7 @@ def generate_research_report(opportunity_id):
           INSERT INTO research_reports(
             opportunity_id,problem,buyer,existing_alternatives,evidence,
             monetization,build_complexity,risks,why_now,evidence_snapshot)
-          VALUES(:opportunity_id,:problem,:buyer,:existing_alternatives,:evidence,
+          VALUES(CAST(:opportunity_id AS uuid),:problem,:buyer,:existing_alternatives,:evidence,
                  :monetization,:build_complexity,:risks,:why_now,CAST(:snapshot AS jsonb))
           ON CONFLICT(opportunity_id) DO UPDATE SET
             problem=excluded.problem,buyer=excluded.buyer,
