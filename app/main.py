@@ -6,7 +6,7 @@ from app.config import settings
 from app.db import engine
 from app.workers.pipeline import run_pipeline
 
-app = FastAPI(title="AI Digital Asset Factory", version="0.1.0")
+app = FastAPI(title="AI Digital Asset Factory", version="0.2.0")
 
 @app.get("/health")
 def health():
@@ -41,3 +41,18 @@ def opportunities(limit: int = 50):
     """)
     with engine.connect() as conn:
         return [dict(r._mapping) for r in conn.execute(sql, {"limit": min(limit, 200)})]
+
+
+@app.get("/v1/opportunities/{opportunity_id}/evidence")
+def opportunity_evidence(opportunity_id: str):
+    sql = text("""
+      SELECT e.id,e.signal_type,e.excerpt,e.source_url,e.source_domain,
+             e.confidence,e.discovered_at,d.title AS document_title
+      FROM opportunity_evidence oe
+      JOIN evidence e ON e.id=oe.evidence_id
+      LEFT JOIN documents d ON d.id=e.document_id
+      WHERE oe.opportunity_id=CAST(:id AS uuid)
+      ORDER BY e.discovered_at DESC, e.id
+    """)
+    with engine.connect() as conn:
+        return [dict(r._mapping) for r in conn.execute(sql, {"id": opportunity_id})]
