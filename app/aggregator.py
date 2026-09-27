@@ -1,18 +1,20 @@
 from sqlalchemy import text
+
 from app.db import engine
 from app.clustering import cluster_key, similarity
+from app.evidence_quality import diversity_score, evidence_quality
 from app.scoring import status_for
 
 MATCH_THRESHOLD = 0.45
 
-def _domain_sql():
-    return """
-      SELECT COUNT(DISTINCT COALESCE(NULLIF(e.source_domain,''), e.source_url)) AS sources,
-             COUNT(DISTINCT e.id) AS evidence
+def _evidence_rows(db, opportunity_id):
+    return db.execute(text("""
+      SELECT e.id,e.source_domain,e.source_url,e.source_class,
+             e.source_quality,e.signal_strength
       FROM opportunity_evidence oe
       JOIN evidence e ON e.id=oe.evidence_id
       WHERE oe.opportunity_id=:id
-    """
+    """),{"id":opportunity_id}).mappings().all()
 
 def aggregate_opportunity(opportunity_id) -> dict:
     with engine.begin() as db:
@@ -60,17 +62,46 @@ def aggregate_opportunity(opportunity_id) -> dict:
                    "confidence":target.confidence,"id":opportunity_id})
             confidence=target.confidence
 
-        counts=db.execute(text(_domain_sql()),{"id":opportunity_id}).mappings().one()
+        evidence_rows=_evidence_rows(db,opportunity_id)
+        domains={
+            (row["source_domain"] or row["source_url"])
+            for row in evidence_rows if row["source_domain"] or row["source_url"]
+        }
+        classes=[row["source_class"] for row in evidence_rows]
+        qualities=[float(row["source_quality"]) for row in evidence_rows]
+        strengths=[float(row["signal_strength"]) for row in evidence_rows]
+        sources=len(domains)
+        evidence_count=len({row["id"] for row in evidence_rows})
+        diversity=diversity_score(classes)
+        signal=round(sum(strengths)/len(strengths),2) if strengths else 0.0
+        quality=evidence_quality(qualities,strengths,diversity)
+
         row=db.execute(text("SELECT score FROM digital_asset_opportunities WHERE id=:id"),
                        {"id":opportunity_id}).mappings().one()
-        status=status_for(float(row["score"]),int(counts["sources"]))
+        score=float(row["score"])
+        status=status_for(
+            score,sources,evidence_quality=quality,
+            source_diversity=diversity,signal_strength=signal
+        )
+        gate=status=="CANDIDATE"
         db.execute(text("""
           UPDATE digital_asset_opportunities
           SET independent_source_count=:sources,evidence_count=:evidence,
-              cluster_confidence=:confidence,status=:status,updated_at=now()
+              cluster_confidence=:confidence,evidence_quality_score=:quality,
+              source_diversity_score=:diversity,signal_strength_score=:signal,
+              evidence_gate_passed=:gate,status=:status,updated_at=now()
           WHERE id=:id
-        """),{"sources":counts["sources"],"evidence":counts["evidence"],
-               "confidence":confidence,"status":status,"id":opportunity_id})
-        return {"opportunity_id":str(opportunity_id),"independent_sources":counts["sources"],
-                "evidence_count":counts["evidence"],"status":status,
-                "cluster_confidence":round(float(confidence),4)}
+        """),{"sources":sources,"evidence":evidence_count,"confidence":confidence,
+               "quality":quality,"diversity":diversity,"signal":signal,
+               "gate":gate,"status":status,"id":opportunity_id})
+        return {
+            "opportunity_id":str(opportunity_id),
+            "independent_sources":sources,
+            "evidence_count":evidence_count,
+            "evidence_quality":quality,
+            "source_diversity":diversity,
+            "signal_strength":signal,
+            "evidence_gate_passed":gate,
+            "status":status,
+            "cluster_confidence":round(float(confidence),4),
+        }
