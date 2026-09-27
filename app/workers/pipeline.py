@@ -10,6 +10,7 @@ from app.config import settings
 from app.db import engine
 from app.ingest import ingest_discovery_item
 from app.providers.github import discover_github
+from app.research import refresh_candidate_reports
 
 def _clean(html: str):
     soup = BeautifulSoup(html, "html.parser")
@@ -86,6 +87,12 @@ def run_pipeline():
                     opp_count+=1
             except Exception as exc:
                 print(f"github ingest skipped: {exc}", flush=True)
+
+        try:
+            reports_generated=refresh_candidate_reports()
+            print(f"research reports refreshed: {reports_generated}", flush=True)
+        except Exception as exc:
+            print(f"research report refresh skipped: {exc}", flush=True)
 
         with engine.begin() as db:
             db.execute(text("""
