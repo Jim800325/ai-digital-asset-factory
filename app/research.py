@@ -165,3 +165,19 @@ def generate_research_report(opportunity_id):
             "snapshot":snapshot,
         }).scalar_one()
     return {"report_id":str(report_id),"opportunity_id":str(opportunity_id),"observe_only":True}
+
+
+def refresh_candidate_reports(limit: int = 100) -> int:
+    with engine.connect() as db:
+        ids=[row[0] for row in db.execute(text("""
+          SELECT id
+          FROM digital_asset_opportunities
+          WHERE status='CANDIDATE' AND evidence_gate_passed=true
+          ORDER BY updated_at DESC
+          LIMIT :limit
+        """),{"limit":max(1,min(limit,500))}).all()]
+    generated=0
+    for opportunity_id in ids:
+        if generate_research_report(opportunity_id):
+            generated+=1
+    return generated
