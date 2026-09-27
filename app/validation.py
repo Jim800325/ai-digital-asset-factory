@@ -147,13 +147,14 @@ def validate_research(opportunity_id):
     with engine.begin() as db:
         validation_id=db.execute(text("""
           INSERT INTO research_validations(
-            opportunity_id,buyer_status,competitors_status,pricing_status,
+            opportunity_id,validation_status,buyer_status,competitors_status,pricing_status,
             willingness_to_pay_status,market_gap_status,completeness_score,
             validation_gate_passed,build_readiness,validation_snapshot,validator_version)
           VALUES(
-            CAST(:id AS uuid),:buyer,:competitors,:pricing,:wtp,:gap,:score,
+            CAST(:id AS uuid),'CURRENT',:buyer,:competitors,:pricing,:wtp,:gap,:score,
             :gate,:readiness,CAST(:snapshot AS jsonb),:validator_version)
           ON CONFLICT(opportunity_id) DO UPDATE SET
+            validation_status='CURRENT',
             buyer_status=excluded.buyer_status,
             competitors_status=excluded.competitors_status,
             pricing_status=excluded.pricing_status,
@@ -210,7 +211,8 @@ def mark_validation_not_ready(opportunity_id) -> None:
     with engine.begin() as db:
         db.execute(text("""
           UPDATE research_validations
-          SET validation_gate_passed=false,
+          SET validation_status='STALE',
+              validation_gate_passed=false,
               build_readiness='NOT_READY',
               updated_at=now()
           WHERE opportunity_id=CAST(:id AS uuid)
@@ -226,7 +228,8 @@ def refresh_candidate_validations(limit: int = 100) -> int:
     with engine.begin() as db:
         db.execute(text("""
           UPDATE research_validations rv
-          SET validation_gate_passed=false,
+          SET validation_status='STALE',
+              validation_gate_passed=false,
               build_readiness='NOT_READY',
               updated_at=now()
           FROM digital_asset_opportunities o
@@ -250,6 +253,7 @@ def refresh_candidate_validations(limit: int = 100) -> int:
             AND rr.report_status='GENERATED'
             AND (
               rv.id IS NULL
+              OR rv.validation_status='STALE'
               OR rv.validator_version<>:validator_version
             )
           ORDER BY o.updated_at DESC
