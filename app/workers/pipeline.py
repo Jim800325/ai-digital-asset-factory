@@ -6,6 +6,7 @@ import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy import text
 
+from app.build_proposals import refresh_build_proposals
 from app.config import settings
 from app.db import engine
 from app.ingest import ingest_discovery_item
@@ -137,6 +138,13 @@ def run_pipeline(acceptance_items: list[dict] | None = None):
         except Exception as exc:
             print(f"research validation refresh skipped: {exc}", flush=True)
 
+        proposals_generated=0
+        try:
+            proposals_generated=refresh_build_proposals()
+            print(f"build proposals refreshed: {proposals_generated}", flush=True)
+        except Exception as exc:
+            print(f"build proposal refresh skipped: {exc}", flush=True)
+
         counters["reports"]+=reports_generated
         counters["validations"]+=validations_generated
         discovered=len(acceptance_items) if acceptance_mode else len(set(urls))
@@ -167,6 +175,7 @@ def run_pipeline(acceptance_items: list[dict] | None = None):
             "opportunities":counters["opportunities"],
             "research_reports":counters["reports"],
             "research_validations":counters["validations"],
+            "build_proposals":proposals_generated,
         }
     except Exception as exc:
         if run_id:
