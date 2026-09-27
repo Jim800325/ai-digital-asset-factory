@@ -7,6 +7,7 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname='chk_opportunity_build_readiness'
+      AND conrelid='digital_asset_opportunities'::regclass
   ) THEN
     ALTER TABLE digital_asset_opportunities
       ADD CONSTRAINT chk_opportunity_build_readiness
