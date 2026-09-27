@@ -56,61 +56,72 @@ def _web_item(url: str, title: str, content: str) -> dict:
         "fingerprint":fingerprint,
     }
 
-def run_pipeline():
+def _apply_ingest_result(result, counters: dict) -> None:
+    if not result:
+        return
+    counters["evidence"]+=int(result["evidence_created"])
+    counters["opportunities"]+=int(result["opportunity_created"])
+    counters["reports"]+=int(result["research_report_generated"])
+    counters["validations"]+=int(result["research_validation_generated"])
+
+def run_pipeline(acceptance_items: list[dict] | None = None):
     run_id=None
     try:
         with engine.begin() as db:
             run_id=db.execute(text("INSERT INTO pipeline_runs DEFAULT VALUES RETURNING id")).scalar_one()
 
-        urls=list(settings.seeds)
+        acceptance_mode=acceptance_items is not None
+        urls=[] if acceptance_mode else list(settings.seeds)
         github_items=[]
-        if settings.github_discovery_enabled:
+
+        if not acceptance_mode and settings.github_discovery_enabled:
             try:
                 github_items=discover_github(settings.github_results_per_query)
             except Exception as exc:
                 print(f"github discovery skipped: {exc}", flush=True)
 
-        crawled=ev_count=opp_count=0
-        direct_reports=direct_validations=0
+        crawled=0
+        counters={"evidence":0,"opportunities":0,"reports":0,"validations":0}
         seen=set()
 
-        with httpx.Client(headers={"User-Agent":settings.user_agent}, timeout=settings.request_timeout_seconds, follow_redirects=False) as client:
-            i=0
-            while i < len(urls) and crawled < settings.max_pages_per_run:
-                url=urls[i]; i+=1
-                if url in seen:
-                    continue
-                seen.add(url)
-                try:
-                    r=_safe_get(client,url)
-                    if r is None or r.status_code != 200 or "text/html" not in r.headers.get("content-type",""):
+        if not acceptance_mode:
+            with httpx.Client(
+                headers={"User-Agent":settings.user_agent},
+                timeout=settings.request_timeout_seconds,
+                follow_redirects=False,
+            ) as client:
+                i=0
+                while i < len(urls) and crawled < settings.max_pages_per_run:
+                    url=urls[i]
+                    i+=1
+                    if url in seen:
                         continue
-                    title,content,soup=_clean(r.text)
-                    if len(content)<200:
-                        continue
-                    crawled+=1
-                    final_url=str(r.url)
-                    if crawled <= 5:
-                        urls.extend(_discover_links(final_url,soup)[:10])
-                    result=ingest_discovery_item(_web_item(final_url,title,content))
-                    if result:
-                        ev_count+=int(result["evidence_created"])
-                        opp_count+=int(result["opportunity_created"])
-                        direct_reports+=int(result["research_report_generated"])
-                        direct_validations+=int(result["research_validation_generated"])
-                except Exception as exc:
-                    print(f"web ingest skipped: {url}: {exc}", flush=True)
+                    seen.add(url)
+                    try:
+                        r=_safe_get(client,url)
+                        if r is None or r.status_code != 200 or "text/html" not in r.headers.get("content-type",""):
+                            continue
+                        title,content,soup=_clean(r.text)
+                        if len(content)<200:
+                            continue
+                        crawled+=1
+                        final_url=str(r.url)
+                        if crawled <= 5:
+                            urls.extend(_discover_links(final_url,soup)[:10])
+                        _apply_ingest_result(
+                            ingest_discovery_item(_web_item(final_url,title,content)),
+                            counters,
+                        )
+                    except Exception as exc:
+                        print(f"web ingest skipped: {url}: {exc}", flush=True)
 
-        for item in github_items:
+        provider_items=acceptance_items if acceptance_mode else github_items
+        for item in provider_items:
             try:
-                result=ingest_discovery_item(item)
-                if result:
-                    ev_count+=int(result["evidence_created"])
-                    opp_count+=int(result["opportunity_created"])
-                    direct_reports+=int(result["research_report_generated"])
-                    direct_validations+=int(result["research_validation_generated"])
+                _apply_ingest_result(ingest_discovery_item(item),counters)
             except Exception as exc:
-                print(f"github ingest skipped: {exc}", flush=True)
+                label="acceptance" if acceptance_mode else "github"
+                print(f"{label} ingest skipped: {exc}", flush=True)
 
         reports_generated=0
         try:
@@ -126,18 +137,46 @@ def run_pipeline():
         except Exception as exc:
             print(f"research validation refresh skipped: {exc}", flush=True)
 
+        counters["reports"]+=reports_generated
+        counters["validations"]+=validations_generated
+        discovered=len(acceptance_items) if acceptance_mode else len(set(urls))
+
         with engine.begin() as db:
             db.execute(text("""
-              UPDATE pipeline_runs SET status='SUCCESS',pages_discovered=:pd,pages_crawled=:pc,
-                evidence_created=:ec,opportunities_created=:oc,finished_at=now() WHERE id=:id
-            """),{"pd":len(set(urls)),"pc":crawled,"ec":ev_count,"oc":opp_count,"id":run_id})
-        return {"run_id":str(run_id),"crawled":crawled,"evidence":ev_count,
-                "opportunities":opp_count,
-                "research_reports":direct_reports+reports_generated,
-                "research_validations":direct_validations+validations_generated}
+              UPDATE pipeline_runs
+              SET status='SUCCESS',
+                  pages_discovered=:pd,
+                  pages_crawled=:pc,
+                  evidence_created=:ec,
+                  opportunities_created=:oc,
+                  finished_at=now()
+              WHERE id=:id
+            """),{
+                "pd":discovered,
+                "pc":crawled,
+                "ec":counters["evidence"],
+                "oc":counters["opportunities"],
+                "id":run_id,
+            })
+
+        return {
+            "run_id":str(run_id),
+            "mode":"ACCEPTANCE" if acceptance_mode else "OBSERVE",
+            "crawled":crawled,
+            "evidence":counters["evidence"],
+            "opportunities":counters["opportunities"],
+            "research_reports":counters["reports"],
+            "research_validations":counters["validations"],
+        }
     except Exception as exc:
         if run_id:
             with engine.begin() as db:
-                db.execute(text("UPDATE pipeline_runs SET status='FAILED',error=:e,finished_at=now() WHERE id=:id"),
-                           {"e":str(exc)[:4000],"id":run_id})
+                db.execute(
+                    text("""
+                      UPDATE pipeline_runs
+                      SET status='FAILED',error=:e,finished_at=now()
+                      WHERE id=:id
+                    """),
+                    {"e":str(exc)[:4000],"id":run_id},
+                )
         raise
