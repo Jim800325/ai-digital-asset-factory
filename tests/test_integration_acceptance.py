@@ -205,6 +205,15 @@ def test_full_v02_integration_acceptance():
     assert sandbox_request["policy"]["external_side_effects"] == "DENY"
 
     sandbox_result=execute_sandbox_request(sandbox_request["request_id"])
+    if sandbox_result["request_status"] != "ARTIFACT_READY":
+        with engine.connect() as db:
+            debug=db.execute(text("""
+              SELECT sbr.error,sr.stdout,sr.stderr
+              FROM sandbox_build_requests sbr
+              LEFT JOIN sandbox_runs sr ON sr.request_id=sbr.id
+              WHERE sbr.id=CAST(:id AS uuid)
+            """),{"id":sandbox_request["request_id"]}).mappings().one()
+        raise AssertionError(f"sandbox failed: {dict(debug)}")
     assert sandbox_result["request_status"] == "ARTIFACT_READY"
     assert sandbox_result["container_network"] == "none"
     assert sandbox_result["test_passed"] is True
