@@ -18,6 +18,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS research_validations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   opportunity_id uuid NOT NULL UNIQUE REFERENCES digital_asset_opportunities(id) ON DELETE CASCADE,
+  validation_status text NOT NULL DEFAULT 'CURRENT',
   buyer_status text NOT NULL DEFAULT 'UNKNOWN',
   competitors_status text NOT NULL DEFAULT 'UNKNOWN',
   pricing_status text NOT NULL DEFAULT 'UNKNOWN',
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS research_validations (
   observe_only boolean NOT NULL DEFAULT true,
   validated_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (validation_status IN ('CURRENT','STALE')),
   CHECK (buyer_status IN ('VALIDATED','PARTIAL','UNKNOWN')),
   CHECK (competitors_status IN ('VALIDATED','PARTIAL','UNKNOWN')),
   CHECK (pricing_status IN ('VALIDATED','PARTIAL','UNKNOWN')),
