@@ -2,7 +2,7 @@ import hashlib
 from urllib.parse import urlparse
 from sqlalchemy import text
 from app.db import engine
-from app.workers.pipeline import _classify
+from app.classifier import classify
 from app.scoring import score_asset, status_for
 from app.aggregator import aggregate_opportunity
 
@@ -11,7 +11,7 @@ def ingest_discovery_item(item: dict) -> bool:
     content=item.get("text") or ""
     if len(content) < 20:
         return False
-    kind,hits,pain=_classify(title,content)
+    kind,hits,pain=classify(title,content)
     if hits < 1:
         return False
     doc_hash=hashlib.sha256(content.encode("utf-8")).hexdigest()
