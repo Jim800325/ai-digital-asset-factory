@@ -59,3 +59,35 @@ def opportunity_evidence(opportunity_id: str):
     """)
     with engine.connect() as conn:
         return [dict(r._mapping) for r in conn.execute(sql, {"id": opportunity_id})]
+
+
+@app.get("/v1/research-reports")
+def research_reports(limit: int = 50):
+    sql = text("""
+      SELECT rr.id,rr.opportunity_id,o.title,o.asset_type,o.score,o.status,
+             rr.report_status,rr.problem,rr.buyer,rr.existing_alternatives,
+             rr.evidence,rr.monetization,rr.build_complexity,rr.risks,rr.why_now,
+             rr.generator_version,rr.observe_only,rr.generated_at,rr.updated_at
+      FROM research_reports rr
+      JOIN digital_asset_opportunities o ON o.id=rr.opportunity_id
+      ORDER BY rr.updated_at DESC
+      LIMIT :limit
+    """)
+    with engine.connect() as conn:
+        return [dict(r._mapping) for r in conn.execute(sql, {"limit": min(limit, 200)})]
+
+@app.get("/v1/research-reports/{opportunity_id}")
+def research_report(opportunity_id: str):
+    sql = text("""
+      SELECT rr.id,rr.opportunity_id,o.title,o.asset_type,o.score,o.status,
+             rr.report_status,rr.problem,rr.buyer,rr.existing_alternatives,
+             rr.evidence,rr.monetization,rr.build_complexity,rr.risks,rr.why_now,
+             rr.evidence_snapshot,rr.generator_version,rr.observe_only,
+             rr.generated_at,rr.updated_at
+      FROM research_reports rr
+      JOIN digital_asset_opportunities o ON o.id=rr.opportunity_id
+      WHERE rr.opportunity_id=CAST(:id AS uuid)
+    """)
+    with engine.connect() as conn:
+        row=conn.execute(sql, {"id": opportunity_id}).mappings().one_or_none()
+        return dict(row) if row else None
