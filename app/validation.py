@@ -35,6 +35,7 @@ PATTERNS = {
     ],
     "willingness_to_pay": [
         ("willing_to_pay", re.compile(r"\b(willing\s+to\s+pay|would\s+pay|can\s+pay|budget)\b", re.I)),
+        ("active_payment", re.compile(r"\b(?:we|i|our\s+team|customers?)\s+(?:currently\s+)?pay\b", re.I)),
         ("paid_signal", re.compile(r"\b(paid|paying|subscribe|subscribed|too\s+expensive|worth\s+(?:it|[$€£]))\b", re.I)),
     ],
     "market_gap": [
