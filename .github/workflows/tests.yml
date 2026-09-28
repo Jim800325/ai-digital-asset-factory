@@ -53,7 +53,7 @@ jobs:
       OPENHANDS_CLI_IMAGE: asset-factory-openhands:1.16.0
       OPENHANDS_GATEWAY_MODE: MOCK
       OPENHANDS_GATEWAY_IMAGE: python:3.12-slim
-      OPENHANDS_MODEL: openai/mock
+      OPENHANDS_MODEL: openai/mock-test-model
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -191,7 +191,7 @@ jobs:
           assert oh["container_network"] == "internal-gateway", oh
           assert oh["exit_code"] == 0, oh
           assert oh["cli_version"] == "1.16.0", oh
-          assert oh["model_name"] == "openai/mock", oh
+          assert oh["model_name"] == "openai/mock-test-model", oh
           assert oh["inner_runtime"] == "process", oh
           assert oh["oh_network_policy"] == "INTERNAL_GATEWAY_ONLY", oh
           assert oh["gateway_mode"] == "MOCK", oh
