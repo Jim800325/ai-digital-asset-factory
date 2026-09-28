@@ -217,6 +217,7 @@ def execute_openhands_request(request_id):
     cli_out=""
     cli_err=""
     cli_code=1
+    gateway_logs=""
     test_code=1
     test_out=""
     test_err=""
@@ -264,14 +265,21 @@ def execute_openhands_request(request_id):
               WHERE id=:id
             """),{"id":request["id"]})
 
+        cli_timeout=(
+            min(90,max(30,settings.sandbox_timeout_seconds))
+            if settings.openhands_gateway_mode.strip().upper()=="MOCK"
+            else max(60,min(settings.sandbox_timeout_seconds,1800))
+        )
         completed=_run(
             _openhands_command(workspace,network,local_token),
-            timeout=max(60,min(settings.sandbox_timeout_seconds,1800)),
+            timeout=cli_timeout,
             check=False,
         )
         cli_code=completed.returncode
         cli_out=_clip(completed.stdout)
         cli_err=_clip(completed.stderr)
+        gateway_result=_run(["docker","logs",gateway],timeout=20,check=False)
+        gateway_logs=_clip((gateway_result.stdout or "")+"\n"+(gateway_result.stderr or ""))
 
         if cli_code==0:
             test_code,test_out,test_err=_run_container(
@@ -325,7 +333,9 @@ def execute_openhands_request(request_id):
               WHERE id=:id
             """),{
                 "status":status,
-                "error":None if passed else _clip(cli_err+"\n"+test_err),
+                "error":None if passed else _clip(
+                    cli_err+"\n--- gateway ---\n"+gateway_logs+"\n--- tests ---\n"+test_err
+                ),
                 "id":request["id"],
             })
 
@@ -343,6 +353,9 @@ def execute_openhands_request(request_id):
             "workspace_id":str(request["workspace_id"]),
         }
     except Exception as exc:
+        if gateway:
+            gateway_result=_run(["docker","logs",gateway],timeout=20,check=False)
+            gateway_logs=_clip((gateway_result.stdout or "")+"\n"+(gateway_result.stderr or ""))
         with engine.begin() as db:
             if run_id is not None:
                 db.execute(text("""
@@ -364,7 +377,10 @@ def execute_openhands_request(request_id):
               UPDATE sandbox_build_requests
               SET request_status='FAILED',error=:error,finished_at=now()
               WHERE id=:id
-            """),{"error":_clip(str(exc)),"id":request["id"]})
+            """),{
+                "error":_clip(str(exc)+"\n--- gateway ---\n"+gateway_logs),
+                "id":request["id"],
+            })
         raise
     finally:
         _cleanup_container(gateway)
