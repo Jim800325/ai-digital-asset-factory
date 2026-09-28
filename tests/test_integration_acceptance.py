@@ -1,5 +1,6 @@
 import hashlib
 
+import pytest
 from fastapi.testclient import TestClient
 from redis import Redis
 from sqlalchemy import text
@@ -7,6 +8,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.db import engine
 from app.main import app
+from app.release_gate import decide_release_candidate, ensure_release_candidate
 from app.sandbox_execution import create_sandbox_request, execute_sandbox_request
 from app.workers.pipeline import run_pipeline
 
@@ -40,6 +42,7 @@ def test_full_v02_integration_acceptance():
         "009_sandbox_execution.sql",
         "010_openhands_adapter.sql",
         "011_controlled_llm_proxy.sql",
+        "012_human_release_gate.sql",
     ]
 
     assert Redis.from_url(settings.redis_url).ping() is True
@@ -322,3 +325,43 @@ def test_openhands_real_cli_adapter_from_approved_proposal():
     assert row["execution_enabled"] is False
     assert row["artifacts"] >= 2
     assert row["passed_tests"] == 1
+
+    release=ensure_release_candidate(request["request_id"])
+    assert release["release_status"] == "WAITING_LIVE_VALIDATION"
+    assert release["live_validation_verified"] is False
+    assert release["deployment_enabled"] is False
+    assert len(release["artifact_manifest_sha256"]) == 64
+
+    with pytest.raises(
+        RuntimeError,
+        match="Controlled Live LLM Acceptance has not passed",
+    ):
+        decide_release_candidate(
+            release["release_candidate_id"],
+            decision="APPROVE",
+            reason="must remain blocked without live validation",
+            actor="ci-human",
+        )
+
+    with engine.begin() as db:
+        candidate=db.execute(text("""
+          SELECT release_status,live_validation_required,
+                 live_validation_verified,deployment_enabled,
+                 jsonb_array_length(artifact_manifest) AS artifact_count,
+                 (test_summary->>'passed')::int AS passed_tests
+          FROM release_candidates
+          WHERE id=CAST(:id AS uuid)
+        """),{"id":release["release_candidate_id"]}).mappings().one()
+        assert candidate["release_status"] == "WAITING_LIVE_VALIDATION"
+        assert candidate["live_validation_required"] is True
+        assert candidate["live_validation_verified"] is False
+        assert candidate["deployment_enabled"] is False
+        assert candidate["artifact_count"] >= 2
+        assert candidate["passed_tests"] >= 1
+
+        with pytest.raises(Exception):
+            db.execute(text("""
+              UPDATE release_candidates
+              SET release_status='READY_FOR_REVIEW'
+              WHERE id=CAST(:id AS uuid)
+            """),{"id":release["release_candidate_id"]})
