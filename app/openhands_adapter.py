@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -74,7 +75,7 @@ def _write_task(workspace:Path,proposal:dict)->Path:
 def _create_internal_network(name:str)->None:
     _run(["docker","network","create","--internal",name],timeout=30)
 
-def _start_gateway(network:str,gateway_name:str,local_token:str)->None:
+def _start_gateway(network:str,gateway_name:str,local_token:str,audit_dir:Path)->None:
     mode=settings.openhands_gateway_mode.strip().upper()
     script=Path(__file__).with_name("openhands_gateway.py").resolve()
     common=[
@@ -91,7 +92,18 @@ def _start_gateway(network:str,gateway_name:str,local_token:str)->None:
         "-e",f"LOCAL_TOKEN={local_token}",
         "-e","PYTHONUTF8=1",
         "-e","PYTHONIOENCODING=utf-8",
+        "-e",f"ALLOWED_MODELS={settings.openhands_allowed_models}",
+        "-e",f"MAX_REQUESTS={settings.openhands_max_requests}",
+        "-e",f"MAX_PROMPT_TOKENS_PER_REQUEST={settings.openhands_max_prompt_tokens_per_request}",
+        "-e",f"MAX_COMPLETION_TOKENS_PER_REQUEST={settings.openhands_max_completion_tokens_per_request}",
+        "-e",f"MAX_TOTAL_TOKENS={settings.openhands_max_total_tokens}",
+        "-e",f"MAX_COST_PER_REQUEST_USD={settings.openhands_max_cost_per_request_usd}",
+        "-e",f"MAX_COST_USD={settings.openhands_max_cost_usd}",
+        "-e",f"INPUT_COST_PER_1M_USD={settings.openhands_input_cost_per_1m_usd}",
+        "-e",f"OUTPUT_COST_PER_1M_USD={settings.openhands_output_cost_per_1m_usd}",
+        "-e","AUDIT_FILE=/audit/usage.json",
         "--mount",f"type=bind,src={script},dst=/gateway.py,readonly",
+        "--mount",f"type=bind,src={audit_dir},dst=/audit",
     ]
     if mode=="MOCK":
         args=common+[
@@ -114,6 +126,15 @@ def _start_gateway(network:str,gateway_name:str,local_token:str)->None:
             ["docker","network","connect","--alias","llm-gateway",network,gateway_name],
             timeout=30,
         )
+
+def _read_gateway_audit(audit_dir:Path)->dict:
+    path=audit_dir/"usage.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError,json.JSONDecodeError):
+        return {}
 
 def _wait_gateway(gateway_name:str)->None:
     last=""
@@ -219,6 +240,10 @@ def execute_openhands_request(request_id):
     gateway=_docker_name("oh-gateway",request["id"])
     agent_name=_docker_name("openhands",request["id"])
     local_token=secrets.token_urlsafe(32)
+    audit_dir=workspace.parent/f".gateway-audit-{workspace.name}"
+    if audit_dir.exists():
+        raise RuntimeError("Gateway audit directory already exists")
+    audit_dir.mkdir(mode=0o700)
     run_id=None
     execution_id=None
     cli_out=""
@@ -232,7 +257,7 @@ def execute_openhands_request(request_id):
 
     try:
         _create_internal_network(network)
-        _start_gateway(network,gateway,local_token)
+        _start_gateway(network,gateway,local_token,audit_dir)
         _wait_gateway(gateway)
 
         with engine.begin() as db:
@@ -253,10 +278,10 @@ def execute_openhands_request(request_id):
             execution_id=db.execute(text("""
               INSERT INTO openhands_executions(
                 request_id,run_id,cli_version,model_name,inner_runtime,
-                network_policy,gateway_mode,task_sha256)
+                network_policy,gateway_mode,task_sha256,budget_snapshot)
               VALUES(
                 :request_id,:run_id,:version,:model,'process',
-                'INTERNAL_GATEWAY_ONLY',:gateway_mode,:task_sha)
+                'INTERNAL_GATEWAY_ONLY',:gateway_mode,:task_sha,CAST(:budget_snapshot AS jsonb))
               RETURNING id
             """),{
                 "request_id":request["id"],
@@ -265,6 +290,17 @@ def execute_openhands_request(request_id):
                 "model":settings.openhands_model,
                 "gateway_mode":settings.openhands_gateway_mode.strip().upper(),
                 "task_sha":task_hash,
+                "budget_snapshot":json.dumps({
+                    "allowed_models":settings.openhands_allowed_model_list,
+                    "max_requests":settings.openhands_max_requests,
+                    "max_prompt_tokens_per_request":settings.openhands_max_prompt_tokens_per_request,
+                    "max_completion_tokens_per_request":settings.openhands_max_completion_tokens_per_request,
+                    "max_total_tokens":settings.openhands_max_total_tokens,
+                    "max_cost_per_request_usd":settings.openhands_max_cost_per_request_usd,
+                    "max_cost_usd":settings.openhands_max_cost_usd,
+                    "input_cost_per_1m_usd":settings.openhands_input_cost_per_1m_usd,
+                    "output_cost_per_1m_usd":settings.openhands_output_cost_per_1m_usd,
+                },ensure_ascii=False),
             }).scalar_one()
             db.execute(text("""
               UPDATE sandbox_build_requests
@@ -319,8 +355,11 @@ def execute_openhands_request(request_id):
 
         gateway_result=_run(["docker","logs",gateway],timeout=5,check=False)
         gateway_logs=_clip((gateway_result.stdout or "")+"\n"+(gateway_result.stderr or ""))
+        gateway_audit=_read_gateway_audit(audit_dir)
+        budget_blocked=bool(gateway_audit.get("blocked"))
+        budget_reason=str(gateway_audit.get("blocked_reason") or "")
 
-        if cli_code==0:
+        if cli_code==0 and not budget_blocked:
             test_code,test_out,test_err=_run_container(
                 workspace,
                 settings.sandbox_image,
@@ -330,8 +369,12 @@ def execute_openhands_request(request_id):
         else:
             test_err="Tests not run because OpenHands execution failed"
 
-        passed=cli_code==0 and test_code==0 and artifact_count>0
-        status="ARTIFACT_READY" if passed else "FAILED"
+        passed=cli_code==0 and test_code==0 and artifact_count>0 and not budget_blocked
+        status="BLOCKED" if budget_blocked else ("ARTIFACT_READY" if passed else "FAILED")
+        live_verified=(
+            settings.openhands_gateway_mode.strip().upper()=="PROXY"
+            and status=="ARTIFACT_READY"
+        )
 
         with engine.begin() as db:
             db.execute(text("""
@@ -346,11 +389,31 @@ def execute_openhands_request(request_id):
             })
             db.execute(text("""
               UPDATE openhands_executions
-              SET exit_code=:code,trace_jsonl=:trace,finished_at=now()
+              SET exit_code=:code,
+                  trace_jsonl=:trace,
+                  budget_status=:budget_status,
+                  gateway_request_count=:request_count,
+                  prompt_tokens=:prompt_tokens,
+                  completion_tokens=:completion_tokens,
+                  total_tokens=:total_tokens,
+                  estimated_cost_usd=:cost,
+                  blocked_reason=:blocked_reason,
+                  budget_snapshot=CAST(:budget_snapshot AS jsonb),
+                  live_model_verified=:live_verified,
+                  finished_at=now()
               WHERE id=:id
             """),{
                 "code":cli_code,
                 "trace":cli_out,
+                "budget_status":gateway_audit.get("budget_status","NOT_EVALUATED"),
+                "request_count":int(gateway_audit.get("request_count") or 0),
+                "prompt_tokens":int(gateway_audit.get("prompt_tokens") or 0),
+                "completion_tokens":int(gateway_audit.get("completion_tokens") or 0),
+                "total_tokens":int(gateway_audit.get("total_tokens") or 0),
+                "cost":float(gateway_audit.get("estimated_cost_usd") or 0),
+                "blocked_reason":budget_reason or None,
+                "budget_snapshot":json.dumps(gateway_audit.get("limits") or {},ensure_ascii=False),
+                "live_verified":live_verified,
                 "id":execution_id,
             })
             db.execute(text("""
@@ -373,7 +436,8 @@ def execute_openhands_request(request_id):
             """),{
                 "status":status,
                 "error":None if passed else _clip(
-                    cli_err+"\n--- gateway ---\n"+gateway_logs+"\n--- tests ---\n"+test_err
+                    (("budget blocked: "+budget_reason+"\n") if budget_blocked else "")
+                    +cli_err+"\n--- gateway ---\n"+gateway_logs+"\n--- tests ---\n"+test_err
                 ),
                 "id":request["id"],
             })
@@ -386,6 +450,10 @@ def execute_openhands_request(request_id):
             "executor_kind":"OPENHANDS",
             "cli_version":settings.openhands_cli_version,
             "gateway_mode":settings.openhands_gateway_mode.strip().upper(),
+            "budget_status":gateway_audit.get("budget_status","NOT_EVALUATED"),
+            "gateway_request_count":int(gateway_audit.get("request_count") or 0),
+            "total_tokens":int(gateway_audit.get("total_tokens") or 0),
+            "estimated_cost_usd":float(gateway_audit.get("estimated_cost_usd") or 0),
             "artifact_count":artifact_count,
             "test_passed":passed,
             "container_network":"internal-gateway",
@@ -425,3 +493,4 @@ def execute_openhands_request(request_id):
         _cleanup_container(agent_name)
         _cleanup_container(gateway)
         _cleanup_network(network)
+        shutil.rmtree(audit_dir,ignore_errors=True)
