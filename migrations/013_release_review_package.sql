@@ -22,6 +22,27 @@ BEFORE UPDATE OR DELETE ON sandbox_artifact_contents
 FOR EACH ROW
 EXECUTE FUNCTION protect_artifact_content_snapshot();
 
+CREATE OR REPLACE FUNCTION protect_captured_artifact()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM sandbox_artifact_contents
+    WHERE artifact_id=OLD.id
+  ) THEN
+    RAISE EXCEPTION 'Captured artifact metadata is immutable';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS trg_captured_artifact_immutable ON sandbox_artifacts;
+CREATE TRIGGER trg_captured_artifact_immutable
+BEFORE UPDATE OR DELETE ON sandbox_artifacts
+FOR EACH ROW
+EXECUTE FUNCTION protect_captured_artifact();
+
 CREATE TABLE IF NOT EXISTS release_review_packages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   release_candidate_id uuid NOT NULL UNIQUE REFERENCES release_candidates(id) ON DELETE RESTRICT,
