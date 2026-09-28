@@ -38,6 +38,7 @@ def test_full_v02_integration_acceptance():
         "007_research_validation.sql",
         "008_build_proposals.sql",
         "009_sandbox_execution.sql",
+        "010_openhands_adapter.sql",
     ]
 
     assert Redis.from_url(settings.redis_url).ping() is True
@@ -242,3 +243,81 @@ def test_full_v02_integration_acceptance():
         assert sandbox["exit_code"] == 0
         assert sandbox["artifacts"] >= 2
         assert sandbox["passed_tests"] == 1
+
+
+def test_openhands_real_cli_adapter_from_approved_proposal():
+    with engine.connect() as db:
+        proposal=db.execute(text("""
+          SELECT id
+          FROM build_proposals
+          WHERE proposal_status='APPROVED'
+          ORDER BY updated_at DESC
+          LIMIT 1
+        """)).scalar_one()
+
+    request=create_sandbox_request(
+        proposal,
+        requested_by="ci-human",
+        executor_kind="OPENHANDS",
+    )
+    assert request["request_status"] == "POLICY_PASSED"
+    assert request["policy"]["network"] == "INTERNAL_GATEWAY_ONLY"
+    assert request["policy"]["docker_network"] == "internal-gateway"
+    assert request["policy"]["inner_runtime"] == "process"
+    assert request["policy"]["host_docker_socket"] == "DENY"
+
+    result=execute_sandbox_request(request["request_id"])
+    if result["request_status"] != "ARTIFACT_READY":
+        with engine.connect() as db:
+            debug=db.execute(text("""
+              SELECT sbr.error,sr.stdout,sr.stderr,oe.trace_jsonl
+              FROM sandbox_build_requests sbr
+              LEFT JOIN sandbox_runs sr ON sr.request_id=sbr.id
+              LEFT JOIN openhands_executions oe ON oe.request_id=sbr.id
+              WHERE sbr.id=CAST(:id AS uuid)
+            """),{"id":request["request_id"]}).mappings().one()
+        raise AssertionError(f"OpenHands adapter failed: {dict(debug)}")
+
+    assert result["executor_kind"] == "OPENHANDS"
+    assert result["request_status"] == "ARTIFACT_READY"
+    assert result["cli_version"] == settings.openhands_cli_version
+    assert result["gateway_mode"] == "MOCK"
+    assert result["container_network"] == "internal-gateway"
+    assert result["test_passed"] is True
+    assert result["artifact_count"] >= 2
+
+    with engine.connect() as db:
+        row=db.execute(text("""
+          SELECT sbr.request_status,sbr.network_policy,sbr.external_side_effects,
+                 sr.container_network,sr.exit_code,
+                 oe.cli_version,oe.model_name,oe.inner_runtime,
+                 oe.network_policy AS oh_network_policy,oe.gateway_mode,
+                 oe.exit_code AS openhands_exit_code,oe.trace_jsonl,
+                 bp.execution_enabled,
+                 COUNT(DISTINCT sa.id) AS artifacts,
+                 COUNT(DISTINCT str.id) FILTER (WHERE str.passed=true) AS passed_tests
+          FROM sandbox_build_requests sbr
+          JOIN build_proposals bp ON bp.id=sbr.proposal_id
+          JOIN sandbox_runs sr ON sr.request_id=sbr.id
+          JOIN openhands_executions oe ON oe.request_id=sbr.id
+          LEFT JOIN sandbox_artifacts sa ON sa.run_id=sr.id
+          LEFT JOIN sandbox_test_results str ON str.run_id=sr.id
+          WHERE sbr.id=CAST(:id AS uuid)
+          GROUP BY sbr.id,sr.id,oe.id,bp.id
+        """),{"id":request["request_id"]}).mappings().one()
+
+    assert row["request_status"] == "ARTIFACT_READY"
+    assert row["network_policy"] == "INTERNAL_GATEWAY_ONLY"
+    assert row["external_side_effects"] == "DENY"
+    assert row["container_network"] == "internal-gateway"
+    assert row["exit_code"] == 0
+    assert row["cli_version"] == "1.16.0"
+    assert row["model_name"] == "openai/mock"
+    assert row["inner_runtime"] == "process"
+    assert row["oh_network_policy"] == "INTERNAL_GATEWAY_ONLY"
+    assert row["gateway_mode"] == "MOCK"
+    assert row["openhands_exit_code"] == 0
+    assert "OPENHANDS" in row["trace_jsonl"].upper()
+    assert row["execution_enabled"] is False
+    assert row["artifacts"] >= 2
+    assert row["passed_tests"] == 1
