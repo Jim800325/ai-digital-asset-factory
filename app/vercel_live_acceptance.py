@@ -687,7 +687,24 @@ set -eu
 mkdir -p /home/vercel-sandbox/agent-home
 chown -R openhands-agent:openhands-agent /home/vercel-sandbox/agent-home /home/vercel-sandbox/workspace
 chmod 0700 /home/vercel-sandbox/agent-home
-sudo -u openhands-agent env   HOME=/home/vercel-sandbox/agent-home   OPENHANDS_WORK_DIR=/home/vercel-sandbox/workspace   OPENHANDS_PERSISTENCE_DIR=/home/vercel-sandbox/agent-home/state   OPENHANDS_CONVERSATIONS_DIR=/home/vercel-sandbox/agent-home/conversations   RUNTIME=process   OPENHANDS_SUPPRESS_BANNER=1   PYTHONUTF8=1   PYTHONIOENCODING=utf-8   LANG=C.UTF-8   LC_ALL=C.UTF-8   LLM_API_KEY="$LOCAL_GATEWAY_TOKEN"   LLM_MODEL="$LIVE_MODEL"   LLM_BASE_URL="$GATEWAY_BASE_URL"   /opt/openhands/bin/openhands --headless --json --override-with-envs     -f /home/vercel-sandbox/workspace/openhands-task.md     > /home/vercel-sandbox/openhands.log 2>&1
+cd /home/vercel-sandbox/workspace
+sudo -u openhands-agent env \
+  HOME=/home/vercel-sandbox/agent-home \
+  OPENHANDS_WORK_DIR=/home/vercel-sandbox/workspace \
+  OPENHANDS_PERSISTENCE_DIR=/home/vercel-sandbox/agent-home/state \
+  OPENHANDS_CONVERSATIONS_DIR=/home/vercel-sandbox/agent-home/conversations \
+  RUNTIME=process \
+  OPENHANDS_SUPPRESS_BANNER=1 \
+  PYTHONUTF8=1 \
+  PYTHONIOENCODING=utf-8 \
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  LLM_API_KEY="$LOCAL_GATEWAY_TOKEN" \
+  LLM_MODEL="$LIVE_MODEL" \
+  LLM_BASE_URL="$GATEWAY_BASE_URL" \
+  /opt/openhands/bin/openhands --headless --json --override-with-envs \
+    -f /home/vercel-sandbox/workspace/openhands-task.md \
+    > /home/vercel-sandbox/openhands.log 2>&1
 """
     return _run_command(
         client,oidc,session_id,
