@@ -540,9 +540,13 @@ rm -rf /opt/openhands
 if ! command -v uv >/dev/null 2>&1; then
   python -m pip install --no-cache-dir uv >> /home/vercel-sandbox/install.log 2>&1
 fi
+export UV_PYTHON_INSTALL_DIR=/opt/uv-python
+rm -rf /opt/uv-python
 uv python install 3.12 >> /home/vercel-sandbox/install.log 2>&1
 uv venv /opt/openhands --python 3.12 >> /home/vercel-sandbox/install.log 2>&1
 uv pip install --python /opt/openhands/bin/python 'openhands==1.16.0' >> /home/vercel-sandbox/install.log 2>&1
+chmod -R a+rX /opt/uv-python /opt/openhands
+chmod a+rx /opt/openhands/bin/openhands
 /opt/openhands/bin/openhands --version >> /home/vercel-sandbox/install.log 2>&1
 """
     code=_run_command(
@@ -877,6 +881,15 @@ def run_vercel_live_acceptance(
                 client,oidc,agent_session,
                 local_token,gateway_url,
             )
+            if openhands_exit_code!=0:
+                raise LiveAcceptanceError(
+                    f"OpenHands exited with code {openhands_exit_code}: "
+                    +_read_text_safe(
+                        client,oidc,agent_session,
+                        f"{WORKDIR}/openhands.log",
+                        limit=8000,
+                    )
+                )
 
             phase="agent_deny_all"
             _deny_all(client,oidc,agent_session)
