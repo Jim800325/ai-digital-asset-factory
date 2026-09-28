@@ -42,6 +42,8 @@ def health():
         "sandbox_execution":"ENABLED" if settings.sandbox_execution_enabled else "DISABLED",
         "openhands_adapter":"ENABLED" if settings.openhands_enabled else "DISABLED",
         "openhands_runtime":settings.openhands_runtime,
+        "openhands_cli_version":settings.openhands_cli_version,
+        "openhands_gateway_mode":settings.openhands_gateway_mode,
     }
 
 @app.post("/v1/runs", status_code=202)
@@ -294,3 +296,36 @@ def sandbox_tests(run_id: UUID):
     """)
     with engine.connect() as conn:
         return [dict(r._mapping) for r in conn.execute(sql,{"id":run_id})]
+
+
+@app.get("/v1/openhands-executions")
+def openhands_executions(limit: int = 50):
+    sql=text("""
+      SELECT oe.id,oe.request_id,oe.run_id,oe.cli_version,oe.model_name,
+             oe.inner_runtime,oe.network_policy,oe.gateway_mode,oe.task_sha256,
+             oe.exit_code,oe.started_at,oe.finished_at,
+             sbr.request_status,sbr.workspace_id
+      FROM openhands_executions oe
+      JOIN sandbox_build_requests sbr ON sbr.id=oe.request_id
+      ORDER BY oe.started_at DESC
+      LIMIT :limit
+    """)
+    with engine.connect() as conn:
+        return [dict(r._mapping) for r in conn.execute(sql,{"limit":min(max(limit,1),200)})]
+
+@app.get("/v1/openhands-executions/{request_id}")
+def openhands_execution(request_id: UUID):
+    sql=text("""
+      SELECT oe.id,oe.request_id,oe.run_id,oe.cli_version,oe.model_name,
+             oe.inner_runtime,oe.network_policy,oe.gateway_mode,oe.task_sha256,
+             oe.exit_code,oe.trace_jsonl,oe.started_at,oe.finished_at,
+             sbr.request_status,sbr.workspace_id,sbr.error
+      FROM openhands_executions oe
+      JOIN sandbox_build_requests sbr ON sbr.id=oe.request_id
+      WHERE oe.request_id=:id
+    """)
+    with engine.connect() as conn:
+        row=conn.execute(sql,{"id":request_id}).mappings().one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404,detail="OpenHands execution not found")
+    return dict(row)
