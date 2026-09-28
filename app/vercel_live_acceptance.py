@@ -345,10 +345,22 @@ def _run_command(
     _raise_api(response,operation)
     try:
         payload=response.json()
-    except json.JSONDecodeError as exc:
-        raise LiveAcceptanceError(
-            f"{operation} returned non-JSON response: {response.text[:2000]}"
-        ) from exc
+    except json.JSONDecodeError:
+        parsed=[]
+        for raw_line in response.text.splitlines():
+            line=raw_line.strip()
+            if not line:
+                continue
+            try:
+                parsed.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        if not parsed:
+            raise LiveAcceptanceError(
+                f"{operation} returned non-JSON/NDJSON response: "
+                f"{response.text[:2000]}"
+            )
+        payload=parsed[-1]
     return _command_exit_code(payload)
 
 
