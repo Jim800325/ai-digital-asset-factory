@@ -57,6 +57,7 @@ def health():
         "approval_gate":"ENABLED" if settings.human_approval_key.strip() else "DISABLED",
         "release_gate":"ENABLED" if settings.human_release_key.strip() else "DISABLED",
         "release_deployment":"DISABLED",
+        "release_review_package":"ENABLED",
         "build_execution":"DISABLED",
         "sandbox_execution":"ENABLED" if settings.sandbox_execution_enabled else "DISABLED",
         "openhands_adapter":"ENABLED" if settings.openhands_enabled else "DISABLED",
