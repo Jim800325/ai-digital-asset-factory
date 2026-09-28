@@ -366,6 +366,23 @@ def test_openhands_real_cli_adapter_from_approved_proposal():
               WHERE id=CAST(:id AS uuid)
             """),{"id":release["review_package_id"]})
 
+    with engine.connect() as db:
+        artifact_id=db.execute(text("""
+          SELECT sa.id
+          FROM sandbox_artifacts sa
+          WHERE sa.run_id=CAST(:run_id AS uuid)
+          ORDER BY sa.relative_path
+          LIMIT 1
+        """),{"run_id":release["run_id"]}).scalar_one()
+
+    with pytest.raises(Exception):
+        with engine.begin() as db:
+            db.execute(text("""
+              UPDATE sandbox_artifact_contents
+              SET content_sha256=repeat('0',64)
+              WHERE artifact_id=:artifact_id
+            """),{"artifact_id":artifact_id})
+
     with pytest.raises(
         RuntimeError,
         match="Controlled Live LLM Acceptance has not passed",
