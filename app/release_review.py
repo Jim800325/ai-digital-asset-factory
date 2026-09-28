@@ -1,3 +1,4 @@
+import difflib
 import hashlib
 import json
 import re
@@ -11,6 +12,7 @@ from app.db import engine
 
 GENERATOR_VERSION="release-review-v0.3-deterministic"
 MAX_REVIEW_TEXT_BYTES=1_000_000
+MAX_DIFF_CHARS=50_000
 
 RISK_RULES=[
     ("HIGH","dynamic_code_eval",re.compile(r"\b(eval|exec)\s*\(")),
@@ -44,9 +46,25 @@ def _source_tree_sha(manifest:list[dict])->str:
     ]
     return _sha(rows)
 
-def _artifact_diff(current:list[dict],baseline:list[dict])->list[dict]:
+def _decode_text(data:bytes|None)->str|None:
+    if data is None or len(data)>MAX_REVIEW_TEXT_BYTES:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+def _artifact_diff(
+    current:list[dict],
+    baseline:list[dict],
+    *,
+    current_contents:dict[str,bytes]|None=None,
+    baseline_contents:dict[str,bytes]|None=None,
+)->list[dict]:
     before={x["relative_path"]:x for x in baseline}
     after={x["relative_path"]:x for x in current}
+    current_contents=current_contents or {}
+    baseline_contents=baseline_contents or {}
     result=[]
     for path in sorted(set(before)|set(after)):
         old=before.get(path)
@@ -59,6 +77,29 @@ def _artifact_diff(current:list[dict],baseline:list[dict])->list[dict]:
             status="MODIFIED"
         else:
             status="UNCHANGED"
+
+        patch=None
+        truncated=False
+        if status!="UNCHANGED":
+            old_text=_decode_text(baseline_contents.get(path))
+            new_text=_decode_text(current_contents.get(path))
+            if old is None:
+                old_text=""
+            if new is None:
+                new_text=""
+            if old_text is not None and new_text is not None:
+                value="".join(difflib.unified_diff(
+                    old_text.splitlines(keepends=True),
+                    new_text.splitlines(keepends=True),
+                    fromfile=f"a/{path}",
+                    tofile=f"b/{path}",
+                    lineterm="\n",
+                ))
+                if len(value)>MAX_DIFF_CHARS:
+                    value=value[:MAX_DIFF_CHARS]+"\n... diff truncated ...\n"
+                    truncated=True
+                patch=value
+
         result.append({
             "relative_path":path,
             "status":status,
@@ -66,6 +107,8 @@ def _artifact_diff(current:list[dict],baseline:list[dict])->list[dict]:
             "after_sha256":new["sha256"] if new else None,
             "before_size":int(old["byte_size"]) if old else None,
             "after_size":int(new["byte_size"]) if new else None,
+            "text_diff":patch,
+            "diff_truncated":truncated,
         })
     return result
 
@@ -196,7 +239,9 @@ def _sbom(dependencies:list[dict])->dict:
             ],
         }
         if dep.get("scope"):
-            item["scope"]=dep["scope"]
+            item["properties"].append(
+                {"name":"dependency_scope","value":dep["scope"]}
+            )
         components.append(item)
     return {
         "bomFormat":"CycloneDX",
@@ -338,7 +383,7 @@ def ensure_release_review_package(candidate_id):
         snapshot_complete=len(contents)==len(artifact_rows)
 
         baseline=db.execute(text("""
-          SELECT id,artifact_manifest
+          SELECT id,run_id,artifact_manifest
           FROM release_review_packages
           WHERE proposal_id=:proposal_id
             AND release_candidate_id<>:candidate_id
@@ -349,7 +394,27 @@ def ensure_release_review_package(candidate_id):
             "candidate_id":candidate["id"],
         }).mappings().one_or_none()
         baseline_manifest=list(baseline["artifact_manifest"]) if baseline else []
-        diff=_artifact_diff(manifest,baseline_manifest)
+        current_content_map={
+            x["relative_path"]:x["content_bytes"]
+            for x in contents
+        }
+        baseline_content_map={}
+        if baseline is not None:
+            baseline_content_map={
+                row["relative_path"]:bytes(row["content_bytes"])
+                for row in db.execute(text("""
+                  SELECT sa.relative_path,sac.content_bytes
+                  FROM sandbox_artifacts sa
+                  JOIN sandbox_artifact_contents sac ON sac.artifact_id=sa.id
+                  WHERE sa.run_id=:run_id
+                """),{"run_id":baseline["run_id"]}).mappings().all()
+            }
+        diff=_artifact_diff(
+            manifest,
+            baseline_manifest,
+            current_contents=current_content_map,
+            baseline_contents=baseline_content_map,
+        )
 
         dependencies=_dependency_inventory(contents)
         sbom=_sbom(dependencies)
