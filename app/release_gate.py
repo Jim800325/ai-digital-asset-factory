@@ -109,38 +109,35 @@ def ensure_release_candidate(request_id):
             }).scalar_one()
             created=True
         else:
-            if existing["release_status"] in {"RELEASE_APPROVED","RELEASE_REJECTED"}:
-                return {
-                    "release_candidate_id":str(existing["id"]),
-                    "release_status":existing["release_status"],
-                    "created":False,
-                    "artifact_manifest_sha256":existing["artifact_manifest_sha256"],
-                }
             candidate_id=existing["id"]
-            db.execute(text("""
-              UPDATE release_candidates
-              SET run_id=:run_id,
-                  proposal_id=:proposal_id,
-                  proposal_revision=:proposal_revision,
-                  source_fingerprint=:source_fingerprint,
-                  release_status=:status,
-                  artifact_manifest=CAST(:manifest AS jsonb),
-                  artifact_manifest_sha256=:manifest_sha,
-                  test_summary=CAST(:test_summary AS jsonb),
-                  deployment_enabled=false
-              WHERE id=:id
-            """),{
-                "run_id":source["run_id"],
-                "proposal_id":source["proposal_id"],
-                "proposal_revision":source["proposal_revision"],
-                "source_fingerprint":source["source_fingerprint"],
-                "status":status,
-                "manifest":json.dumps(artifacts,ensure_ascii=False),
-                "manifest_sha":manifest_sha,
-                "test_summary":json.dumps(test_summary,ensure_ascii=False),
-                "id":candidate_id,
-            })
             created=False
+            if existing["release_status"] in {"RELEASE_APPROVED","RELEASE_REJECTED"}:
+                status=existing["release_status"]
+                manifest_sha=existing["artifact_manifest_sha256"]
+            else:
+                db.execute(text("""
+                  UPDATE release_candidates
+                  SET run_id=:run_id,
+                      proposal_id=:proposal_id,
+                      proposal_revision=:proposal_revision,
+                      source_fingerprint=:source_fingerprint,
+                      release_status=:status,
+                      artifact_manifest=CAST(:manifest AS jsonb),
+                      artifact_manifest_sha256=:manifest_sha,
+                      test_summary=CAST(:test_summary AS jsonb),
+                      deployment_enabled=false
+                  WHERE id=:id
+                """),{
+                    "run_id":source["run_id"],
+                    "proposal_id":source["proposal_id"],
+                    "proposal_revision":source["proposal_revision"],
+                    "source_fingerprint":source["source_fingerprint"],
+                    "status":status,
+                    "manifest":json.dumps(artifacts,ensure_ascii=False),
+                    "manifest_sha":manifest_sha,
+                    "test_summary":json.dumps(test_summary,ensure_ascii=False),
+                    "id":candidate_id,
+                })
 
     from app.release_review import ensure_release_review_package
 
