@@ -67,7 +67,7 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q app tests
 
-      - name: Apply migrations 001 through 011
+      - name: Apply migrations 001 through 012
         run: python -m app.migrate
 
       - name: Verify migration set
@@ -87,6 +87,7 @@ jobs:
               "009_sandbox_execution.sql",
               "010_openhands_adapter.sql",
               "011_controlled_llm_proxy.sql",
+              "012_human_release_gate.sql",
           ]
           with engine.connect() as db:
               actual = [r[0] for r in db.execute(
