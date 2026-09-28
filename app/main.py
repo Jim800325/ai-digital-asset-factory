@@ -12,6 +12,7 @@ from app.build_proposals import decide_build_proposal
 from app.config import settings
 from app.db import engine
 from app.release_gate import decide_release_candidate, ensure_release_candidate
+from app.release_review import ensure_release_review_package
 from app.workers.pipeline import run_pipeline
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
@@ -441,3 +442,49 @@ def release_candidate_decision(
         raise HTTPException(status_code=409,detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.post("/v1/release-candidates/{candidate_id}/review-package")
+def create_release_review_package(candidate_id: UUID):
+    try:
+        return ensure_release_review_package(candidate_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+@app.get("/v1/release-review-packages")
+def release_review_packages(limit: int = 50):
+    sql=text("""
+      SELECT rrp.id,rrp.release_candidate_id,rrp.proposal_id,
+             rrp.proposal_revision,rrp.run_id,rrp.baseline_package_id,
+             rrp.package_status,rrp.content_snapshot_complete,
+             rrp.source_tree_sha256,rrp.package_sha256,
+             rrp.generator_version,rrp.generated_at,
+             rc.release_status,rc.live_validation_verified,
+             rc.deployment_enabled
+      FROM release_review_packages rrp
+      JOIN release_candidates rc ON rc.id=rrp.release_candidate_id
+      ORDER BY rrp.generated_at DESC
+      LIMIT :limit
+    """)
+    with engine.connect() as conn:
+        return [dict(r._mapping) for r in conn.execute(
+            sql,{"limit":min(max(limit,1),200)}
+        )]
+
+@app.get("/v1/release-candidates/{candidate_id}/review-package")
+def release_review_package(candidate_id: UUID):
+    sql=text("""
+      SELECT rrp.*,
+             rc.release_status,rc.live_validation_verified,
+             rc.deployment_enabled
+      FROM release_review_packages rrp
+      JOIN release_candidates rc ON rc.id=rrp.release_candidate_id
+      WHERE rrp.release_candidate_id=:id
+    """)
+    with engine.connect() as conn:
+        row=conn.execute(sql,{"id":candidate_id}).mappings().one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404,detail="Release review package not found")
+    return dict(row)
