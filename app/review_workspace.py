@@ -1,0 +1,159 @@
+from uuid import UUID
+
+from sqlalchemy import text
+
+from app.config import settings
+from app.db import engine
+
+
+def list_review_workspace(limit:int=50)->list[dict]:
+    sql=text("""
+      SELECT rc.id AS release_candidate_id,
+             rc.release_status,
+             rc.live_validation_verified,
+             rc.live_validation_required,
+             rc.deployment_enabled,
+             rc.updated_at,
+             bp.id AS proposal_id,
+             bp.revision AS proposal_revision,
+             bp.title AS proposal_title,
+             bp.artifact_type,
+             o.id AS opportunity_id,
+             o.title AS opportunity_title,
+             o.asset_type,
+             sbr.request_status,
+             oe.gateway_mode,
+             oe.budget_status,
+             oe.live_model_verified,
+             rrp.id AS review_package_id,
+             rrp.package_status,
+             rrp.content_snapshot_complete,
+             rrp.source_tree_sha256,
+             rrp.package_sha256,
+             rrp.risk_summary->>'risk_level' AS risk_level,
+             COALESCE((rrp.test_report->>'passed')::int,0) AS passed_tests,
+             COALESCE((rrp.test_report->>'failed')::int,0) AS failed_tests,
+             jsonb_array_length(rrp.artifact_manifest) AS artifact_count,
+             jsonb_array_length(rrp.dependency_inventory) AS dependency_count
+      FROM release_candidates rc
+      JOIN build_proposals bp ON bp.id=rc.proposal_id
+      JOIN digital_asset_opportunities o ON o.id=bp.opportunity_id
+      JOIN sandbox_build_requests sbr ON sbr.id=rc.request_id
+      LEFT JOIN openhands_executions oe ON oe.request_id=rc.request_id
+      LEFT JOIN release_review_packages rrp ON rrp.release_candidate_id=rc.id
+      ORDER BY rc.updated_at DESC,rc.id DESC
+      LIMIT :limit
+    """)
+    with engine.connect() as db:
+        rows=db.execute(sql,{"limit":min(max(limit,1),200)}).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def get_review_workspace(candidate_id:UUID)->dict:
+    sql=text("""
+      SELECT rc.id AS release_candidate_id,
+             rc.request_id,
+             rc.run_id,
+             rc.proposal_id,
+             rc.proposal_revision,
+             rc.source_fingerprint,
+             rc.release_status,
+             rc.live_validation_required,
+             rc.live_validation_verified,
+             rc.artifact_manifest_sha256,
+             rc.test_summary AS candidate_test_summary,
+             rc.deployment_enabled,
+             rc.created_at AS candidate_created_at,
+             rc.updated_at AS candidate_updated_at,
+             rc.approved_at,
+             rc.rejected_at,
+             bp.title AS proposal_title,
+             bp.objective,
+             bp.artifact_type,
+             bp.scope AS proposal_scope,
+             bp.success_criteria,
+             bp.constraints,
+             bp.proposed_stack,
+             bp.proposal_status,
+             bp.execution_enabled,
+             o.id AS opportunity_id,
+             o.title AS opportunity_title,
+             o.asset_type,
+             o.score AS opportunity_score,
+             o.build_readiness,
+             sbr.request_status,
+             sbr.executor_kind,
+             sbr.network_policy,
+             sbr.external_side_effects,
+             oe.gateway_mode,
+             oe.budget_status,
+             oe.gateway_request_count,
+             oe.prompt_tokens,
+             oe.completion_tokens,
+             oe.total_tokens,
+             oe.estimated_cost_usd,
+             oe.blocked_reason,
+             oe.live_model_verified,
+             oe.model_name,
+             oe.cli_version,
+             rrp.id AS review_package_id,
+             rrp.baseline_package_id,
+             rrp.package_status,
+             rrp.content_snapshot_complete,
+             rrp.artifact_manifest,
+             rrp.artifact_diff,
+             rrp.dependency_inventory,
+             rrp.sbom,
+             rrp.test_report,
+             rrp.risk_summary,
+             rrp.source_tree_sha256,
+             rrp.package_sha256,
+             rrp.generator_version,
+             rrp.generated_at AS review_generated_at
+      FROM release_candidates rc
+      JOIN build_proposals bp ON bp.id=rc.proposal_id
+      JOIN digital_asset_opportunities o ON o.id=bp.opportunity_id
+      JOIN sandbox_build_requests sbr ON sbr.id=rc.request_id
+      LEFT JOIN openhands_executions oe ON oe.request_id=rc.request_id
+      LEFT JOIN release_review_packages rrp ON rrp.release_candidate_id=rc.id
+      WHERE rc.id=:id
+    """)
+    with engine.connect() as db:
+        row=db.execute(sql,{"id":candidate_id}).mappings().one_or_none()
+        if row is None:
+            raise LookupError("Release candidate not found")
+        decisions=[
+            dict(item) for item in db.execute(text("""
+              SELECT id,candidate_status,decision,reason,actor,decided_at
+              FROM release_decisions
+              WHERE release_candidate_id=:id
+              ORDER BY decided_at DESC,id DESC
+            """),{"id":candidate_id}).mappings().all()
+        ]
+
+    result=dict(row)
+    terminal=result["release_status"] in {"RELEASE_APPROVED","RELEASE_REJECTED"}
+    live_ok=(
+        result["live_validation_verified"] is True
+        and result["live_model_verified"] is True
+        and result["gateway_mode"]=="PROXY"
+        and result["budget_status"]=="WITHIN_BUDGET"
+        and result["request_status"]=="ARTIFACT_READY"
+    )
+    result["release_gate_configured"]=bool(settings.human_release_key.strip())
+    result["can_approve"]=(
+        not terminal
+        and result["release_status"]=="READY_FOR_REVIEW"
+        and live_ok
+        and result["deployment_enabled"] is False
+        and result["execution_enabled"] is False
+    )
+    result["can_reject"]=not terminal
+    result["decisions"]=decisions
+    result["ui_safety"]={
+        "deployment_enabled":False,
+        "auto_deploy":False,
+        "release_key_persisted_in_browser":False,
+        "approval_requires_live_validation":True,
+    }
+    return result
