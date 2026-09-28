@@ -7,15 +7,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from vercel.sandbox import (
-    NetworkPolicyCustom,
-    NetworkPolicyRule,
-    NetworkTransformer,
-    Sandbox,
-    WriteFile,
-)
-
-
 VERCEL_PROJECT_ID="prj_orLCRCIm7aVfImH8ihB3gponFOEl"
 VERCEL_TEAM_ID="team_JO3GTfLCviMWb2pAvSClH0iK"
 
@@ -116,11 +107,26 @@ def _provider_key()->str:
     return key
 
 
-def _setup_policy()->NetworkPolicyCustom:
+def _sdk_types():
+    try:
+        from vercel.sandbox import (
+            NetworkPolicyCustom,
+            NetworkPolicyRule,
+            NetworkTransformer,
+            Sandbox,
+        )
+    except Exception as exc:
+        raise LiveAcceptanceError(f"Vercel Sandbox SDK import failed: {exc}") from exc
+    return NetworkPolicyCustom, NetworkPolicyRule, NetworkTransformer, Sandbox
+
+
+def _setup_policy()->Any:
+    NetworkPolicyCustom, _, _, _ = _sdk_types()
     return NetworkPolicyCustom(allow=list(SETUP_DOMAINS))
 
 
-def _provider_policy(key:str)->NetworkPolicyCustom:
+def _provider_policy(key:str)->Any:
+    NetworkPolicyCustom, NetworkPolicyRule, NetworkTransformer, _ = _sdk_types()
     return NetworkPolicyCustom(
         allow={
             AIHUBMIX_DOMAIN:[
@@ -137,6 +143,7 @@ def _provider_policy(key:str)->NetworkPolicyCustom:
 
 
 def _provider_policy_confirmed(policy:Any)->bool:
+    NetworkPolicyCustom, _, _, _ = _sdk_types()
     if not isinstance(policy,NetworkPolicyCustom):
         return False
     if not isinstance(policy.allow,dict):
@@ -150,9 +157,9 @@ def _provider_policy_confirmed(policy:Any)->bool:
     return False
 
 
-def _write_acceptance_files(sandbox:Sandbox)->None:
+def _write_acceptance_files(sandbox:Any)->None:
     gateway=(Path(__file__).resolve().parent/"openhands_gateway.py").read_bytes()
-    files:list[WriteFile]=[
+    files=[
         {
             "path":GATEWAY_PATH,
             "content":gateway,
@@ -168,7 +175,7 @@ def _write_acceptance_files(sandbox:Sandbox)->None:
 
 
 def _run_script(
-    sandbox:Sandbox,
+    sandbox:Any,
     script:str,
     *,
     operation:str,
@@ -194,21 +201,21 @@ def _run_script(
     return command.exit_code
 
 
-def _read_file(sandbox:Sandbox,path:str)->bytes:
+def _read_file(sandbox:Any,path:str)->bytes:
     data=sandbox.read_file(path)
     if data is None:
         raise LiveAcceptanceError(f"Sandbox file is missing: {path}")
     return bytes(data)
 
 
-def _read_text_safe(sandbox:Sandbox,path:str,limit:int=20_000)->str:
+def _read_text_safe(sandbox:Any,path:str,limit:int=20_000)->str:
     try:
         return _read_file(sandbox,path).decode("utf-8",errors="replace")[-limit:]
     except Exception as exc:
         return f"<unavailable: {exc}>"
 
 
-def _read_audit_safe(sandbox:Sandbox|None)->dict[str,Any]:
+def _read_audit_safe(sandbox:Any | None)->dict[str,Any]:
     if sandbox is None:
         return {}
     try:
@@ -219,7 +226,7 @@ def _read_audit_safe(sandbox:Sandbox|None)->dict[str,Any]:
         return {}
 
 
-def _install_openhands(sandbox:Sandbox)->None:
+def _install_openhands(sandbox:Any)->None:
     script=r"""
 set -eu
 rm -rf /opt/openhands
@@ -245,7 +252,7 @@ uv pip install --python /opt/openhands/bin/python 'openhands==1.16.0' >> /home/v
         raise LiveAcceptanceError(f"{exc}\ninstall_tail={log}") from exc
 
 
-def _prepare_agent_and_firewall(sandbox:Sandbox)->None:
+def _prepare_agent_and_firewall(sandbox:Any)->None:
     script=r"""
 set -eu
 if ! command -v sudo >/dev/null 2>&1 || ! command -v iptables >/dev/null 2>&1 || ! command -v ip6tables >/dev/null 2>&1; then
@@ -279,7 +286,7 @@ sudo -u openhands-agent env | grep -E 'AIHUBMIX|VERCEL_TOKEN|VERCEL_OIDC_TOKEN' 
     )
 
 
-def _tighten_to_provider(sandbox:Sandbox,key:str)->None:
+def _tighten_to_provider(sandbox:Any,key:str)->None:
     updated=sandbox.update_network_policy(_provider_policy(key))
     if not _provider_policy_confirmed(updated):
         raise LiveAcceptanceError(
@@ -287,7 +294,7 @@ def _tighten_to_provider(sandbox:Sandbox,key:str)->None:
         )
 
 
-def _start_gateway(sandbox:Sandbox,local_token:str)->None:
+def _start_gateway(sandbox:Any,local_token:str)->None:
     script=r"""
 set -eu
 mkdir -p /home/vercel-sandbox/audit
@@ -335,7 +342,7 @@ exit 1
         raise LiveAcceptanceError(f"{exc}\ngateway_tail={log}") from exc
 
 
-def _run_openhands(sandbox:Sandbox,local_token:str)->int:
+def _run_openhands(sandbox:Any,local_token:str)->int:
     script=r"""
 set -eu
 mkdir -p /home/vercel-sandbox/agent-home
@@ -357,7 +364,7 @@ sudo -u openhands-agent env   HOME=/home/vercel-sandbox/agent-home   OPENHANDS_W
     return int(command.exit_code)
 
 
-def _stop_gateway(sandbox:Sandbox)->None:
+def _stop_gateway(sandbox:Any)->None:
     script=r"""
 set -eu
 if [ -f /home/vercel-sandbox/gateway.pid ]; then
@@ -375,7 +382,7 @@ fi
         pass
 
 
-def _run_independent_tests(sandbox:Sandbox)->int:
+def _run_independent_tests(sandbox:Any)->int:
     script=r"""
 set -eu
 cd /home/vercel-sandbox/workspace
@@ -390,7 +397,7 @@ python -m unittest discover -s tests -q > /home/vercel-sandbox/tests.log 2>&1
     return int(command.exit_code)
 
 
-def _hash_artifacts(sandbox:Sandbox)->dict[str,Any]:
+def _hash_artifacts(sandbox:Any)->dict[str,Any]:
     script=r"""
 import hashlib,json,pathlib
 root=pathlib.Path('/home/vercel-sandbox/workspace/artifact')
@@ -437,7 +444,7 @@ def _failure_result(
     *,
     phase:str,
     error:Exception,
-    sandbox:Sandbox|None,
+    sandbox:Any | None,
     started:float,
 )->dict[str,Any]:
     audit=_read_audit_safe(sandbox)
@@ -470,18 +477,30 @@ def _failure_result(
     return result
 
 
-def run_vercel_live_acceptance(trigger_token:str)->dict[str,Any]:
+def run_vercel_live_acceptance(
+    trigger_token:str,
+    *,
+    vercel_oidc_token:str | None=None,
+)->dict[str,Any]:
     _verify_trigger(trigger_token)
     provider_key=_provider_key()
     started=time.time()
-    sandbox:Sandbox|None=None
-    phase="create_sandbox"
+    sandbox:Any | None=None
+    phase="resolve_vercel_identity"
 
     try:
+        oidc=(vercel_oidc_token or "").strip()
+        if not oidc:
+            raise LiveAcceptanceError(
+                "x-vercel-oidc-token request header is unavailable"
+            )
+        _, _, _, Sandbox = _sdk_types()
+        phase="create_sandbox"
         sandbox=Sandbox.create(
             runtime="python3.13",
             timeout=290_000,
             resources={"vcpus":2,"memory":4096},
+            token=oidc,
             project_id=VERCEL_PROJECT_ID,
             team_id=VERCEL_TEAM_ID,
             network_policy=_setup_policy(),
