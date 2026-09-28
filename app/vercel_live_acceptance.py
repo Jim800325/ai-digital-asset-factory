@@ -578,6 +578,7 @@ fi
 id openhands-agent >/dev/null 2>&1 || useradd --create-home --shell /bin/sh openhands-agent
 mkdir -p /home/vercel-sandbox/workspace /home/vercel-sandbox/agent-home
 chown -R openhands-agent:openhands-agent /home/vercel-sandbox/workspace /home/vercel-sandbox/agent-home
+chmod 0711 /home/vercel-sandbox
 chmod 0700 /home/vercel-sandbox/workspace /home/vercel-sandbox/agent-home
 chmod 0755 /opt/openhands /opt/openhands/bin
 sudo -u openhands-agent env | grep -E 'AIHUBMIX|VERCEL_TOKEN|VERCEL_OIDC_TOKEN' && exit 71 || true
