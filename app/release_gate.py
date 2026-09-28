@@ -142,6 +142,9 @@ def ensure_release_candidate(request_id):
             })
             created=False
 
+    from app.release_review import ensure_release_review_package
+
+    review=ensure_release_review_package(candidate_id)
     return {
         "release_candidate_id":str(candidate_id),
         "request_id":str(source["request_id"]),
@@ -149,6 +152,10 @@ def ensure_release_candidate(request_id):
         "release_status":status,
         "live_validation_verified":live_ok,
         "artifact_manifest_sha256":manifest_sha,
+        "review_package_id":review["review_package_id"],
+        "review_package_sha256":review["package_sha256"],
+        "source_tree_sha256":review["source_tree_sha256"],
+        "review_snapshot_complete":review["content_snapshot_complete"],
         "deployment_enabled":False,
         "created":created,
     }
