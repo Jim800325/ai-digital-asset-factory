@@ -3,8 +3,24 @@ CREATE TABLE IF NOT EXISTS sandbox_artifact_contents (
   content_bytes bytea NOT NULL,
   content_sha256 text NOT NULL,
   captured_at timestamptz NOT NULL DEFAULT now(),
-  CHECK (length(content_sha256)=64)
+  CHECK (length(content_sha256)=64),
+  CHECK (encode(digest(content_bytes,'sha256'),'hex')=content_sha256)
 );
+
+CREATE OR REPLACE FUNCTION protect_artifact_content_snapshot()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $
+BEGIN
+  RAISE EXCEPTION 'Artifact content snapshots are immutable';
+END;
+$;
+
+DROP TRIGGER IF EXISTS trg_artifact_content_snapshot_immutable ON sandbox_artifact_contents;
+CREATE TRIGGER trg_artifact_content_snapshot_immutable
+BEFORE UPDATE OR DELETE ON sandbox_artifact_contents
+FOR EACH ROW
+EXECUTE FUNCTION protect_artifact_content_snapshot();
 
 CREATE TABLE IF NOT EXISTS release_review_packages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -47,6 +63,8 @@ BEGIN
        OR NEW.proposal_id<>OLD.proposal_id
        OR NEW.proposal_revision<>OLD.proposal_revision
        OR NEW.run_id<>OLD.run_id
+       OR NEW.baseline_package_id IS DISTINCT FROM OLD.baseline_package_id
+       OR NEW.content_snapshot_complete<>OLD.content_snapshot_complete
        OR NEW.artifact_manifest<>OLD.artifact_manifest
        OR NEW.artifact_diff<>OLD.artifact_diff
        OR NEW.dependency_inventory<>OLD.dependency_inventory
