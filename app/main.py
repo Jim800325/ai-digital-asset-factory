@@ -259,7 +259,6 @@ def build_proposal_decision(
             decision=payload.decision,
             reason=payload.reason,
             actor=payload.actor,
-            review_package_sha256=payload.review_package_sha256,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
@@ -444,6 +443,7 @@ def release_candidate_decision(
             decision=payload.decision,
             reason=payload.reason,
             actor=payload.actor,
+            review_package_sha256=payload.review_package_sha256,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
