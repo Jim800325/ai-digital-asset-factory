@@ -463,6 +463,10 @@ def execute_openhands_request(request_id):
         if gateway:
             gateway_result=_run(["docker","logs",gateway],timeout=20,check=False)
             gateway_logs=_clip((gateway_result.stdout or "")+"\n"+(gateway_result.stderr or ""))
+        gateway_audit=_read_gateway_audit(audit_dir)
+        budget_blocked=bool(gateway_audit.get("blocked"))
+        budget_reason=str(gateway_audit.get("blocked_reason") or "")
+        terminal_status="BLOCKED" if budget_blocked else "FAILED"
         with engine.begin() as db:
             if run_id is not None:
                 db.execute(text("""
@@ -477,15 +481,39 @@ def execute_openhands_request(request_id):
                   UPDATE openhands_executions
                   SET exit_code=COALESCE(exit_code,1),
                       trace_jsonl=CASE WHEN trace_jsonl='' THEN :trace ELSE trace_jsonl END,
+                      budget_status=:budget_status,
+                      gateway_request_count=:request_count,
+                      prompt_tokens=:prompt_tokens,
+                      completion_tokens=:completion_tokens,
+                      total_tokens=:total_tokens,
+                      estimated_cost_usd=:cost,
+                      blocked_reason=:blocked_reason,
+                      budget_snapshot=CAST(:budget_snapshot AS jsonb),
+                      live_model_verified=false,
                       finished_at=COALESCE(finished_at,now())
                   WHERE id=:id
-                """),{"trace":_clip(cli_out+"\n"+str(exc)),"id":execution_id})
+                """),{
+                    "trace":_clip(cli_out+"\n"+str(exc)),
+                    "budget_status":gateway_audit.get("budget_status","NOT_EVALUATED"),
+                    "request_count":int(gateway_audit.get("request_count") or 0),
+                    "prompt_tokens":int(gateway_audit.get("prompt_tokens") or 0),
+                    "completion_tokens":int(gateway_audit.get("completion_tokens") or 0),
+                    "total_tokens":int(gateway_audit.get("total_tokens") or 0),
+                    "cost":float(gateway_audit.get("estimated_cost_usd") or 0),
+                    "blocked_reason":budget_reason or None,
+                    "budget_snapshot":json.dumps(gateway_audit.get("limits") or {},ensure_ascii=False),
+                    "id":execution_id,
+                })
             db.execute(text("""
               UPDATE sandbox_build_requests
-              SET request_status='FAILED',error=:error,finished_at=now()
+              SET request_status=:status,error=:error,finished_at=now()
               WHERE id=:id
             """),{
-                "error":_clip(str(exc)+"\n--- gateway ---\n"+gateway_logs),
+                "status":terminal_status,
+                "error":_clip(
+                    (("budget blocked: "+budget_reason+"\n") if budget_blocked else "")
+                    +str(exc)+"\n--- gateway ---\n"+gateway_logs
+                ),
                 "id":request["id"],
             })
         raise
