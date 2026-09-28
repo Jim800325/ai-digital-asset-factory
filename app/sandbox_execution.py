@@ -210,6 +210,7 @@ def create_sandbox_request(
     }
 
 def execute_sandbox_request(request_id):
+    dispatch_openhands=False
     with engine.begin() as db:
         request=db.execute(text("""
           SELECT id,proposal_id,proposal_revision,source_fingerprint,
@@ -223,34 +224,37 @@ def execute_sandbox_request(request_id):
         if request["request_status"]!="POLICY_PASSED":
             raise RuntimeError("Sandbox request is not POLICY_PASSED")
         if request["executor_kind"]=="OPENHANDS":
-            from app.openhands_adapter import execute_openhands_request
-            return execute_openhands_request(request["id"])
+            dispatch_openhands=True
+        else:
+            workspace=workspace_path_for(request["workspace_id"])
+            if workspace.exists():
+                raise RuntimeError("Workspace already exists")
+            workspace.mkdir(parents=False,exist_ok=False)
+            workspace.chmod(0o700)
+            _write_acceptance_fixture(workspace)
 
-        workspace=workspace_path_for(request["workspace_id"])
-        if workspace.exists():
-            raise RuntimeError("Workspace already exists")
-        workspace.mkdir(parents=False,exist_ok=False)
-        workspace.chmod(0o700)
-        _write_acceptance_fixture(workspace)
+            run_id=db.execute(text("""
+              INSERT INTO sandbox_runs(
+                request_id,workspace_id,workspace_path,executor_kind,
+                container_image,container_network)
+              VALUES(:request_id,:workspace_id,:workspace_path,:executor,:image,'none')
+              RETURNING id
+            """),{
+                "request_id":request["id"],
+                "workspace_id":request["workspace_id"],
+                "workspace_path":str(workspace),
+                "executor":request["executor_kind"],
+                "image":request["sandbox_image"],
+            }).scalar_one()
+            db.execute(text("""
+              UPDATE sandbox_build_requests
+              SET request_status='RUNNING',started_at=now()
+              WHERE id=:id
+            """),{"id":request["id"]})
 
-        run_id=db.execute(text("""
-          INSERT INTO sandbox_runs(
-            request_id,workspace_id,workspace_path,executor_kind,
-            container_image,container_network)
-          VALUES(:request_id,:workspace_id,:workspace_path,:executor,:image,'none')
-          RETURNING id
-        """),{
-            "request_id":request["id"],
-            "workspace_id":request["workspace_id"],
-            "workspace_path":str(workspace),
-            "executor":request["executor_kind"],
-            "image":request["sandbox_image"],
-        }).scalar_one()
-        db.execute(text("""
-          UPDATE sandbox_build_requests
-          SET request_status='RUNNING',started_at=now()
-          WHERE id=:id
-        """),{"id":request["id"]})
+    if dispatch_openhands:
+        from app.openhands_adapter import execute_openhands_request
+        return execute_openhands_request(request["id"])
 
     build_code=1
     build_out=""
