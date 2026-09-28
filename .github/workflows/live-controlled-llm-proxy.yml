@@ -1,0 +1,114 @@
+name: live-controlled-llm-proxy
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: OpenHands model identifier (must match allowlist)
+        required: true
+        type: string
+      upstream_url:
+        description: HTTPS OpenAI-compatible base URL ending in /v1
+        required: true
+        type: string
+      input_cost_per_1m_usd:
+        description: Input token price per 1M tokens
+        required: true
+        default: "1.00"
+        type: string
+      output_cost_per_1m_usd:
+        description: Output token price per 1M tokens
+        required: true
+        default: "4.00"
+        type: string
+      max_cost_usd:
+        description: Total run cost ceiling
+        required: true
+        default: "0.25"
+        type: string
+      max_cost_per_request_usd:
+        description: Per-request cost ceiling
+        required: true
+        default: "0.10"
+        type: string
+
+jobs:
+  controlled-live-acceptance:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: assetfactory
+          POSTGRES_USER: assetfactory
+          POSTGRES_PASSWORD: assetfactory
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U assetfactory -d assetfactory"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      DATABASE_URL: postgresql+psycopg://assetfactory:assetfactory@localhost:5432/assetfactory
+      REDIS_URL: redis://localhost:6379/0
+      GITHUB_DISCOVERY_ENABLED: "false"
+      SEED_URLS: ""
+      LIVE_PROXY_ACCEPTANCE: "1"
+      SANDBOX_EXECUTION_ENABLED: "true"
+      SANDBOX_WORKSPACE_ROOT: /tmp/asset-factory-workspaces
+      SANDBOX_IMAGE: python:3.12-slim
+      SANDBOX_TIMEOUT_SECONDS: "300"
+      OPENHANDS_ENABLED: "true"
+      OPENHANDS_RUNTIME: process
+      OPENHANDS_CLI_VERSION: "1.16.0"
+      OPENHANDS_CLI_IMAGE: asset-factory-openhands:1.16.0
+      OPENHANDS_GATEWAY_MODE: PROXY
+      OPENHANDS_GATEWAY_IMAGE: python:3.12-slim
+      OPENHANDS_MODEL: ${{ inputs.model }}
+      OPENHANDS_ALLOWED_MODELS: ${{ inputs.model }}
+      OPENHANDS_LLM_UPSTREAM_URL: ${{ inputs.upstream_url }}
+      OPENHANDS_LLM_API_KEY: ${{ secrets.OPENHANDS_LLM_API_KEY }}
+      OPENHANDS_MAX_REQUESTS: "8"
+      OPENHANDS_MAX_PROMPT_TOKENS_PER_REQUEST: "12000"
+      OPENHANDS_MAX_COMPLETION_TOKENS_PER_REQUEST: "4000"
+      OPENHANDS_MAX_TOTAL_TOKENS: "24000"
+      OPENHANDS_MAX_COST_PER_REQUEST_USD: ${{ inputs.max_cost_per_request_usd }}
+      OPENHANDS_MAX_COST_USD: ${{ inputs.max_cost_usd }}
+      OPENHANDS_INPUT_COST_PER_1M_USD: ${{ inputs.input_cost_per_1m_usd }}
+      OPENHANDS_OUTPUT_COST_PER_1M_USD: ${{ inputs.output_cost_per_1m_usd }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Require live model secret
+        run: |
+          python - <<'PY'
+          import os
+          assert os.environ.get("OPENHANDS_LLM_API_KEY","").strip(), (
+              "GitHub Actions secret OPENHANDS_LLM_API_KEY is required"
+          )
+          PY
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Apply migrations
+        run: python -m app.migrate
+      - name: Build pinned OpenHands image
+        run: |
+          docker pull python:3.12-slim
+          docker build -f docker/openhands/Dockerfile -t asset-factory-openhands:1.16.0 .
+      - name: Run one live controlled build
+        run: python -m pytest -q tests/test_live_proxy_acceptance.py --timeout=300 --timeout-method=signal
