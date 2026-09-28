@@ -124,11 +124,7 @@ def _capture_artifacts(run_id, workspace: Path) -> int:
             artifact_id=db.execute(text("""
               INSERT INTO sandbox_artifacts(run_id,relative_path,sha256,byte_size,media_type)
               VALUES(CAST(:run_id AS uuid),:path,:sha,:size,:media)
-              ON CONFLICT(run_id,relative_path) DO UPDATE SET
-                sha256=excluded.sha256,
-                byte_size=excluded.byte_size,
-                media_type=excluded.media_type,
-                captured_at=now()
+              ON CONFLICT(run_id,relative_path) DO NOTHING
               RETURNING id
             """),{
                 "run_id":run_id,
@@ -136,7 +132,25 @@ def _capture_artifacts(run_id, workspace: Path) -> int:
                 "sha":item["sha256"],
                 "size":item["byte_size"],
                 "media":item["media_type"],
-            }).scalar_one()
+            }).scalar_one_or_none()
+            if artifact_id is None:
+                existing_artifact=db.execute(text("""
+                  SELECT id,sha256,byte_size,media_type
+                  FROM sandbox_artifacts
+                  WHERE run_id=CAST(:run_id AS uuid)
+                    AND relative_path=:path
+                """),{
+                    "run_id":run_id,
+                    "path":item["relative_path"],
+                }).mappings().one()
+                if (
+                    existing_artifact["sha256"]!=item["sha256"]
+                    or int(existing_artifact["byte_size"])!=item["byte_size"]
+                    or existing_artifact["media_type"]!=item["media_type"]
+                ):
+                    raise RuntimeError("Captured artifact metadata mismatch")
+                artifact_id=existing_artifact["id"]
+
             existing=db.execute(text("""
               SELECT content_sha256
               FROM sandbox_artifact_contents
