@@ -676,6 +676,67 @@ def _stop_gateway(
         pass
 
 
+def _preflight_openhands_agent(
+    client:httpx.Client,
+    oidc:str,
+    session_id:str,
+    local_token:str,
+    gateway_url:str,
+)->None:
+    base_url=gateway_url.rstrip("/")+"/v1"
+    script=r"""
+set -eu
+cd /home/vercel-sandbox/workspace
+sudo -u openhands-agent env \
+  HOME=/home/vercel-sandbox/agent-home \
+  OPENHANDS_WORK_DIR=/home/vercel-sandbox/workspace \
+  OPENHANDS_PERSISTENCE_DIR=/home/vercel-sandbox/agent-home/state \
+  OPENHANDS_CONVERSATIONS_DIR=/home/vercel-sandbox/agent-home/conversations \
+  RUNTIME=process \
+  OPENHANDS_SUPPRESS_BANNER=1 \
+  PYTHONUTF8=1 \
+  PYTHONIOENCODING=utf-8 \
+  LANG=C.UTF-8 \
+  LC_ALL=C.UTF-8 \
+  LLM_API_KEY="$LOCAL_GATEWAY_TOKEN" \
+  LLM_MODEL="$OPENHANDS_MODEL_NAME" \
+  LLM_BASE_URL="$GATEWAY_BASE_URL" \
+  /opt/openhands/bin/python - <<'PY' > /home/vercel-sandbox/preflight.log 2>&1
+from openhands_cli.stores.agent_store import AgentStore
+agent=AgentStore().load_or_create(
+    env_overrides_enabled=True,
+    critic_disabled=True,
+)
+if agent is None:
+    raise RuntimeError("AgentStore returned no agent")
+print("agent_model="+str(agent.llm.model))
+print("agent_base_url="+str(agent.llm.base_url))
+print("agent_tools="+str(len(agent.tools)))
+PY
+"""
+    code=_run_command(
+        client,oidc,session_id,
+        "sh",["-lc",script],
+        env={
+            "LOCAL_GATEWAY_TOKEN":local_token,
+            "OPENHANDS_MODEL_NAME":OPENHANDS_MODEL,
+            "GATEWAY_BASE_URL":base_url,
+        },
+        sudo=True,
+        timeout_ms=30_000,
+        operation="preflight OpenHands agent configuration",
+    )
+    if code!=0:
+        raise LiveAcceptanceError(
+            "OpenHands agent preflight failed: "
+            +_read_text_safe(
+                client,oidc,session_id,
+                f"{WORKDIR}/preflight.log",
+                limit=8000,
+            )
+        )
+
+
 def _run_openhands(
     client:httpx.Client,
     oidc:str,
@@ -912,6 +973,12 @@ def run_vercel_live_acceptance(
                 raise LiveAcceptanceError(
                     f"Agent-to-Gateway health check failed ({health_code})"
                 )
+
+            phase="openhands_agent_preflight"
+            _preflight_openhands_agent(
+                client,oidc,agent_session,
+                local_token,gateway_url,
+            )
 
             phase="run_openhands"
             openhands_exit_code=_run_openhands(
