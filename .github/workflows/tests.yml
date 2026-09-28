@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  v03-sandbox-execution-acceptance:
+  v03-openhands-sandbox-adapter:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -42,8 +42,14 @@ jobs:
       SANDBOX_EXECUTION_ENABLED: "true"
       SANDBOX_WORKSPACE_ROOT: /tmp/asset-factory-workspaces
       SANDBOX_IMAGE: python:3.12-slim
-      OPENHANDS_ENABLED: "false"
-      OPENHANDS_RUNTIME: docker
+      SANDBOX_TIMEOUT_SECONDS: "300"
+      OPENHANDS_ENABLED: "true"
+      OPENHANDS_RUNTIME: process
+      OPENHANDS_CLI_VERSION: "1.16.0"
+      OPENHANDS_CLI_IMAGE: asset-factory-openhands:1.16.0
+      OPENHANDS_GATEWAY_MODE: MOCK
+      OPENHANDS_GATEWAY_IMAGE: python:3.12-slim
+      OPENHANDS_MODEL: openai/mock
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -57,7 +63,7 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q app tests
 
-      - name: Apply migrations 001 through 009
+      - name: Apply migrations 001 through 010
         run: python -m app.migrate
 
       - name: Verify migration set
@@ -75,6 +81,7 @@ jobs:
               "007_research_validation.sql",
               "008_build_proposals.sql",
               "009_sandbox_execution.sql",
+              "010_openhands_adapter.sql",
           ]
           with engine.connect() as db:
               actual = [r[0] for r in db.execute(
@@ -84,63 +91,111 @@ jobs:
           print("migrations:", actual)
           PY
 
-      - name: Pre-pull sandbox image
-        run: docker pull python:3.12-slim
+      - name: Pre-pull sandbox images
+        run: |
+          docker pull python:3.12-slim
+          docker build -f docker/openhands/Dockerfile -t asset-factory-openhands:1.16.0 .
+
+      - name: Verify pinned OpenHands CLI
+        run: |
+          docker run --rm --entrypoint openhands asset-factory-openhands:1.16.0 --version
 
       - name: Run full test suite
         run: python -m pytest -q
 
-      - name: Verify final sandbox artifact remains isolated and production-disabled
+      - name: Verify OpenHands artifact remains isolated and production-disabled
         run: |
           python - <<'PY'
           from sqlalchemy import text
           from app.db import engine
+
           with engine.connect() as db:
-              row = db.execute(text("""
+              base = db.execute(text("""
                   SELECT o.status,o.evidence_gate_passed,o.build_readiness,
                          o.build_proposal_status,
                          rv.validation_status,rv.completeness_score,
                          rv.validation_gate_passed,rv.observe_only,
                          bp.proposal_status,bp.requires_human_approval,
                          bp.execution_enabled,
-                         COUNT(DISTINCT d.id) AS decisions,
-                         sbr.request_status AS sandbox_status,
-                         sbr.network_policy,sbr.workspace_policy,
-                         sbr.external_side_effects,
-                         sr.container_network,sr.exit_code,
-                         COUNT(DISTINCT sa.id) AS artifacts,
-                         COUNT(DISTINCT str.id) FILTER (WHERE str.passed=true) AS passed_tests
+                         COUNT(DISTINCT d.id) AS decisions
                   FROM digital_asset_opportunities o
                   JOIN research_validations rv ON rv.opportunity_id=o.id
                   JOIN build_proposals bp ON bp.opportunity_id=o.id
                   LEFT JOIN build_proposal_decisions d ON d.proposal_id=bp.id
-                  JOIN sandbox_build_requests sbr ON sbr.proposal_id=bp.id
+                  GROUP BY o.id,rv.id,bp.id
+                  LIMIT 1
+              """)).mappings().one()
+
+              ordinary = db.execute(text("""
+                  SELECT sbr.request_status,sbr.network_policy,
+                         sr.container_network,sr.exit_code,
+                         COUNT(DISTINCT sa.id) AS artifacts,
+                         COUNT(DISTINCT str.id) FILTER (WHERE str.passed=true) AS passed_tests
+                  FROM sandbox_build_requests sbr
                   JOIN sandbox_runs sr ON sr.request_id=sbr.id
                   LEFT JOIN sandbox_artifacts sa ON sa.run_id=sr.id
                   LEFT JOIN sandbox_test_results str ON str.run_id=sr.id
-                  GROUP BY o.id,rv.id,bp.id,sbr.id,sr.id
+                  WHERE sbr.executor_kind='ACCEPTANCE'
+                  GROUP BY sbr.id,sr.id
                   ORDER BY sr.finished_at DESC
                   LIMIT 1
               """)).mappings().one()
-          assert row["status"] == "CANDIDATE", row
-          assert row["evidence_gate_passed"] is True, row
-          assert row["build_readiness"] == "BUILD_READY", row
-          assert row["validation_status"] == "CURRENT", row
-          assert float(row["completeness_score"]) >= 75, row
-          assert row["validation_gate_passed"] is True, row
-          assert row["observe_only"] is True, row
-          assert row["build_proposal_status"] == "APPROVED", row
-          assert row["proposal_status"] == "APPROVED", row
-          assert row["requires_human_approval"] is True, row
-          assert row["execution_enabled"] is False, row
-          assert row["decisions"] == 1, row
-          assert row["sandbox_status"] == "ARTIFACT_READY", row
-          assert row["network_policy"] == "DENY", row
-          assert row["workspace_policy"] == "ISOLATED_RW", row
-          assert row["external_side_effects"] == "DENY", row
-          assert row["container_network"] == "none", row
-          assert row["exit_code"] == 0, row
-          assert row["artifacts"] >= 2, row
-          assert row["passed_tests"] == 1, row
-          print("acceptance:", dict(row))
+
+              oh = db.execute(text("""
+                  SELECT sbr.request_status,sbr.network_policy,
+                         sbr.external_side_effects,
+                         sr.container_network,sr.exit_code,
+                         oe.cli_version,oe.model_name,oe.inner_runtime,
+                         oe.network_policy AS oh_network_policy,
+                         oe.gateway_mode,oe.exit_code AS openhands_exit_code,
+                         COUNT(DISTINCT sa.id) AS artifacts,
+                         COUNT(DISTINCT str.id) FILTER (WHERE str.passed=true) AS passed_tests
+                  FROM sandbox_build_requests sbr
+                  JOIN sandbox_runs sr ON sr.request_id=sbr.id
+                  JOIN openhands_executions oe ON oe.request_id=sbr.id
+                  LEFT JOIN sandbox_artifacts sa ON sa.run_id=sr.id
+                  LEFT JOIN sandbox_test_results str ON str.run_id=sr.id
+                  WHERE sbr.executor_kind='OPENHANDS'
+                  GROUP BY sbr.id,sr.id,oe.id
+                  ORDER BY sr.finished_at DESC
+                  LIMIT 1
+              """)).mappings().one()
+
+          assert base["status"] == "CANDIDATE", base
+          assert base["evidence_gate_passed"] is True, base
+          assert base["build_readiness"] == "BUILD_READY", base
+          assert base["validation_status"] == "CURRENT", base
+          assert float(base["completeness_score"]) >= 75, base
+          assert base["validation_gate_passed"] is True, base
+          assert base["observe_only"] is True, base
+          assert base["build_proposal_status"] == "APPROVED", base
+          assert base["proposal_status"] == "APPROVED", base
+          assert base["requires_human_approval"] is True, base
+          assert base["execution_enabled"] is False, base
+          assert base["decisions"] == 1, base
+
+          assert ordinary["request_status"] == "ARTIFACT_READY", ordinary
+          assert ordinary["network_policy"] == "DENY", ordinary
+          assert ordinary["container_network"] == "none", ordinary
+          assert ordinary["exit_code"] == 0, ordinary
+          assert ordinary["artifacts"] >= 2, ordinary
+          assert ordinary["passed_tests"] == 1, ordinary
+
+          assert oh["request_status"] == "ARTIFACT_READY", oh
+          assert oh["network_policy"] == "INTERNAL_GATEWAY_ONLY", oh
+          assert oh["external_side_effects"] == "DENY", oh
+          assert oh["container_network"] == "internal-gateway", oh
+          assert oh["exit_code"] == 0, oh
+          assert oh["cli_version"] == "1.16.0", oh
+          assert oh["model_name"] == "openai/mock", oh
+          assert oh["inner_runtime"] == "process", oh
+          assert oh["oh_network_policy"] == "INTERNAL_GATEWAY_ONLY", oh
+          assert oh["gateway_mode"] == "MOCK", oh
+          assert oh["openhands_exit_code"] == 0, oh
+          assert oh["artifacts"] >= 2, oh
+          assert oh["passed_tests"] == 1, oh
+
+          print("base:", dict(base))
+          print("ordinary_sandbox:", dict(ordinary))
+          print("openhands:", dict(oh))
           PY
