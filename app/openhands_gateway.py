@@ -189,51 +189,78 @@ class BudgetState:
 
     def preflight(self,body):
         if MODE!="PROXY":
-            return True,""
+            return True,"",None
         with self.lock:
             if self.blocked:
-                return False,self.blocked_reason or "gateway already blocked"
+                return False,self.blocked_reason or "gateway already blocked",None
             model=str(body.get("model") or "").strip()
             self.last_model=model
             if not _allowed_model(model,ALLOWED_MODELS):
-                return self._block("model_not_allowed")
+                ok,reason=self._block("model_not_allowed")
+                return ok,reason,None
             if self.request_count>=MAX_REQUESTS:
-                return self._block("request_limit_exceeded")
+                ok,reason=self._block("request_limit_exceeded")
+                return ok,reason,None
             prompt_estimate=_estimate_prompt_tokens(body)
             completion_requested=_requested_completion_tokens(body)
             if prompt_estimate>MAX_PROMPT_TOKENS_PER_REQUEST:
-                return self._block("prompt_token_limit_exceeded")
+                ok,reason=self._block("prompt_token_limit_exceeded")
+                return ok,reason,None
             if completion_requested<1 or completion_requested>MAX_COMPLETION_TOKENS_PER_REQUEST:
-                return self._block("completion_token_limit_exceeded")
-            projected_tokens=self.total_tokens+prompt_estimate+completion_requested
+                ok,reason=self._block("completion_token_limit_exceeded")
+                return ok,reason,None
+            reserved_total=prompt_estimate+completion_requested
+            projected_tokens=self.total_tokens+reserved_total
             if projected_tokens>MAX_TOTAL_TOKENS:
-                return self._block("total_token_budget_exceeded")
-            projected_cost=_cost(prompt_estimate,completion_requested)
-            if projected_cost>MAX_COST_PER_REQUEST_USD:
-                return self._block("per_request_cost_budget_exceeded")
-            if self.estimated_cost_usd+projected_cost>MAX_COST_USD:
-                return self._block("total_cost_budget_exceeded")
-            self.request_count+=1
-            self._persist()
-            return True,""
+                ok,reason=self._block("total_token_budget_exceeded")
+                return ok,reason,None
+            reserved_cost=_cost(prompt_estimate,completion_requested)
+            if reserved_cost>MAX_COST_PER_REQUEST_USD:
+                ok,reason=self._block("per_request_cost_budget_exceeded")
+                return ok,reason,None
+            if self.estimated_cost_usd+reserved_cost>MAX_COST_USD:
+                ok,reason=self._block("total_cost_budget_exceeded")
+                return ok,reason,None
 
-    def record_usage(self,usage):
-        if MODE!="PROXY" or usage is None:
+            # Reserve the conservative maximum before contacting the provider.
+            # This keeps the total budget enforceable even if a streaming provider
+            # omits usage metadata.
+            self.request_count+=1
+            self.prompt_tokens+=prompt_estimate
+            self.completion_tokens+=completion_requested
+            self.total_tokens+=reserved_total
+            self.estimated_cost_usd+=reserved_cost
+            reservation={
+                "prompt_tokens":prompt_estimate,
+                "completion_tokens":completion_requested,
+                "total_tokens":reserved_total,
+                "cost_usd":reserved_cost,
+            }
+            self._persist()
+            return True,"",reservation
+
+    def record_usage(self,usage,reservation):
+        if MODE!="PROXY" or usage is None or reservation is None:
             return
         prompt,completion,total=usage
+        prompt=max(0,prompt)
+        completion=max(0,completion)
+        total=max(0,total)
+        actual_cost=_cost(prompt,completion)
         with self.lock:
-            self.prompt_tokens+=max(0,prompt)
-            self.completion_tokens+=max(0,completion)
-            self.total_tokens+=max(0,total)
-            request_cost=_cost(max(0,prompt),max(0,completion))
-            self.estimated_cost_usd+=request_cost
+            # Never refund a reservation. Only charge any provider usage above
+            # the conservative amount already reserved at preflight.
+            self.prompt_tokens+=max(0,prompt-int(reservation["prompt_tokens"]))
+            self.completion_tokens+=max(0,completion-int(reservation["completion_tokens"]))
+            self.total_tokens+=max(0,total-int(reservation["total_tokens"]))
+            self.estimated_cost_usd+=max(0,actual_cost-float(reservation["cost_usd"]))
             if prompt>MAX_PROMPT_TOKENS_PER_REQUEST:
                 self._block("actual_prompt_token_limit_exceeded")
                 return
             if completion>MAX_COMPLETION_TOKENS_PER_REQUEST:
                 self._block("actual_completion_token_limit_exceeded")
                 return
-            if request_cost>MAX_COST_PER_REQUEST_USD:
+            if actual_cost>MAX_COST_PER_REQUEST_USD:
                 self._block("actual_per_request_cost_budget_exceeded")
                 return
             if self.total_tokens>MAX_TOTAL_TOKENS:
@@ -292,7 +319,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400,{"error":{"message":"invalid json","type":"invalid_request_error"}})
             return
 
-        ok,reason=BUDGET.preflight(body)
+        ok,reason,reservation=BUDGET.preflight(body)
         if not ok:
             self._json(429,{"error":{"message":reason,"type":"budget_exceeded","code":reason}})
             return
@@ -416,7 +443,7 @@ class Handler(BaseHTTPRequestHandler):
             with urllib.request.urlopen(req,timeout=120) as resp:
                 data=resp.read()
                 content_type=resp.headers.get("Content-Type","application/json")
-                BUDGET.record_usage(_usage_from_bytes(data,content_type))
+                BUDGET.record_usage(_usage_from_bytes(data,content_type),reservation)
                 self.send_response(resp.status)
                 self.send_header("Content-Type",content_type)
                 self.send_header("Content-Length",str(len(data)))
