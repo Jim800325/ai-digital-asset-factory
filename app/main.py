@@ -3,6 +3,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from redis import Redis
 from rq import Queue
@@ -13,9 +14,13 @@ from app.config import settings
 from app.db import engine
 from app.release_gate import decide_release_candidate, ensure_release_candidate
 from app.release_review import ensure_release_review_package
+from app.review_ui import STATIC_DIR, router as review_ui_router
+from app.review_workspace import get_review_workspace, list_review_workspace
 from app.workers.pipeline import run_pipeline
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
+app.mount("/review-assets", StaticFiles(directory=STATIC_DIR), name="review-assets")
+app.include_router(review_ui_router)
 
 class BuildProposalDecision(BaseModel):
     decision: Literal["APPROVE","REJECT"]
@@ -26,6 +31,7 @@ class ReleaseDecision(BaseModel):
     decision: Literal["APPROVE","REJECT"]
     reason: str = Field(min_length=3,max_length=4000)
     actor: str = Field(default="human-release-api",min_length=1,max_length=200)
+    review_package_sha256: str | None = Field(default=None,min_length=64,max_length=64)
 
 def _require_approval_key(provided: str | None) -> None:
     expected=settings.human_approval_key.strip()
@@ -58,6 +64,7 @@ def health():
         "release_gate":"ENABLED" if settings.human_release_key.strip() else "DISABLED",
         "release_deployment":"DISABLED",
         "release_review_package":"ENABLED",
+        "human_review_workspace":"ENABLED",
         "build_execution":"DISABLED",
         "sandbox_execution":"ENABLED" if settings.sandbox_execution_enabled else "DISABLED",
         "openhands_adapter":"ENABLED" if settings.openhands_enabled else "DISABLED",
@@ -252,6 +259,7 @@ def build_proposal_decision(
             decision=payload.decision,
             reason=payload.reason,
             actor=payload.actor,
+            review_package_sha256=payload.review_package_sha256,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
@@ -489,3 +497,15 @@ def release_review_package(candidate_id: UUID):
     if row is None:
         raise HTTPException(status_code=404,detail="Release review package not found")
     return dict(row)
+
+
+@app.get("/v1/review-workspace")
+def review_workspace(limit: int = 50):
+    return list_review_workspace(limit)
+
+@app.get("/v1/review-workspace/{candidate_id}")
+def review_workspace_candidate(candidate_id: UUID):
+    try:
+        return get_review_workspace(candidate_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
