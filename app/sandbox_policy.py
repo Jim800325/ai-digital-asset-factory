@@ -79,6 +79,28 @@ def validate_execution_policy(*,executor_kind:str,sandbox_image:str)->dict:
             _validate_upstream_url(settings.openhands_llm_upstream_url.strip())
             if not settings.openhands_llm_api_key.strip():
                 raise RuntimeError("OpenHands upstream LLM API key is not configured")
+            allowed=settings.openhands_allowed_model_list
+            if not allowed:
+                raise RuntimeError("OpenHands model allowlist is not configured")
+            configured_model=settings.openhands_model.strip()
+            if configured_model not in allowed:
+                raise RuntimeError("Configured OpenHands model is not in allowlist")
+            if settings.openhands_max_requests < 1:
+                raise RuntimeError("OpenHands max requests must be positive")
+            if settings.openhands_max_prompt_tokens_per_request < 1:
+                raise RuntimeError("OpenHands prompt token limit must be positive")
+            if settings.openhands_max_completion_tokens_per_request < 1:
+                raise RuntimeError("OpenHands completion token limit must be positive")
+            if settings.openhands_max_total_tokens < 1:
+                raise RuntimeError("OpenHands total token limit must be positive")
+            if settings.openhands_max_cost_per_request_usd <= 0:
+                raise RuntimeError("OpenHands per-request cost budget must be positive")
+            if settings.openhands_max_cost_usd <= 0:
+                raise RuntimeError("OpenHands total cost budget must be positive")
+            if settings.openhands_input_cost_per_1m_usd <= 0:
+                raise RuntimeError("OpenHands input token pricing must be configured")
+            if settings.openhands_output_cost_per_1m_usd <= 0:
+                raise RuntimeError("OpenHands output token pricing must be configured")
 
     return execution_policy_snapshot(
         executor_kind=executor,
