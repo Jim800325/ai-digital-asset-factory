@@ -2,6 +2,9 @@ name: live-controlled-llm-proxy
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - controlled-live-acceptance
 
 jobs:
   controlled-live-acceptance:
