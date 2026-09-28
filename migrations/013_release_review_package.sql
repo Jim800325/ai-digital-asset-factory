@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS sandbox_artifact_contents (
 CREATE OR REPLACE FUNCTION validate_artifact_content_snapshot()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $$
 DECLARE
   expected_sha text;
   expected_size bigint;
@@ -31,7 +31,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS trg_validate_artifact_content_snapshot ON sandbox_artifact_contents;
 CREATE TRIGGER trg_validate_artifact_content_snapshot
@@ -42,11 +42,11 @@ EXECUTE FUNCTION validate_artifact_content_snapshot();
 CREATE OR REPLACE FUNCTION protect_artifact_content_snapshot()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $$
 BEGIN
   RAISE EXCEPTION 'Artifact content snapshots are immutable';
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS trg_artifact_content_snapshot_immutable ON sandbox_artifact_contents;
 CREATE TRIGGER trg_artifact_content_snapshot_immutable
