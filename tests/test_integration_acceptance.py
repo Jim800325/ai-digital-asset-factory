@@ -312,7 +312,7 @@ def test_openhands_real_cli_adapter_from_approved_proposal():
     assert row["container_network"] == "internal-gateway"
     assert row["exit_code"] == 0
     assert row["cli_version"] == "1.16.0"
-    assert row["model_name"] == "openai/mock"
+    assert row["model_name"] == "openai/mock-test-model"
     assert row["inner_runtime"] == "process"
     assert row["oh_network_policy"] == "INTERNAL_GATEWAY_ONLY"
     assert row["gateway_mode"] == "MOCK"
