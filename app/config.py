@@ -34,7 +34,11 @@ class Settings(BaseSettings):
     openhands_max_cost_usd: float = 0.25
     openhands_input_cost_per_1m_usd: float = 0.0
     openhands_output_cost_per_1m_usd: float = 0.0
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        env_ignore_empty=True,
+    )
 
     @property
     def seeds(self) -> list[str]:
