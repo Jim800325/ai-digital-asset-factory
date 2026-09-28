@@ -158,7 +158,14 @@ def ensure_release_candidate(request_id):
     }
 
 
-def decide_release_candidate(candidate_id,*,decision:str,reason:str,actor:str="human"):
+def decide_release_candidate(
+    candidate_id,
+    *,
+    decision:str,
+    reason:str,
+    actor:str="human",
+    review_package_sha256:str|None=None,
+):
     normalized=(decision or "").upper().strip()
     clean_reason=(reason or "").strip()
     clean_actor=(actor or "human").strip() or "human"
@@ -173,11 +180,17 @@ def decide_release_candidate(candidate_id,*,decision:str,reason:str,actor:str="h
                  rc.deployment_enabled,
                  oe.gateway_mode,oe.budget_status,oe.live_model_verified,
                  sbr.request_status,
-                 bp.proposal_status,bp.execution_enabled
+                 bp.proposal_status,bp.execution_enabled,
+                 rrp.id AS review_package_id,
+                 rrp.package_status AS review_package_status,
+                 rrp.content_snapshot_complete,
+                 rrp.package_sha256,
+                 rrp.source_tree_sha256
           FROM release_candidates rc
           JOIN sandbox_build_requests sbr ON sbr.id=rc.request_id
           JOIN build_proposals bp ON bp.id=rc.proposal_id
           LEFT JOIN openhands_executions oe ON oe.request_id=rc.request_id
+          LEFT JOIN release_review_packages rrp ON rrp.release_candidate_id=rc.id
           WHERE rc.id=CAST(:id AS uuid)
           FOR UPDATE OF rc,bp
         """),{"id":candidate_id}).mappings().one_or_none()
@@ -187,6 +200,14 @@ def decide_release_candidate(candidate_id,*,decision:str,reason:str,actor:str="h
             raise RuntimeError("Release decision is already terminal")
         if row["deployment_enabled"]:
             raise RuntimeError("Release gate must never enable deployment")
+
+        review_ok=(
+            row["review_package_id"] is not None
+            and row["review_package_status"]=="GENERATED"
+            and row["content_snapshot_complete"] is True
+            and bool(row["package_sha256"])
+            and bool(row["source_tree_sha256"])
+        )
 
         if normalized=="APPROVE":
             live_ok=(
@@ -199,6 +220,12 @@ def decide_release_candidate(candidate_id,*,decision:str,reason:str,actor:str="h
             )
             if not live_ok:
                 raise RuntimeError("Controlled Live LLM Acceptance has not passed")
+            if not review_ok:
+                raise RuntimeError("Immutable release review package is required")
+            supplied=(review_package_sha256 or "").strip().lower()
+            current=str(row["package_sha256"]).strip().lower()
+            if supplied!=current:
+                raise RuntimeError("Reviewed package SHA-256 does not match current package")
             status="RELEASE_APPROVED"
             ts_column="approved_at"
         else:
@@ -212,8 +239,11 @@ def decide_release_candidate(candidate_id,*,decision:str,reason:str,actor:str="h
         """),{"status":status,"id":row["id"]})
         decision_id=db.execute(text("""
           INSERT INTO release_decisions(
-            release_candidate_id,candidate_status,decision,reason,actor)
-          VALUES(:id,:status,:decision,:reason,:actor)
+            release_candidate_id,candidate_status,decision,reason,actor,
+            review_package_id,review_package_sha256,source_tree_sha256)
+          VALUES(
+            :id,:status,:decision,:reason,:actor,
+            :review_package_id,:review_package_sha256,:source_tree_sha256)
           RETURNING id
         """),{
             "id":row["id"],
@@ -221,12 +251,17 @@ def decide_release_candidate(candidate_id,*,decision:str,reason:str,actor:str="h
             "decision":normalized,
             "reason":clean_reason[:4000],
             "actor":clean_actor[:200],
+            "review_package_id":row["review_package_id"] if review_ok else None,
+            "review_package_sha256":row["package_sha256"] if review_ok else None,
+            "source_tree_sha256":row["source_tree_sha256"] if review_ok else None,
         }).scalar_one()
 
     return {
         "release_candidate_id":str(row["id"]),
         "release_status":status,
         "decision_id":str(decision_id),
+        "review_package_sha256":row["package_sha256"] if review_ok else None,
+        "source_tree_sha256":row["source_tree_sha256"] if review_ok else None,
         "live_validation_verified":normalized=="APPROVE",
         "deployment_enabled":False,
     }
