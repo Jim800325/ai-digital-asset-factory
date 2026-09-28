@@ -132,7 +132,11 @@ class Handler(BaseHTTPRequestHandler):
                 "tool_calls":[{
                     "id":"call_asset_factory_001",
                     "type":"function",
-                    "function":{"name":"terminal","arguments":json.dumps({"command":BUILD_COMMAND})},
+                    "function":{"name":"terminal","arguments":json.dumps({
+                        "security_risk":"LOW",
+                        "summary":"Create isolated sandbox artifact and tests",
+                        "command":BUILD_COMMAND,
+                    })},
                 }],
             }
             finish="tool_calls"
