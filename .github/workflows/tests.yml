@@ -105,7 +105,7 @@ jobs:
           docker run --rm --entrypoint openhands asset-factory-openhands:1.16.0 --version
 
       - name: Run full test suite
-        run: python -m pytest -q
+        run: python -m pytest -q --timeout=150 --timeout-method=signal
 
       - name: Verify OpenHands artifact remains isolated and production-disabled
         run: |
