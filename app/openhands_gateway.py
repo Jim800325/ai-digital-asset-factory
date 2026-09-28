@@ -13,6 +13,8 @@ MODE=os.environ.get("GATEWAY_MODE","MOCK").upper()
 LOCAL_TOKEN=os.environ.get("LOCAL_TOKEN","")
 UPSTREAM_BASE_URL=os.environ.get("UPSTREAM_BASE_URL","").rstrip("/")
 UPSTREAM_API_KEY=os.environ.get("UPSTREAM_API_KEY","")
+UPSTREAM_BROKER_HEADER_NAME=os.environ.get("UPSTREAM_BROKER_HEADER_NAME","").strip()
+UPSTREAM_BROKER_HEADER_VALUE=os.environ.get("UPSTREAM_BROKER_HEADER_VALUE","")
 MAX_BODY=2*1024*1024
 
 ALLOWED_MODELS=[x.strip() for x in os.environ.get("ALLOWED_MODELS","").split(",") if x.strip()]
@@ -430,13 +432,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json(503,{"error":{"message":"upstream not configured","type":"server_error"}})
             return
         url=UPSTREAM_BASE_URL+"/chat/completions"
+        headers={
+            "Content-Type":"application/json",
+            "Authorization":f"Bearer {UPSTREAM_API_KEY}",
+        }
+        if UPSTREAM_BROKER_HEADER_NAME and UPSTREAM_BROKER_HEADER_VALUE:
+            headers[UPSTREAM_BROKER_HEADER_NAME]=UPSTREAM_BROKER_HEADER_VALUE
         req=urllib.request.Request(
             url,
             data=raw,
-            headers={
-                "Content-Type":"application/json",
-                "Authorization":f"Bearer {UPSTREAM_API_KEY}",
-            },
+            headers=headers,
             method="POST",
         )
         try:
