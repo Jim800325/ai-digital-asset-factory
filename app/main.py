@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from redis import Redis
 from rq import Queue
 from sqlalchemy import text
-from vercel.headers import set_headers
 
 from app.build_proposals import decide_build_proposal
 from app.config import settings
@@ -24,13 +23,6 @@ app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 app.mount("/review-assets", StaticFiles(directory=STATIC_DIR), name="review-assets")
 app.include_router(review_ui_router)
 
-@app.middleware("http")
-async def vercel_context_middleware(request: Request, call_next):
-    set_headers(request.headers)
-    try:
-        return await call_next(request)
-    finally:
-        set_headers(None)
 
 class BuildProposalDecision(BaseModel):
     decision: Literal["APPROVE","REJECT"]
@@ -522,9 +514,12 @@ def review_workspace_candidate(candidate_id: UUID):
 
 
 @app.get("/internal/live-acceptance/{trigger_token}", include_in_schema=False)
-def internal_live_acceptance(trigger_token: str):
+def internal_live_acceptance(trigger_token: str, request: Request):
     try:
-        return run_vercel_live_acceptance(trigger_token)
+        return run_vercel_live_acceptance(
+            trigger_token,
+            vercel_oidc_token=request.headers.get("x-vercel-oidc-token"),
+        )
     except PermissionError as exc:
         raise HTTPException(status_code=403,detail=str(exc)) from exc
     except LiveAcceptanceError as exc:
