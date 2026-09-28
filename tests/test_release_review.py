@@ -65,13 +65,28 @@ def test_artifact_diff_and_tree_hash_are_deterministic():
         {"relative_path":"a.py","sha256":"3"*64,"byte_size":12,"media_type":"text/x-python"},
         {"relative_path":"new.txt","sha256":"4"*64,"byte_size":4,"media_type":"text/plain"},
     ]
-    diff=_artifact_diff(after,before)
+    diff=_artifact_diff(
+        after,
+        before,
+        baseline_contents={
+            "a.py":b"print('old')\n",
+            "removed.txt":b"old\n",
+        },
+        current_contents={
+            "a.py":b"print('new')\n",
+            "new.txt":b"new\n",
+        },
+    )
     status={x["relative_path"]:x["status"] for x in diff}
     assert status=={
         "a.py":"MODIFIED",
         "new.txt":"ADDED",
         "removed.txt":"REMOVED",
     }
+    by_path={x["relative_path"]:x for x in diff}
+    assert "-print('old')" in by_path["a.py"]["text_diff"]
+    assert "+print('new')" in by_path["a.py"]["text_diff"]
+    assert by_path["a.py"]["diff_truncated"] is False
     assert _source_tree_sha(after)==_source_tree_sha(list(reversed(after)))
     assert len(_source_tree_sha(after))==64
 
