@@ -124,7 +124,8 @@ def get_review_workspace(candidate_id:UUID)->dict:
             raise LookupError("Release candidate not found")
         decisions=[
             dict(item) for item in db.execute(text("""
-              SELECT id,candidate_status,decision,reason,actor,decided_at
+              SELECT id,candidate_status,decision,reason,actor,decided_at,
+                     review_package_id,review_package_sha256,source_tree_sha256
               FROM release_decisions
               WHERE release_candidate_id=:id
               ORDER BY decided_at DESC,id DESC
@@ -140,11 +141,19 @@ def get_review_workspace(candidate_id:UUID)->dict:
         and result["budget_status"]=="WITHIN_BUDGET"
         and result["request_status"]=="ARTIFACT_READY"
     )
+    review_ok=(
+        result["review_package_id"] is not None
+        and result["package_status"]=="GENERATED"
+        and result["content_snapshot_complete"] is True
+        and bool(result["package_sha256"])
+        and bool(result["source_tree_sha256"])
+    )
     result["release_gate_configured"]=bool(settings.human_release_key.strip())
     result["can_approve"]=(
         not terminal
         and result["release_status"]=="READY_FOR_REVIEW"
         and live_ok
+        and review_ok
         and result["deployment_enabled"] is False
         and result["execution_enabled"] is False
     )
