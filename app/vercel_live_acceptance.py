@@ -22,7 +22,7 @@ AIHUBMIX_DOMAIN="aihubmix.com"
 LIVE_MODEL="gpt-5.6-luna"
 
 # Raw trigger is never stored in Git. Rotate after each attempted live acceptance.
-TRIGGER_TOKEN_SHA256="2ba1c191767889735822816b80cc40ea16257d4983f58e9d78b78e6fa25cd93a"
+TRIGGER_TOKEN_SHA256="545a60f48e5a80eb45430f76987ea8d8be9690150acd1f3eaf4cca2a3f123bbc"
 
 MAX_REQUESTS=4
 MAX_PROMPT_TOKENS_PER_REQUEST=12_000
