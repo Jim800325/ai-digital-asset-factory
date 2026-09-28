@@ -329,7 +329,7 @@ class Handler(BaseHTTPRequestHandler):
         if MODE=="MOCK":
             self._mock(body)
         elif MODE=="PROXY":
-            self._proxy(raw)
+            self._proxy(raw,reservation)
         else:
             self._json(500,{"error":{"message":"invalid gateway mode","type":"server_error"}})
 
@@ -427,7 +427,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
-    def _proxy(self,raw):
+    def _proxy(self,raw,reservation):
         if not UPSTREAM_BASE_URL or not UPSTREAM_API_KEY:
             self._json(503,{"error":{"message":"upstream not configured","type":"server_error"}})
             return
