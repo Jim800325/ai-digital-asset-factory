@@ -121,7 +121,7 @@ def _wait_gateway(gateway_name:str)->None:
         result=_run([
             "docker","exec",gateway_name,"python","-c",
             "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:9999/health',timeout=2).read().decode())",
-        ],timeout=10,check=False)
+        ],timeout=3,check=False)
         if result.returncode==0:
             return
         last=result.stderr or result.stdout
@@ -169,10 +169,10 @@ def _openhands_command(
     ]
 
 def _cleanup_container(name:str)->None:
-    _run(["docker","rm","-f",name],timeout=20,check=False)
+    _run(["docker","rm","-f",name],timeout=5,check=False)
 
 def _cleanup_network(name:str)->None:
-    _run(["docker","network","rm",name],timeout=20,check=False)
+    _run(["docker","network","rm",name],timeout=5,check=False)
 
 def execute_openhands_request(request_id):
     with engine.begin() as db:
@@ -304,7 +304,7 @@ def execute_openhands_request(request_id):
             time.sleep(1)
 
         if cli_code is None:
-            logs=_run(["docker","logs",agent_name],timeout=20,check=False)
+            logs=_run(["docker","logs",agent_name],timeout=5,check=False)
             cli_out=_clip(logs.stdout)
             cli_err=_clip(logs.stderr)
             _cleanup_container(agent_name)
@@ -317,7 +317,7 @@ def execute_openhands_request(request_id):
         cli_err=_clip(logs.stderr)
         _cleanup_container(agent_name)
 
-        gateway_result=_run(["docker","logs",gateway],timeout=20,check=False)
+        gateway_result=_run(["docker","logs",gateway],timeout=5,check=False)
         gateway_logs=_clip((gateway_result.stdout or "")+"\n"+(gateway_result.stderr or ""))
 
         if cli_code==0:
