@@ -16,7 +16,14 @@ class Settings(BaseSettings):
     sandbox_image: str = "python:3.12-slim"
     sandbox_timeout_seconds: int = 300
     openhands_enabled: bool = False
-    openhands_runtime: str = "docker"
+    openhands_runtime: str = "process"
+    openhands_cli_version: str = "1.16.0"
+    openhands_cli_image: str = "asset-factory-openhands:1.16.0"
+    openhands_gateway_mode: str = "PROXY"
+    openhands_gateway_image: str = "python:3.12-slim"
+    openhands_model: str = ""
+    openhands_llm_upstream_url: str = ""
+    openhands_llm_api_key: str = ""
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
