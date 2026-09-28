@@ -11,6 +11,7 @@ from sqlalchemy import text
 from app.build_proposals import decide_build_proposal
 from app.config import settings
 from app.db import engine
+from app.release_gate import decide_release_candidate, ensure_release_candidate
 from app.workers.pipeline import run_pipeline
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
@@ -19,6 +20,11 @@ class BuildProposalDecision(BaseModel):
     decision: Literal["APPROVE","REJECT"]
     reason: str = Field(min_length=3,max_length=4000)
     actor: str = Field(default="human-api",min_length=1,max_length=200)
+
+class ReleaseDecision(BaseModel):
+    decision: Literal["APPROVE","REJECT"]
+    reason: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(default="human-release-api",min_length=1,max_length=200)
 
 def _require_approval_key(provided: str | None) -> None:
     expected=settings.human_approval_key.strip()
@@ -30,6 +36,16 @@ def _require_approval_key(provided: str | None) -> None:
     if provided is None or not secrets.compare_digest(provided,expected):
         raise HTTPException(status_code=403,detail="Invalid human approval key")
 
+def _require_release_key(provided: str | None) -> None:
+    expected=settings.human_release_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Human release gate is not configured",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(status_code=403,detail="Invalid human release key")
+
 @app.get("/health")
 def health():
     with engine.connect() as conn:
@@ -38,6 +54,8 @@ def health():
         "status":"ok",
         "mode":"OBSERVE",
         "approval_gate":"ENABLED" if settings.human_approval_key.strip() else "DISABLED",
+        "release_gate":"ENABLED" if settings.human_release_key.strip() else "DISABLED",
+        "release_deployment":"DISABLED",
         "build_execution":"DISABLED",
         "sandbox_execution":"ENABLED" if settings.sandbox_execution_enabled else "DISABLED",
         "openhands_adapter":"ENABLED" if settings.openhands_enabled else "DISABLED",
@@ -344,3 +362,82 @@ def openhands_execution(request_id: UUID):
     if row is None:
         raise HTTPException(status_code=404,detail="OpenHands execution not found")
     return dict(row)
+
+
+@app.post("/v1/release-candidates/from-request/{request_id}")
+def create_release_candidate(request_id: UUID):
+    try:
+        return ensure_release_candidate(request_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+@app.get("/v1/release-candidates")
+def release_candidates(limit: int = 50):
+    sql=text("""
+      SELECT rc.id,rc.request_id,rc.run_id,rc.proposal_id,rc.proposal_revision,
+             rc.release_status,rc.live_validation_required,
+             rc.live_validation_verified,rc.artifact_manifest_sha256,
+             rc.test_summary,rc.deployment_enabled,
+             rc.created_at,rc.updated_at,rc.approved_at,rc.rejected_at
+      FROM release_candidates rc
+      ORDER BY rc.updated_at DESC
+      LIMIT :limit
+    """)
+    with engine.connect() as conn:
+        return [dict(r._mapping) for r in conn.execute(
+            sql,{"limit":min(max(limit,1),200)}
+        )]
+
+@app.get("/v1/release-candidates/{candidate_id}")
+def release_candidate(candidate_id: UUID):
+    sql=text("""
+      SELECT rc.*,
+             bp.proposal_status,bp.execution_enabled,
+             sbr.request_status,
+             oe.gateway_mode,oe.budget_status,oe.live_model_verified
+      FROM release_candidates rc
+      JOIN build_proposals bp ON bp.id=rc.proposal_id
+      JOIN sandbox_build_requests sbr ON sbr.id=rc.request_id
+      LEFT JOIN openhands_executions oe ON oe.request_id=rc.request_id
+      WHERE rc.id=:id
+    """)
+    with engine.connect() as conn:
+        row=conn.execute(sql,{"id":candidate_id}).mappings().one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404,detail="Release candidate not found")
+    return dict(row)
+
+@app.get("/v1/release-candidates/{candidate_id}/decisions")
+def release_candidate_decisions(candidate_id: UUID):
+    sql=text("""
+      SELECT id,release_candidate_id,candidate_status,
+             decision,reason,actor,decided_at
+      FROM release_decisions
+      WHERE release_candidate_id=:id
+      ORDER BY decided_at DESC,id DESC
+    """)
+    with engine.connect() as conn:
+        return [dict(r._mapping) for r in conn.execute(sql,{"id":candidate_id})]
+
+@app.post("/v1/release-candidates/{candidate_id}/decision")
+def release_candidate_decision(
+    candidate_id: UUID,
+    payload: ReleaseDecision,
+    x_release_key: str | None = Header(default=None,alias="X-Release-Key"),
+):
+    _require_release_key(x_release_key)
+    try:
+        return decide_release_candidate(
+            candidate_id,
+            decision=payload.decision,
+            reason=payload.reason,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
