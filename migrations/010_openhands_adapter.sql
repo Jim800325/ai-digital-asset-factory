@@ -1,3 +1,17 @@
+ALTER TABLE sandbox_build_requests
+  DROP CONSTRAINT IF EXISTS sandbox_build_requests_network_policy_check;
+
+ALTER TABLE sandbox_build_requests
+  ADD CONSTRAINT sandbox_build_requests_network_policy_check
+  CHECK (network_policy IN ('DENY','INTERNAL_GATEWAY_ONLY'));
+
+ALTER TABLE sandbox_runs
+  DROP CONSTRAINT IF EXISTS sandbox_runs_container_network_check;
+
+ALTER TABLE sandbox_runs
+  ADD CONSTRAINT sandbox_runs_container_network_check
+  CHECK (container_network IN ('none','internal-gateway'));
+
 CREATE TABLE IF NOT EXISTS openhands_executions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   request_id uuid NOT NULL UNIQUE REFERENCES sandbox_build_requests(id) ON DELETE CASCADE,
