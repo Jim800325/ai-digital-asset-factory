@@ -359,7 +359,8 @@ def test_openhands_real_cli_adapter_from_approved_proposal():
         assert candidate["artifact_count"] >= 2
         assert candidate["passed_tests"] >= 1
 
-        with pytest.raises(Exception):
+    with pytest.raises(Exception):
+        with engine.begin() as db:
             db.execute(text("""
               UPDATE release_candidates
               SET release_status='READY_FOR_REVIEW'
