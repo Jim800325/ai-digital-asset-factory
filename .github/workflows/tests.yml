@@ -67,7 +67,7 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q app tests
 
-      - name: Apply migrations 001 through 010
+      - name: Apply migrations 001 through 011
         run: python -m app.migrate
 
       - name: Verify migration set
@@ -86,6 +86,7 @@ jobs:
               "008_build_proposals.sql",
               "009_sandbox_execution.sql",
               "010_openhands_adapter.sql",
+              "011_controlled_llm_proxy.sql",
           ]
           with engine.connect() as db:
               actual = [r[0] for r in db.execute(
@@ -152,6 +153,9 @@ jobs:
                          oe.cli_version,oe.model_name,oe.inner_runtime,
                          oe.network_policy AS oh_network_policy,
                          oe.gateway_mode,oe.exit_code AS openhands_exit_code,
+                         oe.budget_status,oe.gateway_request_count,
+                         oe.total_tokens,oe.estimated_cost_usd,
+                         oe.live_model_verified,
                          COUNT(DISTINCT sa.id) AS artifacts,
                          COUNT(DISTINCT str.id) FILTER (WHERE str.passed=true) AS passed_tests
                   FROM sandbox_build_requests sbr
@@ -196,6 +200,8 @@ jobs:
           assert oh["oh_network_policy"] == "INTERNAL_GATEWAY_ONLY", oh
           assert oh["gateway_mode"] == "MOCK", oh
           assert oh["openhands_exit_code"] == 0, oh
+          assert oh["budget_status"] in ("NOT_EVALUATED","WITHIN_BUDGET"), oh
+          assert oh["live_model_verified"] is False, oh
           assert oh["artifacts"] >= 2, oh
           assert oh["passed_tests"] == 1, oh
 
