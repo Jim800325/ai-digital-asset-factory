@@ -22,7 +22,7 @@ AIHUBMIX_DOMAIN="aihubmix.com"
 LIVE_MODEL="gpt-5.6-luna"
 
 # Raw trigger is never stored in Git. Rotate after each attempted live acceptance.
-TRIGGER_TOKEN_SHA256="f166b523e0311bad69adafdbdb767a13935f244744a9938ecb6cc7ea82f49eb4"
+TRIGGER_TOKEN_SHA256="2ba1c191767889735822816b80cc40ea16257d4983f58e9d78b78e6fa25cd93a"
 
 MAX_REQUESTS=4
 MAX_PROMPT_TOKENS_PER_REQUEST=12_000
@@ -194,8 +194,8 @@ def _create_sandbox(
             "name":name,
             "projectId":VERCEL_PROJECT_ID,
             "runtime":"python3.13",
-            "resources":{"vcpus":"2","memory":"4096"},
-            "timeout":"300000",
+            "resources":{"vcpus":2,"memory":4096},
+            "timeout":300000,
             "persistent":False,
             "networkPolicy":{
                 "mode":"custom",
