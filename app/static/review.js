@@ -532,6 +532,13 @@ function renderDecision(d){
       head.appendChild(node("span","muted",fmtDate(item.decided_at)));
       box.appendChild(head);
       box.appendChild(node("div","",item.reason));
+      if(item.review_package_sha256){
+        box.appendChild(node(
+          "div",
+          "candidate-hash",
+          "review package "+shortHash(item.review_package_sha256),
+        ));
+      }
       timeline.appendChild(box);
     });
     history.appendChild(timeline);
@@ -599,6 +606,7 @@ function renderDecision(d){
           decision,
           reason:reason.value.trim(),
           actor:actor.value.trim()||"human-review-ui",
+          review_package_sha256:d.package_sha256||null,
         }),
       });
       key.value="";
