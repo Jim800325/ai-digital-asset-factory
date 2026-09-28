@@ -2,39 +2,12 @@ name: live-controlled-llm-proxy
 
 on:
   workflow_dispatch:
-    inputs:
-      model:
-        description: OpenHands model identifier (must match allowlist)
-        required: true
-        type: string
-      upstream_url:
-        description: HTTPS OpenAI-compatible base URL ending in /v1
-        required: true
-        type: string
-      input_cost_per_1m_usd:
-        description: Input token price per 1M tokens
-        required: true
-        default: "1.00"
-        type: string
-      output_cost_per_1m_usd:
-        description: Output token price per 1M tokens
-        required: true
-        default: "4.00"
-        type: string
-      max_cost_usd:
-        description: Total run cost ceiling
-        required: true
-        default: "0.25"
-        type: string
-      max_cost_per_request_usd:
-        description: Per-request cost ceiling
-        required: true
-        default: "0.10"
-        type: string
 
 jobs:
   controlled-live-acceptance:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     services:
       postgres:
         image: postgres:17-alpine
@@ -66,49 +39,102 @@ jobs:
       GITHUB_DISCOVERY_ENABLED: "false"
       SEED_URLS: ""
       LIVE_PROXY_ACCEPTANCE: "1"
+
       SANDBOX_EXECUTION_ENABLED: "true"
       SANDBOX_WORKSPACE_ROOT: /tmp/asset-factory-workspaces
       SANDBOX_IMAGE: python:3.12-slim
       SANDBOX_TIMEOUT_SECONDS: "300"
+
       OPENHANDS_ENABLED: "true"
       OPENHANDS_RUNTIME: process
       OPENHANDS_CLI_VERSION: "1.16.0"
       OPENHANDS_CLI_IMAGE: asset-factory-openhands:1.16.0
+
       OPENHANDS_GATEWAY_MODE: PROXY
       OPENHANDS_GATEWAY_IMAGE: python:3.12-slim
-      OPENHANDS_MODEL: ${{ inputs.model }}
-      OPENHANDS_ALLOWED_MODELS: ${{ inputs.model }}
-      OPENHANDS_LLM_UPSTREAM_URL: ${{ inputs.upstream_url }}
+      OPENHANDS_MODEL: gpt-5.6-luna
+      OPENHANDS_ALLOWED_MODELS: gpt-5.6-luna
+      OPENHANDS_LLM_UPSTREAM_URL: https://api.openai.com/v1
       OPENHANDS_LLM_API_KEY: ${{ secrets.OPENHANDS_LLM_API_KEY }}
-      OPENHANDS_MAX_REQUESTS: "8"
+
+      # One controlled live build only. Fail closed before upstream calls.
+      OPENHANDS_MAX_REQUESTS: "4"
       OPENHANDS_MAX_PROMPT_TOKENS_PER_REQUEST: "12000"
       OPENHANDS_MAX_COMPLETION_TOKENS_PER_REQUEST: "4000"
-      OPENHANDS_MAX_TOTAL_TOKENS: "24000"
-      OPENHANDS_MAX_COST_PER_REQUEST_USD: ${{ inputs.max_cost_per_request_usd }}
-      OPENHANDS_MAX_COST_USD: ${{ inputs.max_cost_usd }}
-      OPENHANDS_INPUT_COST_PER_1M_USD: ${{ inputs.input_cost_per_1m_usd }}
-      OPENHANDS_OUTPUT_COST_PER_1M_USD: ${{ inputs.output_cost_per_1m_usd }}
+      OPENHANDS_MAX_TOTAL_TOKENS: "40000"
+      OPENHANDS_MAX_COST_PER_REQUEST_USD: "0.01"
+      OPENHANDS_MAX_COST_USD: "0.04"
+      OPENHANDS_INPUT_COST_PER_1M_USD: "0.20"
+      OPENHANDS_OUTPUT_COST_PER_1M_USD: "1.20"
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - name: Require live model secret
+
+      - name: Require live OpenAI secret
         run: |
           python - <<'PY'
           import os
-          assert os.environ.get("OPENHANDS_LLM_API_KEY","").strip(), (
-              "GitHub Actions secret OPENHANDS_LLM_API_KEY is required"
-          )
+          key=os.environ.get("OPENHANDS_LLM_API_KEY","").strip()
+          assert key, "GitHub Actions secret OPENHANDS_LLM_API_KEY is required"
+          assert key.startswith("sk-"), "OPENHANDS_LLM_API_KEY does not look like an OpenAI API key"
           PY
+
+      - name: Compile Python
+        run: python -m compileall -q app tests
+
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Apply migrations
+
+      - name: Apply migrations 001 through 011
         run: python -m app.migrate
+
       - name: Build pinned OpenHands image
         run: |
           docker pull python:3.12-slim
           docker build -f docker/openhands/Dockerfile -t asset-factory-openhands:1.16.0 .
-      - name: Run one live controlled build
+
+      - name: Run exactly one live controlled build
         run: python -m pytest -q tests/test_live_proxy_acceptance.py --timeout=300 --timeout-method=signal
+
+      - name: Verify live acceptance boundary
+        run: |
+          python - <<'PY'
+          from sqlalchemy import text
+          from app.db import engine
+
+          with engine.connect() as db:
+              row=db.execute(text("""
+                  SELECT oe.gateway_mode,oe.budget_status,oe.gateway_request_count,
+                         oe.total_tokens,oe.estimated_cost_usd,oe.blocked_reason,
+                         oe.live_model_verified,sbr.request_status,
+                         bp.execution_enabled,
+                         COUNT(DISTINCT sa.id) AS artifacts,
+                         COUNT(DISTINCT str.id) FILTER (WHERE str.passed=true) AS passed_tests
+                  FROM openhands_executions oe
+                  JOIN sandbox_build_requests sbr ON sbr.id=oe.request_id
+                  JOIN build_proposals bp ON bp.id=sbr.proposal_id
+                  JOIN sandbox_runs sr ON sr.request_id=sbr.id
+                  LEFT JOIN sandbox_artifacts sa ON sa.run_id=sr.id
+                  LEFT JOIN sandbox_test_results str ON str.run_id=sr.id
+                  GROUP BY oe.id,sbr.id,bp.id
+                  ORDER BY oe.finished_at DESC
+                  LIMIT 1
+              """)).mappings().one()
+
+          assert row["gateway_mode"] == "PROXY", row
+          assert row["budget_status"] == "WITHIN_BUDGET", row
+          assert row["gateway_request_count"] <= 4, row
+          assert row["total_tokens"] <= 40000, row
+          assert float(row["estimated_cost_usd"]) <= 0.04, row
+          assert row["blocked_reason"] is None, row
+          assert row["live_model_verified"] is True, row
+          assert row["request_status"] == "ARTIFACT_READY", row
+          assert row["execution_enabled"] is False, row
+          assert row["artifacts"] >= 1, row
+          assert row["passed_tests"] >= 1, row
+          print("live_acceptance:", dict(row))
+          PY
