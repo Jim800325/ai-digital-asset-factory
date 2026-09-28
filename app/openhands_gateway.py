@@ -168,8 +168,13 @@ class Handler(BaseHTTPRequestHandler):
                 fn=tc["function"]
                 chunks.append({**base,"choices":[{"index":0,"delta":{"tool_calls":[{
                     "index":idx,"id":tc["id"],"type":"function",
-                    "function":{"name":fn["name"],"arguments":fn["arguments"]},
+                    "function":{"name":fn["name"],"arguments":""},
                 }]},"finish_reason":None}]})
+                if fn.get("arguments"):
+                    chunks.append({**base,"choices":[{"index":0,"delta":{"tool_calls":[{
+                        "index":idx,
+                        "function":{"arguments":fn["arguments"]},
+                    }]},"finish_reason":None}]})
         else:
             chunks.append({**base,"choices":[{"index":0,"delta":{"role":"assistant","content":msg.get("content","")},"finish_reason":None}]})
         chunks.append({**base,"choices":[{"index":0,"delta":{},"finish_reason":choice["finish_reason"]}]})
@@ -179,6 +184,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         for chunk in chunks:
             self.wfile.write(("data: "+json.dumps(chunk)+"\n\n").encode("utf-8"))
+        if (body.get("stream_options") or {}).get("include_usage"):
+            usage={**base,"choices":[],"usage":payload.get("usage") or {
+                "prompt_tokens":20,"completion_tokens":10,"total_tokens":30
+            }}
+            self.wfile.write(("data: "+json.dumps(usage)+"\n\n").encode("utf-8"))
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
