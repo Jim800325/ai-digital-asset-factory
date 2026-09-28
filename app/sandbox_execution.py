@@ -117,10 +117,11 @@ def _capture_artifacts(run_id, workspace: Path) -> int:
             "sha256":hashlib.sha256(data).hexdigest(),
             "byte_size":size,
             "media_type":mimetypes.guess_type(resolved.name)[0] or "application/octet-stream",
+            "content_bytes":data,
         })
     with engine.begin() as db:
         for item in files:
-            db.execute(text("""
+            artifact_id=db.execute(text("""
               INSERT INTO sandbox_artifacts(run_id,relative_path,sha256,byte_size,media_type)
               VALUES(CAST(:run_id AS uuid),:path,:sha,:size,:media)
               ON CONFLICT(run_id,relative_path) DO UPDATE SET
@@ -128,12 +129,30 @@ def _capture_artifacts(run_id, workspace: Path) -> int:
                 byte_size=excluded.byte_size,
                 media_type=excluded.media_type,
                 captured_at=now()
+              RETURNING id
             """),{
                 "run_id":run_id,
                 "path":item["relative_path"],
                 "sha":item["sha256"],
                 "size":item["byte_size"],
                 "media":item["media_type"],
+            }).scalar_one()
+            existing=db.execute(text("""
+              SELECT content_sha256
+              FROM sandbox_artifact_contents
+              WHERE artifact_id=:artifact_id
+            """),{"artifact_id":artifact_id}).scalar_one_or_none()
+            if existing is not None and existing!=item["sha256"]:
+                raise RuntimeError("Artifact content snapshot mismatch")
+            db.execute(text("""
+              INSERT INTO sandbox_artifact_contents(
+                artifact_id,content_bytes,content_sha256)
+              VALUES(:artifact_id,:content_bytes,:sha)
+              ON CONFLICT(artifact_id) DO NOTHING
+            """),{
+                "artifact_id":artifact_id,
+                "content_bytes":item["content_bytes"],
+                "sha":item["sha256"],
             })
     return len(files)
 
