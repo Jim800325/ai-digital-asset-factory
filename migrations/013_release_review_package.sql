@@ -10,11 +10,11 @@ CREATE TABLE IF NOT EXISTS sandbox_artifact_contents (
 CREATE OR REPLACE FUNCTION protect_artifact_content_snapshot()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $$
 BEGIN
   RAISE EXCEPTION 'Artifact content snapshots are immutable';
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS trg_artifact_content_snapshot_immutable ON sandbox_artifact_contents;
 CREATE TRIGGER trg_artifact_content_snapshot_immutable
@@ -25,7 +25,7 @@ EXECUTE FUNCTION protect_artifact_content_snapshot();
 CREATE OR REPLACE FUNCTION protect_captured_artifact()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM sandbox_artifact_contents
@@ -33,9 +33,13 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Captured artifact metadata is immutable';
   END IF;
+
+  IF TG_OP='DELETE' THEN
+    RETURN OLD;
+  END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS trg_captured_artifact_immutable ON sandbox_artifacts;
 CREATE TRIGGER trg_captured_artifact_immutable
