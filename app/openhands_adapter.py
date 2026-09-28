@@ -128,11 +128,17 @@ def _wait_gateway(gateway_name:str)->None:
         time.sleep(0.5)
     raise RuntimeError("OpenHands LLM gateway did not become healthy: "+_clip(last))
 
-def _openhands_command(workspace:Path,network:str,local_token:str)->list[str]:
+def _openhands_command(
+    workspace:Path,
+    network:str,
+    local_token:str,
+    container_name:str,
+)->list[str]:
     uid=os.getuid() if hasattr(os,"getuid") else 1000
     gid=os.getgid() if hasattr(os,"getgid") else 1000
     return [
-        "docker","run","--rm",
+        "docker","run","-d",
+        "--name",container_name,
         "--network",network,
         "--read-only",
         "--cap-drop","ALL",
@@ -211,6 +217,7 @@ def execute_openhands_request(request_id):
 
     network=_docker_name("oh-net",request["id"])
     gateway=_docker_name("oh-gateway",request["id"])
+    agent_name=_docker_name("openhands",request["id"])
     local_token=secrets.token_urlsafe(32)
     run_id=None
     execution_id=None
@@ -270,14 +277,46 @@ def execute_openhands_request(request_id):
             if settings.openhands_gateway_mode.strip().upper()=="MOCK"
             else max(60,min(settings.sandbox_timeout_seconds,1800))
         )
-        completed=_run(
-            _openhands_command(workspace,network,local_token),
-            timeout=cli_timeout,
-            check=False,
+        _run(
+            _openhands_command(workspace,network,local_token,agent_name),
+            timeout=30,
+            check=True,
         )
-        cli_code=completed.returncode
-        cli_out=_clip(completed.stdout)
-        cli_err=_clip(completed.stderr)
+
+        deadline=time.monotonic()+cli_timeout
+        cli_code=None
+        while time.monotonic()<deadline:
+            state=_run([
+                "docker","inspect",
+                "--format","{{.State.Status}} {{.State.ExitCode}}",
+                agent_name,
+            ],timeout=10,check=False)
+            if state.returncode!=0:
+                raise RuntimeError(
+                    "OpenHands container disappeared before exit status was captured: "
+                    +_clip(state.stderr or state.stdout)
+                )
+            parts=(state.stdout or "").strip().split()
+            status=parts[0] if parts else ""
+            if status in {"exited","dead"}:
+                cli_code=int(parts[1]) if len(parts)>1 else 1
+                break
+            time.sleep(1)
+
+        if cli_code is None:
+            logs=_run(["docker","logs",agent_name],timeout=20,check=False)
+            cli_out=_clip(logs.stdout)
+            cli_err=_clip(logs.stderr)
+            _cleanup_container(agent_name)
+            raise RuntimeError(
+                f"OpenHands execution timed out after {cli_timeout}s"
+            )
+
+        logs=_run(["docker","logs",agent_name],timeout=20,check=False)
+        cli_out=_clip(logs.stdout)
+        cli_err=_clip(logs.stderr)
+        _cleanup_container(agent_name)
+
         gateway_result=_run(["docker","logs",gateway],timeout=20,check=False)
         gateway_logs=_clip((gateway_result.stdout or "")+"\n"+(gateway_result.stderr or ""))
 
@@ -383,5 +422,6 @@ def execute_openhands_request(request_id):
             })
         raise
     finally:
+        _cleanup_container(agent_name)
         _cleanup_container(gateway)
         _cleanup_network(network)
