@@ -20,6 +20,7 @@ VERCEL_TEAM_SLUG="jim-wus-projects-4bb66217"
 AIHUBMIX_BASE_URL="https://aihubmix.com/v1"
 AIHUBMIX_DOMAIN="aihubmix.com"
 LIVE_MODEL="gpt-5.6-luna"
+OPENHANDS_MODEL=f"openai/{LIVE_MODEL}"
 
 TRIGGER_TOKEN_SHA256="bdaf941630e3181fedfb22a7ec843b640f5eff48ea3c77f9eaae990029fc5243"
 
@@ -712,7 +713,7 @@ sudo -u openhands-agent env \
         "sh",["-lc",script],
         env={
             "LOCAL_GATEWAY_TOKEN":local_token,
-            "LIVE_MODEL":LIVE_MODEL,
+            "LIVE_MODEL":OPENHANDS_MODEL,
             "GATEWAY_BASE_URL":base_url,
         },
         sudo=True,
@@ -893,6 +894,24 @@ def run_vercel_live_acceptance(
             gateway_hostname=_configure_agent_gateway_only(
                 client,oidc,agent_session,gateway_url
             )
+
+            phase="agent_gateway_health"
+            health_code=_run_command(
+                client,oidc,agent_session,
+                "python",[
+                    "-c",
+                    "import urllib.request; "
+                    "urllib.request.urlopen("+
+                    repr(gateway_url+"/health")+
+                    ",timeout=10).read()",
+                ],
+                timeout_ms=15_000,
+                operation="verify Agent-to-Gateway network path",
+            )
+            if health_code!=0:
+                raise LiveAcceptanceError(
+                    f"Agent-to-Gateway health check failed ({health_code})"
+                )
 
             phase="run_openhands"
             openhands_exit_code=_run_openhands(
