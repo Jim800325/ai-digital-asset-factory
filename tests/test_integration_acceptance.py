@@ -43,6 +43,7 @@ def test_full_v02_integration_acceptance():
         "010_openhands_adapter.sql",
         "011_controlled_llm_proxy.sql",
         "012_human_release_gate.sql",
+        "013_release_review_package.sql",
     ]
 
     assert Redis.from_url(settings.redis_url).ping() is True
@@ -331,6 +332,39 @@ def test_openhands_real_cli_adapter_from_approved_proposal():
     assert release["live_validation_verified"] is False
     assert release["deployment_enabled"] is False
     assert len(release["artifact_manifest_sha256"]) == 64
+    assert len(release["source_tree_sha256"]) == 64
+    assert len(release["review_package_sha256"]) == 64
+    assert release["review_snapshot_complete"] is True
+
+    with engine.connect() as db:
+        review=db.execute(text("""
+          SELECT package_status,content_snapshot_complete,
+                 artifact_manifest,artifact_diff,dependency_inventory,
+                 sbom,test_report,risk_summary,
+                 source_tree_sha256,package_sha256,generator_version
+          FROM release_review_packages
+          WHERE id=CAST(:id AS uuid)
+        """),{"id":release["review_package_id"]}).mappings().one()
+        assert review["package_status"] == "GENERATED"
+        assert review["content_snapshot_complete"] is True
+        assert len(review["artifact_manifest"]) >= 2
+        assert all(x["status"] == "ADDED" for x in review["artifact_diff"])
+        assert review["dependency_inventory"] == []
+        assert review["sbom"]["bomFormat"] == "CycloneDX"
+        assert review["test_report"]["all_passed"] is True
+        assert review["test_report"]["passed"] >= 1
+        assert review["risk_summary"]["risk_level"] == "LOW"
+        assert len(review["source_tree_sha256"]) == 64
+        assert len(review["package_sha256"]) == 64
+        assert review["generator_version"] == "release-review-v0.3-deterministic"
+
+    with pytest.raises(Exception):
+        with engine.begin() as db:
+            db.execute(text("""
+              UPDATE release_review_packages
+              SET package_sha256=repeat('0',64)
+              WHERE id=CAST(:id AS uuid)
+            """),{"id":release["review_package_id"]})
 
     with pytest.raises(
         RuntimeError,
