@@ -39,6 +39,7 @@ def test_full_v02_integration_acceptance():
         "008_build_proposals.sql",
         "009_sandbox_execution.sql",
         "010_openhands_adapter.sql",
+        "011_controlled_llm_proxy.sql",
     ]
 
     assert Redis.from_url(settings.redis_url).ping() is True
