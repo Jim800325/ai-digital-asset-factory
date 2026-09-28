@@ -7,14 +7,46 @@ CREATE TABLE IF NOT EXISTS sandbox_artifact_contents (
   CHECK (encode(digest(content_bytes,'sha256'),'hex')=content_sha256)
 );
 
+CREATE OR REPLACE FUNCTION validate_artifact_content_snapshot()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $
+DECLARE
+  expected_sha text;
+  expected_size bigint;
+BEGIN
+  SELECT sha256,byte_size
+  INTO expected_sha,expected_size
+  FROM sandbox_artifacts
+  WHERE id=NEW.artifact_id;
+
+  IF expected_sha IS NULL THEN
+    RAISE EXCEPTION 'Artifact metadata not found for content snapshot';
+  END IF;
+  IF NEW.content_sha256<>expected_sha THEN
+    RAISE EXCEPTION 'Artifact content hash does not match captured metadata';
+  END IF;
+  IF octet_length(NEW.content_bytes)<>expected_size THEN
+    RAISE EXCEPTION 'Artifact content size does not match captured metadata';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS trg_validate_artifact_content_snapshot ON sandbox_artifact_contents;
+CREATE TRIGGER trg_validate_artifact_content_snapshot
+BEFORE INSERT ON sandbox_artifact_contents
+FOR EACH ROW
+EXECUTE FUNCTION validate_artifact_content_snapshot();
+
 CREATE OR REPLACE FUNCTION protect_artifact_content_snapshot()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $$
+AS $
 BEGIN
   RAISE EXCEPTION 'Artifact content snapshots are immutable';
 END;
-$$;
+$;
 
 DROP TRIGGER IF EXISTS trg_artifact_content_snapshot_immutable ON sandbox_artifact_contents;
 CREATE TRIGGER trg_artifact_content_snapshot_immutable
