@@ -145,7 +145,11 @@ def create_sandbox_request(
     sandbox_image: str | None = None,
 ):
     executor=executor_kind.upper().strip()
-    image=sandbox_image or settings.sandbox_image
+    default_image=(
+        settings.openhands_cli_image if executor=="OPENHANDS"
+        else settings.sandbox_image
+    )
+    image=sandbox_image or default_image
     policy=validate_execution_policy(executor_kind=executor,sandbox_image=image)
     workspace_id=uuid.uuid4()
 
@@ -182,7 +186,7 @@ def create_sandbox_request(
           VALUES(
             :proposal_id,:revision,:fingerprint,:executor,
             'POLICY_PASSED',CAST(:policy AS jsonb),:workspace_id,:image,
-            'DENY','ISOLATED_RW','DENY',:requested_by,now())
+            :network_policy,'ISOLATED_RW','DENY',:requested_by,now())
           RETURNING id
         """),{
             "proposal_id":proposal["id"],
@@ -192,6 +196,7 @@ def create_sandbox_request(
             "policy":json.dumps(policy,ensure_ascii=False),
             "workspace_id":workspace_id,
             "image":image,
+            "network_policy":policy["network"],
             "requested_by":(requested_by or "human")[:200],
         }).scalar_one()
 
@@ -218,18 +223,8 @@ def execute_sandbox_request(request_id):
         if request["request_status"]!="POLICY_PASSED":
             raise RuntimeError("Sandbox request is not POLICY_PASSED")
         if request["executor_kind"]=="OPENHANDS":
-            db.execute(text("""
-              UPDATE sandbox_build_requests
-              SET request_status='BLOCKED',
-                  error='OpenHands adapter is not connected until sandbox acceptance is complete',
-                  finished_at=now()
-              WHERE id=:id
-            """),{"id":request["id"]})
-            return {
-                "request_id":str(request["id"]),
-                "request_status":"BLOCKED",
-                "executor_kind":"OPENHANDS",
-            }
+            from app.openhands_adapter import execute_openhands_request
+            return execute_openhands_request(request["id"])
 
         workspace=workspace_path_for(request["workspace_id"])
         if workspace.exists():
