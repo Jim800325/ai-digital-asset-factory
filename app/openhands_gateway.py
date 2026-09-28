@@ -1,16 +1,30 @@
 import json
+import math
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 MODE=os.environ.get("GATEWAY_MODE","MOCK").upper()
 LOCAL_TOKEN=os.environ.get("LOCAL_TOKEN","")
 UPSTREAM_BASE_URL=os.environ.get("UPSTREAM_BASE_URL","").rstrip("/")
 UPSTREAM_API_KEY=os.environ.get("UPSTREAM_API_KEY","")
 MAX_BODY=2*1024*1024
+
+ALLOWED_MODELS=[x.strip() for x in os.environ.get("ALLOWED_MODELS","").split(",") if x.strip()]
+MAX_REQUESTS=int(os.environ.get("MAX_REQUESTS","8"))
+MAX_PROMPT_TOKENS_PER_REQUEST=int(os.environ.get("MAX_PROMPT_TOKENS_PER_REQUEST","12000"))
+MAX_COMPLETION_TOKENS_PER_REQUEST=int(os.environ.get("MAX_COMPLETION_TOKENS_PER_REQUEST","4000"))
+MAX_TOTAL_TOKENS=int(os.environ.get("MAX_TOTAL_TOKENS","24000"))
+MAX_COST_PER_REQUEST_USD=float(os.environ.get("MAX_COST_PER_REQUEST_USD","0.10"))
+MAX_COST_USD=float(os.environ.get("MAX_COST_USD","0.25"))
+INPUT_COST_PER_1M_USD=float(os.environ.get("INPUT_COST_PER_1M_USD","0"))
+OUTPUT_COST_PER_1M_USD=float(os.environ.get("OUTPUT_COST_PER_1M_USD","0"))
+AUDIT_FILE=Path(os.environ.get("AUDIT_FILE","/audit/usage.json"))
 
 BUILD_COMMAND=r"""mkdir -p artifact tests
 cat > artifact/main.py <<'PY'
@@ -48,11 +62,195 @@ PY
 printf 'OPENHANDS_ARTIFACT_CREATED\n'
 """
 
+def _model_aliases(value):
+    value=(value or "").strip()
+    if not value:
+        return set()
+    aliases={value}
+    if "/" in value:
+        aliases.add(value.split("/",1)[1])
+    return aliases
+
+def _allowed_model(requested, allowed):
+    requested_aliases=_model_aliases(requested)
+    if not requested_aliases:
+        return False
+    allowed_aliases=set()
+    for item in allowed:
+        allowed_aliases.update(_model_aliases(item))
+    return bool(requested_aliases & allowed_aliases)
+
+def _estimate_prompt_tokens(body):
+    messages=body.get("messages") or []
+    raw=json.dumps(messages,ensure_ascii=False,separators=(",",":"))
+    return max(1,math.ceil(len(raw.encode("utf-8"))/3))
+
+def _requested_completion_tokens(body):
+    value=body.get("max_completion_tokens",body.get("max_tokens"))
+    if value is None:
+        return MAX_COMPLETION_TOKENS_PER_REQUEST
+    try:
+        return int(value)
+    except (TypeError,ValueError):
+        return MAX_COMPLETION_TOKENS_PER_REQUEST+1
+
+def _cost(prompt_tokens,completion_tokens):
+    return round(
+        (prompt_tokens/1_000_000)*INPUT_COST_PER_1M_USD
+        +(completion_tokens/1_000_000)*OUTPUT_COST_PER_1M_USD,
+        9,
+    )
+
+def _usage_from_json(payload):
+    usage=payload.get("usage") if isinstance(payload,dict) else None
+    if not isinstance(usage,dict):
+        return None
+    prompt=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+    completion=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+    total=int(usage.get("total_tokens") or (prompt+completion))
+    return prompt,completion,total
+
+def _usage_from_bytes(data,content_type):
+    text=data.decode("utf-8",errors="replace")
+    if "text/event-stream" in (content_type or "").lower() or text.lstrip().startswith("data:"):
+        last=None
+        for line in text.splitlines():
+            line=line.strip()
+            if not line.startswith("data:"):
+                continue
+            payload=line[5:].strip()
+            if not payload or payload=="[DONE]":
+                continue
+            try:
+                obj=json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+            usage=_usage_from_json(obj)
+            if usage is not None:
+                last=usage
+        return last
+    try:
+        return _usage_from_json(json.loads(text))
+    except json.JSONDecodeError:
+        return None
+
+class BudgetState:
+    def __init__(self):
+        self.lock=threading.Lock()
+        self.request_count=0
+        self.prompt_tokens=0
+        self.completion_tokens=0
+        self.total_tokens=0
+        self.estimated_cost_usd=0.0
+        self.blocked=False
+        self.blocked_reason=""
+        self.last_model=""
+        self._persist()
+
+    def snapshot(self):
+        return {
+            "mode":MODE,
+            "budget_status":"BLOCKED" if self.blocked else "WITHIN_BUDGET",
+            "request_count":self.request_count,
+            "prompt_tokens":self.prompt_tokens,
+            "completion_tokens":self.completion_tokens,
+            "total_tokens":self.total_tokens,
+            "estimated_cost_usd":round(self.estimated_cost_usd,9),
+            "blocked":self.blocked,
+            "blocked_reason":self.blocked_reason,
+            "last_model":self.last_model,
+            "limits":{
+                "allowed_models":ALLOWED_MODELS,
+                "max_requests":MAX_REQUESTS,
+                "max_prompt_tokens_per_request":MAX_PROMPT_TOKENS_PER_REQUEST,
+                "max_completion_tokens_per_request":MAX_COMPLETION_TOKENS_PER_REQUEST,
+                "max_total_tokens":MAX_TOTAL_TOKENS,
+                "max_cost_per_request_usd":MAX_COST_PER_REQUEST_USD,
+                "max_cost_usd":MAX_COST_USD,
+                "input_cost_per_1m_usd":INPUT_COST_PER_1M_USD,
+                "output_cost_per_1m_usd":OUTPUT_COST_PER_1M_USD,
+            },
+        }
+
+    def _persist(self):
+        try:
+            AUDIT_FILE.parent.mkdir(parents=True,exist_ok=True)
+            tmp=AUDIT_FILE.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.snapshot(),ensure_ascii=False,sort_keys=True),encoding="utf-8")
+            os.replace(tmp,AUDIT_FILE)
+        except OSError as exc:
+            print(f"[gateway] audit persist failed: {exc}",file=sys.stderr,flush=True)
+
+    def _block(self,reason):
+        self.blocked=True
+        self.blocked_reason=reason
+        self._persist()
+        return False,reason
+
+    def preflight(self,body):
+        if MODE!="PROXY":
+            return True,""
+        with self.lock:
+            if self.blocked:
+                return False,self.blocked_reason or "gateway already blocked"
+            model=str(body.get("model") or "").strip()
+            self.last_model=model
+            if not _allowed_model(model,ALLOWED_MODELS):
+                return self._block("model_not_allowed")
+            if self.request_count>=MAX_REQUESTS:
+                return self._block("request_limit_exceeded")
+            prompt_estimate=_estimate_prompt_tokens(body)
+            completion_requested=_requested_completion_tokens(body)
+            if prompt_estimate>MAX_PROMPT_TOKENS_PER_REQUEST:
+                return self._block("prompt_token_limit_exceeded")
+            if completion_requested<1 or completion_requested>MAX_COMPLETION_TOKENS_PER_REQUEST:
+                return self._block("completion_token_limit_exceeded")
+            projected_tokens=self.total_tokens+prompt_estimate+completion_requested
+            if projected_tokens>MAX_TOTAL_TOKENS:
+                return self._block("total_token_budget_exceeded")
+            projected_cost=_cost(prompt_estimate,completion_requested)
+            if projected_cost>MAX_COST_PER_REQUEST_USD:
+                return self._block("per_request_cost_budget_exceeded")
+            if self.estimated_cost_usd+projected_cost>MAX_COST_USD:
+                return self._block("total_cost_budget_exceeded")
+            self.request_count+=1
+            self._persist()
+            return True,""
+
+    def record_usage(self,usage):
+        if MODE!="PROXY" or usage is None:
+            return
+        prompt,completion,total=usage
+        with self.lock:
+            self.prompt_tokens+=max(0,prompt)
+            self.completion_tokens+=max(0,completion)
+            self.total_tokens+=max(0,total)
+            request_cost=_cost(max(0,prompt),max(0,completion))
+            self.estimated_cost_usd+=request_cost
+            if prompt>MAX_PROMPT_TOKENS_PER_REQUEST:
+                self._block("actual_prompt_token_limit_exceeded")
+                return
+            if completion>MAX_COMPLETION_TOKENS_PER_REQUEST:
+                self._block("actual_completion_token_limit_exceeded")
+                return
+            if request_cost>MAX_COST_PER_REQUEST_USD:
+                self._block("actual_per_request_cost_budget_exceeded")
+                return
+            if self.total_tokens>MAX_TOTAL_TOKENS:
+                self._block("actual_total_token_budget_exceeded")
+                return
+            if self.estimated_cost_usd>MAX_COST_USD:
+                self._block("actual_total_cost_budget_exceeded")
+                return
+            self._persist()
+
+BUDGET=BudgetState()
+
 class Handler(BaseHTTPRequestHandler):
     mock_calls=0
 
-    def log_message(self, fmt, *args):
-        print("[gateway] "+(fmt % args), file=sys.stderr, flush=True)
+    def log_message(self,fmt,*args):
+        print("[gateway] "+(fmt % args),file=sys.stderr,flush=True)
 
     def _json(self,status,payload):
         data=json.dumps(payload).encode("utf-8")
@@ -63,13 +261,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _auth_ok(self):
-        if not LOCAL_TOKEN:
-            return False
-        return self.headers.get("Authorization","")==f"Bearer {LOCAL_TOKEN}"
+        return bool(LOCAL_TOKEN) and self.headers.get("Authorization","")==f"Bearer {LOCAL_TOKEN}"
 
     def do_GET(self):
-        if self.path.rstrip("/") in ("","/health"):
-            self._json(200,{"status":"ok","mode":MODE})
+        path=self.path.split("?",1)[0].rstrip("/")
+        if path in ("","/health"):
+            self._json(200,{"status":"ok","mode":MODE,"budget":BUDGET.snapshot()})
             return
         self._json(404,{"error":"not_found"})
 
@@ -94,6 +291,12 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             self._json(400,{"error":{"message":"invalid json","type":"invalid_request_error"}})
             return
+
+        ok,reason=BUDGET.preflight(body)
+        if not ok:
+            self._json(429,{"error":{"message":reason,"type":"budget_exceeded","code":reason}})
+            return
+
         if MODE=="MOCK":
             self._mock(body)
         elif MODE=="PROXY":
@@ -176,8 +379,7 @@ class Handler(BaseHTTPRequestHandler):
                 }]},"finish_reason":None}]})
                 if fn.get("arguments"):
                     chunks.append({**base,"choices":[{"index":0,"delta":{"tool_calls":[{
-                        "index":idx,
-                        "function":{"arguments":fn["arguments"]},
+                        "index":idx,"function":{"arguments":fn["arguments"]},
                     }]},"finish_reason":None}]})
         else:
             chunks.append({**base,"choices":[{"index":0,"delta":{"role":"assistant","content":msg.get("content","")},"finish_reason":None}]})
@@ -213,8 +415,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with urllib.request.urlopen(req,timeout=120) as resp:
                 data=resp.read()
+                content_type=resp.headers.get("Content-Type","application/json")
+                BUDGET.record_usage(_usage_from_bytes(data,content_type))
                 self.send_response(resp.status)
-                self.send_header("Content-Type",resp.headers.get("Content-Type","application/json"))
+                self.send_header("Content-Type",content_type)
                 self.send_header("Content-Length",str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
