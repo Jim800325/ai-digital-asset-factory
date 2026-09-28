@@ -44,6 +44,7 @@ def test_full_v02_integration_acceptance():
         "011_controlled_llm_proxy.sql",
         "012_human_release_gate.sql",
         "013_release_review_package.sql",
+        "014_human_review_workspace.sql",
     ]
 
     assert Redis.from_url(settings.redis_url).ping() is True
@@ -382,6 +383,31 @@ def test_openhands_real_cli_adapter_from_approved_proposal():
               SET content_sha256=repeat('0',64)
               WHERE artifact_id=:artifact_id
             """),{"artifact_id":artifact_id})
+
+    client=TestClient(app)
+
+    review_page=client.get("/review")
+    assert review_page.status_code == 200
+    assert "Human Review Workspace" in review_page.text
+    assert "frame-ancestors 'none'" in review_page.headers["content-security-policy"]
+    assert review_page.headers["cache-control"] == "no-store"
+
+    deep_link=client.get(f"/review/{release['release_candidate_id']}")
+    assert deep_link.status_code == 200
+
+    workspace=client.get(
+        f"/v1/review-workspace/{release['release_candidate_id']}"
+    )
+    assert workspace.status_code == 200
+    workspace_body=workspace.json()
+    assert workspace_body["release_status"] == "WAITING_LIVE_VALIDATION"
+    assert workspace_body["live_validation_verified"] is False
+    assert workspace_body["deployment_enabled"] is False
+    assert workspace_body["can_approve"] is False
+    assert workspace_body["can_reject"] is True
+    assert workspace_body["package_sha256"] == release["review_package_sha256"]
+    assert workspace_body["ui_safety"]["auto_deploy"] is False
+    assert workspace_body["ui_safety"]["release_key_persisted_in_browser"] is False
 
     with pytest.raises(
         RuntimeError,
