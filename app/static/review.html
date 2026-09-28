@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Human Review Workspace · AI Digital Asset Factory</title>
+  <link rel="stylesheet" href="/review-assets/review.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">AI DIGITAL ASSET FACTORY · v0.3</div>
+        <h1>Human Review Workspace</h1>
+      </div>
+      <div class="top-actions">
+        <span class="safe-badge">部署永久禁用</span>
+        <button id="refreshButton" class="button ghost" type="button">重新整理</button>
+      </div>
+    </header>
+
+    <div class="safety-banner">
+      <strong>人工审查模式：</strong>
+      Review Package 只提供证据与人工决策界面，不会自动部署、Git push、发布或开放生产凭据。
+      未通过 Controlled Live LLM Acceptance 时，Release Approval 会被后端与数据库同时阻挡。
+    </div>
+
+    <main class="workspace">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <div>
+            <h2>Release Candidates</h2>
+            <p id="candidateCount">载入中…</p>
+          </div>
+        </div>
+        <div id="candidateList" class="candidate-list" aria-live="polite"></div>
+      </aside>
+
+      <section id="detailPanel" class="detail-panel">
+        <div id="emptyState" class="empty-state">
+          <div class="empty-icon">◎</div>
+          <h2>选择一个 Release Candidate</h2>
+          <p>查看 Artifact diff、SBOM、测试、风险与完整性哈希。</p>
+        </div>
+
+        <div id="detailContent" class="detail-content hidden">
+          <div class="detail-head">
+            <div>
+              <div id="candidateKicker" class="eyebrow"></div>
+              <h2 id="candidateTitle"></h2>
+              <p id="candidateSubtitle" class="muted"></p>
+            </div>
+            <div id="statusBadges" class="status-badges"></div>
+          </div>
+
+          <div id="summaryCards" class="summary-grid"></div>
+
+          <nav class="tabs" aria-label="Review sections">
+            <button class="tab active" data-tab="overview" type="button">總覽</button>
+            <button class="tab" data-tab="files" type="button">檔案 Diff</button>
+            <button class="tab" data-tab="dependencies" type="button">依賴 / SBOM</button>
+            <button class="tab" data-tab="tests" type="button">測試</button>
+            <button class="tab" data-tab="risks" type="button">風險</button>
+            <button class="tab" data-tab="hashes" type="button">完整性</button>
+            <button class="tab" data-tab="decision" type="button">人工決策</button>
+          </nav>
+
+          <section id="tab-overview" class="tab-panel active"></section>
+          <section id="tab-files" class="tab-panel"></section>
+          <section id="tab-dependencies" class="tab-panel"></section>
+          <section id="tab-tests" class="tab-panel"></section>
+          <section id="tab-risks" class="tab-panel"></section>
+          <section id="tab-hashes" class="tab-panel"></section>
+          <section id="tab-decision" class="tab-panel"></section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script src="/review-assets/review.js" defer></script>
+</body>
+</html>
