@@ -24,10 +24,23 @@ class Settings(BaseSettings):
     openhands_model: str = ""
     openhands_llm_upstream_url: str = ""
     openhands_llm_api_key: str = ""
+    openhands_allowed_models: str = ""
+    openhands_max_requests: int = 8
+    openhands_max_prompt_tokens_per_request: int = 12000
+    openhands_max_completion_tokens_per_request: int = 4000
+    openhands_max_total_tokens: int = 24000
+    openhands_max_cost_per_request_usd: float = 0.10
+    openhands_max_cost_usd: float = 0.25
+    openhands_input_cost_per_1m_usd: float = 0.0
+    openhands_output_cost_per_1m_usd: float = 0.0
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
     def seeds(self) -> list[str]:
         return [x.strip() for x in self.seed_urls.split(",") if x.strip()]
+
+    @property
+    def openhands_allowed_model_list(self) -> list[str]:
+        return [x.strip() for x in self.openhands_allowed_models.split(",") if x.strip()]
 
 settings = Settings()
