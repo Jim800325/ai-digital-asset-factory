@@ -2,12 +2,13 @@ import secrets
 from typing import Literal
 from uuid import UUID
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from redis import Redis
 from rq import Queue
 from sqlalchemy import text
+from vercel.headers import set_headers
 
 from app.build_proposals import decide_build_proposal
 from app.config import settings
@@ -22,6 +23,14 @@ from app.workers.pipeline import run_pipeline
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 app.mount("/review-assets", StaticFiles(directory=STATIC_DIR), name="review-assets")
 app.include_router(review_ui_router)
+
+@app.middleware("http")
+async def vercel_context_middleware(request: Request, call_next):
+    set_headers(request.headers)
+    try:
+        return await call_next(request)
+    finally:
+        set_headers(None)
 
 class BuildProposalDecision(BaseModel):
     decision: Literal["APPROVE","REJECT"]
