@@ -44,6 +44,15 @@ def health():
         "openhands_runtime":settings.openhands_runtime,
         "openhands_cli_version":settings.openhands_cli_version,
         "openhands_gateway_mode":settings.openhands_gateway_mode,
+        "controlled_llm_proxy":"CONFIGURED" if (
+            settings.openhands_gateway_mode.strip().upper()=="MOCK"
+            or (
+                bool(settings.openhands_allowed_model_list)
+                and settings.openhands_max_requests>0
+                and settings.openhands_max_total_tokens>0
+                and settings.openhands_max_cost_usd>0
+            )
+        ) else "FAIL_CLOSED",
     }
 
 @app.post("/v1/runs", status_code=202)
@@ -303,6 +312,9 @@ def openhands_executions(limit: int = 50):
     sql=text("""
       SELECT oe.id,oe.request_id,oe.run_id,oe.cli_version,oe.model_name,
              oe.inner_runtime,oe.network_policy,oe.gateway_mode,oe.task_sha256,
+             oe.budget_status,oe.gateway_request_count,oe.prompt_tokens,
+             oe.completion_tokens,oe.total_tokens,oe.estimated_cost_usd,
+             oe.blocked_reason,oe.live_model_verified,
              oe.exit_code,oe.started_at,oe.finished_at,
              sbr.request_status,sbr.workspace_id
       FROM openhands_executions oe
@@ -318,6 +330,9 @@ def openhands_execution(request_id: UUID):
     sql=text("""
       SELECT oe.id,oe.request_id,oe.run_id,oe.cli_version,oe.model_name,
              oe.inner_runtime,oe.network_policy,oe.gateway_mode,oe.task_sha256,
+             oe.budget_status,oe.gateway_request_count,oe.prompt_tokens,
+             oe.completion_tokens,oe.total_tokens,oe.estimated_cost_usd,
+             oe.blocked_reason,oe.budget_snapshot,oe.live_model_verified,
              oe.exit_code,oe.trace_jsonl,oe.started_at,oe.finished_at,
              sbr.request_status,sbr.workspace_id,sbr.error
       FROM openhands_executions oe
