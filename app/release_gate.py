@@ -216,18 +216,10 @@ def decide_release_candidate(
         if row["deployment_enabled"]:
             raise RuntimeError("Release gate must never enable deployment")
 
-        audit_backed_test_review=(
-            row["source_fingerprint"]=="test-only-release-gate-recovery-v1"
-            and row["generator_version"]=="test-recovery-v1"
-            and bool((row["risk_summary"] or {}).get("audit_backed_recovery_fixture"))
-        )
         review_ok=(
             row["review_package_id"] is not None
             and row["review_package_status"]=="GENERATED"
-            and (
-                row["content_snapshot_complete"] is True
-                or audit_backed_test_review
-            )
+            and row["content_snapshot_complete"] is True
             and bool(row["package_sha256"])
             and bool(row["source_tree_sha256"])
         )
