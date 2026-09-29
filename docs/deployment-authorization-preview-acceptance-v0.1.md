@@ -25,12 +25,17 @@ The following must remain true for the entire acceptance:
 1. Vercel build rate limit has cleared.
 2. Create a Preview Deployment from:
    `feature/deployment-authorization-v0.1`.
-3. Bind Preview-only database credentials.
+3. Bind Preview-only database credentials through `PREVIEW_DATABASE_URL`.
+   - Vercel Preview must not use `DATABASE_URL`.
+   - If `PREVIEW_DATABASE_URL` is absent, application startup must fail closed.
+   - The selected database source must report `PREVIEW_DATABASE_URL`.
+   - The Preview database must be an isolated Neon branch/database, not Production.
 4. Configure Preview-only:
    - `HUMAN_DEPLOYMENT_KEY`
    - existing non-production test keys as required.
 5. Do not attach the Production alias.
 6. Do not modify Production environment variables.
+7. Preview-only code guard must refuse startup when `VERCEL_ENV=production`.
 
 ## Migration acceptance
 
@@ -43,7 +48,9 @@ Required:
 - applied_count = 22
 - latest_version = `022_deployment_authorization_gate.sql`
 - no psycopg placeholder error
-- no startup error
+- no startup error when `PREVIEW_DATABASE_URL` is correctly configured
+- startup fails closed when `PREVIEW_DATABASE_URL` is absent
+- feature code refuses `VERCEL_ENV=production`
 - `deployment_plans` exists
 - `deployment_authorization_decisions` exists
 - `deployment_authorization_blocks` exists
