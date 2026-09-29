@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Live Acceptance Audit Registry · AI Digital Asset Factory</title>
+  <link rel="stylesheet" href="/review-assets/review.css">
+  <link rel="stylesheet" href="/review-assets/audits.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">AI DIGITAL ASSET FACTORY · EVIDENCE INDEX</div>
+        <h1>Live Acceptance Audit Registry</h1>
+      </div>
+      <div class="top-actions">
+        <span class="safe-badge">READ ONLY · NO LLM CALLS</span>
+        <a class="button ghost link-button" href="/review">Release Review</a>
+        <button id="refreshButton" class="button ghost" type="button">重新整理</button>
+      </div>
+    </header>
+
+    <div class="safety-banner">
+      <strong>Evidence Index：</strong>
+      本頁只读取仓库 <span class="code">audits/live-acceptance/*.json</span>。
+      不连接模型、不创建 Sandbox、不执行部署、不修改审计记录。
+    </div>
+
+    <main class="audit-shell">
+      <section id="registrySummary" class="summary-grid"></section>
+
+      <div class="audit-grid">
+        <aside class="sidebar audit-sidebar">
+          <div class="sidebar-head">
+            <h2>Audit Records</h2>
+            <p id="auditCount">载入中…</p>
+          </div>
+          <div id="auditList" class="candidate-list" aria-live="polite"></div>
+        </aside>
+
+        <section class="detail-panel audit-detail">
+          <div id="emptyState" class="empty-state">
+            <div class="empty-icon">◎</div>
+            <h2>选择一笔 Audit</h2>
+            <p>查看模型、token、费用、部署 SHA、重复请求、Artifact hashes 与证据文件哈希。</p>
+          </div>
+          <div id="detailContent" class="detail-content hidden">
+            <div class="detail-head">
+              <div>
+                <div id="auditKicker" class="eyebrow"></div>
+                <h2 id="auditTitle"></h2>
+                <p id="auditSubtitle" class="muted"></p>
+              </div>
+              <div id="auditBadges" class="status-badges"></div>
+            </div>
+
+            <div id="auditSummary" class="summary-grid"></div>
+
+            <nav class="tabs">
+              <button class="tab active" data-tab="overview" type="button">总览</button>
+              <button class="tab" data-tab="artifacts" type="button">Artifacts</button>
+              <button class="tab" data-tab="provenance" type="button">Provenance</button>
+              <button class="tab" data-tab="raw" type="button">Raw Evidence</button>
+            </nav>
+
+            <section id="tab-overview" class="tab-panel active"></section>
+            <section id="tab-artifacts" class="tab-panel"></section>
+            <section id="tab-provenance" class="tab-panel"></section>
+            <section id="tab-raw" class="tab-panel"></section>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script src="/review-assets/audits.js" defer></script>
+</body>
+</html>
