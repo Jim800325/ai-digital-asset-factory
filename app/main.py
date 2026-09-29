@@ -26,6 +26,7 @@ from app.release_integrity_gate import list_release_integrity_blocks
 from app.release_review import ensure_release_review_package
 from app.review_ui import STATIC_DIR, router as review_ui_router
 from app.review_workspace import get_review_workspace, list_review_workspace
+from app.migrate import migrate, migration_status
 from app.live_acceptance_registry import (
     get_live_acceptance_audit,
     list_live_acceptance_audits,
@@ -40,6 +41,11 @@ from app.vercel_live_acceptance import (
 from app.workers.pipeline import run_pipeline
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
+
+@app.on_event("startup")
+def _apply_startup_migrations():
+    migrate()
+
 app.mount("/review-assets", StaticFiles(directory=STATIC_DIR), name="review-assets")
 app.include_router(review_ui_router)
 
@@ -78,10 +84,18 @@ def _require_release_key(provided: str | None) -> None:
 @app.get("/health")
 def health():
     db_state=database_health()
+    migrations = migration_status() if db_state["available"] else {
+        "status": "DB_UNAVAILABLE",
+        "expected_count": 16,
+        "applied_count": None,
+        "latest_version": None,
+        "pending": None,
+    }
     payload={
         "status":"ok" if db_state["available"] else "degraded",
         "mode":"OBSERVE",
         "database":db_state,
+        "migrations":migrations,
         "approval_gate":"ENABLED" if settings.human_approval_key.strip() else "DISABLED",
         "release_gate":"ENABLED" if settings.human_release_key.strip() else "DISABLED",
         "release_deployment":"DISABLED",
