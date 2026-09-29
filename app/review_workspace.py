@@ -35,6 +35,7 @@ def list_review_workspace(limit:int=50)->list[dict]:
              rrp.content_snapshot_complete,
              rrp.source_tree_sha256,
              rrp.package_sha256,
+             rrp.artifact_manifest,
              rrp.risk_summary->>'risk_level' AS risk_level,
              COALESCE((rrp.test_report->>'passed')::int,0) AS passed_tests,
              COALESCE((rrp.test_report->>'failed')::int,0) AS failed_tests,
@@ -60,7 +61,10 @@ def list_review_workspace(limit:int=50)->list[dict]:
     result=[]
     for row in rows:
         item=dict(row)
-        gate=evaluate_release_integrity(item.get("source_tree_sha256"))
+        gate=evaluate_release_integrity(
+            item.get("source_tree_sha256"),
+            list(item.get("artifact_manifest") or []),
+        )
         item["integrity_status"]=gate["integrity_status"]
         item["integrity_gate_allowed"]=gate["allowed"]
         item["integrity_audit_id"]=gate.get("audit_id")
@@ -156,7 +160,10 @@ def get_review_workspace(candidate_id:UUID)->dict:
 
     row,decisions=read_with_retry("review_workspace_detail",_load_detail)
     result=dict(row)
-    integrity_gate=evaluate_release_integrity(result.get("source_tree_sha256"))
+    integrity_gate=evaluate_release_integrity(
+        result.get("source_tree_sha256"),
+        list(result.get("artifact_manifest") or []),
+    )
 
     def _load_integrity_blocks():
         with engine.begin() as audit_db:
