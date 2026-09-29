@@ -44,9 +44,9 @@ function fmtMoney(value){
 
 function statusClass(value){
   const s=String(value||"").toUpperCase();
-  if(["PASS","PASSED","CURRENT","APPROVED","ARTIFACT_READY","GENERATED","WITHIN_BUDGET","READY_FOR_REVIEW","LOW"].includes(s)) return "good";
-  if(["FAILED","BLOCKED","REJECTED","RELEASE_REJECTED","HIGH","STALE","TAMPERED"].includes(s)) return "bad";
-  if(["WAITING_LIVE_VALIDATION","PENDING_APPROVAL","MEDIUM","NOT_EVALUATED","ORPHANED"].includes(s)) return "warn";
+  if(["PASS","PASSED","CURRENT","APPROVED","ARTIFACT_READY","GENERATED","WITHIN_BUDGET","READY_FOR_REVIEW","RELEASE_APPROVED","AUTHORIZED_FOR_DEPLOYMENT","LOW"].includes(s)) return "good";
+  if(["FAILED","BLOCKED","REJECTED","RELEASE_REJECTED","DEPLOYMENT_REJECTED","HIGH","STALE","TAMPERED"].includes(s)) return "bad";
+  if(["WAITING_LIVE_VALIDATION","PENDING_APPROVAL","PENDING_AUTHORIZATION","MEDIUM","NOT_EVALUATED","ORPHANED"].includes(s)) return "warn";
   return "info";
 }
 
@@ -194,6 +194,9 @@ function renderCandidates(){
     const meta=node("div","candidate-meta");
     addPill(meta,item.release_status,item.release_status);
     addPill(meta,"Integrity "+(item.integrity_status||"ORPHANED"),item.integrity_status||"ORPHANED");
+    if(item.deployment_plan_status){
+      addPill(meta,"DeployAuth "+item.deployment_plan_status,item.deployment_plan_status);
+    }
     addPill(meta,"風險 "+(item.risk_level||"—"),item.risk_level);
     meta.appendChild(node("span","",String(item.artifact_count||0)+" files"));
     btn.appendChild(meta);
@@ -242,13 +245,17 @@ function renderDetail(d){
   addPill(badges,d.release_status,d.release_status);
   addPill(badges,"Integrity "+(d.integrity_status||"ORPHANED"),d.integrity_status||"ORPHANED");
   addPill(badges,"Live "+(d.live_validation_verified?"VERIFIED":"NOT VERIFIED"),d.live_validation_verified?"APPROVED":"WAITING_LIVE_VALIDATION");
-  addPill(badges,"Deploy DISABLED","APPROVED");
+  if(d.deployment_plan?.plan_status){
+    addPill(badges,"DeployAuth "+d.deployment_plan.plan_status,d.deployment_plan.plan_status);
+  }
+  addPill(badges,"Executor DISABLED","APPROVED");
 
   const summary=byId("summaryCards");
   clear(summary);
   summary.append(
     summaryCard("Release Status",d.release_status||"—"),
     summaryCard("Integrity",d.integrity_status||"ORPHANED"),
+    summaryCard("Deploy Auth",d.deployment_plan?.plan_status||"NOT PLANNED"),
     summaryCard("Static Risk",(d.risk_summary&&d.risk_summary.risk_level)||"—"),
     summaryCard("Tests",(d.test_report?.passed||0)+" / "+(d.test_report?.total||0)+" pass"),
     summaryCard("Artifacts",String((d.artifact_manifest||[]).length)),
@@ -276,7 +283,8 @@ function renderOverview(d){
     kv("Evidence integrity",d.integrity_status||"ORPHANED"),
     kv("Integrity audit ID",d.integrity_gate?.audit_id||"—",true),
     kv("Deployment",d.deployment_enabled?"ENABLED":"DISABLED"),
-    kv("Production execution",d.execution_enabled?"ENABLED":"DISABLED"),
+    kv("Deployment authorization",d.deployment_plan?.plan_status||"NOT PLANNED"),
+    kv("Production executor","DISABLED"),
     kv("Sandbox request",d.request_status),
     kv("Gateway / budget",(d.gateway_mode||"—")+" / "+(d.budget_status||"—")),
   );
@@ -533,6 +541,265 @@ function renderHashes(d){
   panel.appendChild(provenance);
 }
 
+function renderDeploymentAuthorization(d,panel){
+  const card=section("Deployment Authorization");
+  const plan=d.deployment_plan||null;
+  const grid=node("div","kv-grid");
+  grid.append(
+    kv("Authorization key configured",d.deployment_authorization_gate_configured?"YES":"NO"),
+    kv("Plan status",plan?.plan_status||"NOT PLANNED"),
+    kv("Target provider",plan?.target_provider||"VERCEL"),
+    kv("Target environment",plan?.target_environment||"production"),
+    kv("Production executor","DISABLED"),
+    kv("Execution enabled",plan?.execution_enabled?"YES":"NO"),
+  );
+  card.appendChild(grid);
+
+  const boundary=node(
+    "div",
+    "notice warn",
+    "Deployment Authorization 是第二道人工作業閘門。即使狀態變成 AUTHORIZED_FOR_DEPLOYMENT，也不會執行 Vercel Production deploy；executor 目前固定 DISABLED。"
+  );
+  boundary.style.marginTop="10px";
+  card.appendChild(boundary);
+
+  if(plan){
+    const hashes=node("div","kv-grid");
+    hashes.style.marginTop="10px";
+    hashes.append(
+      copyRow("Deployment Plan SHA-256",plan.plan_sha256),
+      copyRow("Acceptance provenance tree",plan.acceptance_provenance_tree_sha256),
+      kv("Live Acceptance Audit",plan.live_acceptance_audit_id||"—",true),
+      kv("Target project",plan.target_project_id||"—",true),
+      kv("Target team",plan.target_team_id||"—",true),
+    );
+    card.appendChild(hashes);
+
+    if((plan.blocks||[]).length){
+      const blocked=section("Deployment Authorization Block History");
+      const timeline=node("div","timeline");
+      plan.blocks.forEach(item=>{
+        const box=node("div","timeline-item");
+        const head=node("div","timeline-head");
+        addPill(head,"BLOCKED",item.integrity_status||"BLOCKED");
+        head.appendChild(node("strong","",item.actor||"unknown"));
+        head.appendChild(node("span","muted",fmtDate(item.blocked_at)));
+        box.appendChild(head);
+        box.appendChild(node("div","",item.reason||"Authorization blocked."));
+        timeline.appendChild(box);
+      });
+      blocked.appendChild(timeline);
+      card.appendChild(blocked);
+    }
+
+    if((plan.decisions||[]).length){
+      const history=section("Deployment Authorization History");
+      const timeline=node("div","timeline");
+      plan.decisions.forEach(item=>{
+        const box=node("div","timeline-item");
+        const head=node("div","timeline-head");
+        addPill(
+          head,
+          item.decision,
+          item.decision==="AUTHORIZE"?"AUTHORIZED_FOR_DEPLOYMENT":"DEPLOYMENT_REJECTED"
+        );
+        head.appendChild(node("strong","",item.actor||"unknown"));
+        head.appendChild(node("span","muted",fmtDate(item.decided_at)));
+        box.appendChild(head);
+        box.appendChild(node("div","",item.reason||"—"));
+        timeline.appendChild(box);
+      });
+      history.appendChild(timeline);
+      card.appendChild(history);
+    }
+
+    if(plan.plan_status==="PENDING_AUTHORIZATION"){
+      const form=node("div","decision-box");
+      form.style.marginTop="12px";
+
+      const keyField=node("div","field");
+      keyField.appendChild(node("label","","X-Deployment-Key"));
+      const key=node("input");
+      key.type="password";
+      key.autocomplete="off";
+      key.spellcheck=false;
+      key.placeholder="第二把人工授權金鑰；不會儲存在瀏覽器";
+      keyField.appendChild(key);
+
+      const actorField=node("div","field");
+      actorField.appendChild(node("label","","Deployment reviewer"));
+      const actor=node("input");
+      actor.value="human-deployment-ui";
+      actor.maxLength=200;
+      actorField.appendChild(actor);
+
+      const reasonField=node("div","field");
+      reasonField.appendChild(node("label","","Authorization reason"));
+      const reason=node("textarea");
+      reason.maxLength=4000;
+      reason.placeholder="記錄 AUTHORIZE / REJECT 的理由";
+      reasonField.appendChild(reason);
+
+      const actions=node("div","decision-actions");
+      const authorize=node("button","button approve","AUTHORIZE FOR DEPLOYMENT");
+      authorize.type="button";
+      authorize.disabled=!d.can_authorize_deployment;
+      const reject=node("button","button danger","REJECT DEPLOYMENT");
+      reject.type="button";
+      reject.disabled=!d.deployment_authorization_gate_configured;
+      actions.append(authorize,reject);
+
+      async function submit(decision){
+        if(reason.value.trim().length<3){
+          showToast("請填寫至少 3 個字元的授權理由",true);
+          return;
+        }
+        if(!key.value){
+          showToast("請輸入 X-Deployment-Key",true);
+          return;
+        }
+        const warning=decision==="AUTHORIZE"
+          ? "確認授權此 Deployment Plan？\n\n這只會寫入 AUTHORIZED_FOR_DEPLOYMENT；Production executor 仍為 DISABLED，不會部署。"
+          : "確認拒絕此 Deployment Plan？";
+        if(!window.confirm(warning)) return;
+        authorize.disabled=true;
+        reject.disabled=true;
+        try{
+          await api("/v1/deployment-plans/"+encodeURIComponent(plan.id)+"/decision",{
+            method:"POST",
+            headers:{
+              "Content-Type":"application/json",
+              "X-Deployment-Key":key.value,
+            },
+            body:JSON.stringify({
+              decision,
+              reason:reason.value.trim(),
+              actor:actor.value.trim()||"human-deployment-ui",
+              plan_sha256:plan.plan_sha256,
+            }),
+          });
+          key.value="";
+          reason.value="";
+          showToast(
+            decision==="AUTHORIZE"
+              ? "Deployment Plan 已授權；Production executor 仍為 DISABLED。"
+              : "Deployment Plan 已拒絕。"
+          );
+          await loadCandidates();
+          await selectCandidate(d.release_candidate_id,false);
+        }catch(err){
+          key.value="";
+          showToast("Deployment Authorization 被拒絕："+err.message,true);
+          await selectCandidate(d.release_candidate_id,false);
+        }
+      }
+
+      authorize.addEventListener("click",()=>submit("AUTHORIZE"));
+      reject.addEventListener("click",()=>submit("REJECT"));
+      form.append(keyField,actorField,reasonField,actions);
+      card.appendChild(form);
+    }
+  }else if(d.can_create_deployment_plan){
+    const form=node("div","decision-box");
+    form.style.marginTop="12px";
+
+    const projectField=node("div","field");
+    projectField.appendChild(node("label","","Target Vercel Project ID"));
+    const project=node("input");
+    project.placeholder="prj_... 或可識別的 project id";
+    project.maxLength=160;
+    projectField.appendChild(project);
+
+    const teamField=node("div","field");
+    teamField.appendChild(node("label","","Target Team ID（可選）"));
+    const team=node("input");
+    team.placeholder="team_...";
+    team.maxLength=160;
+    teamField.appendChild(team);
+
+    const keyField=node("div","field");
+    keyField.appendChild(node("label","","X-Deployment-Key"));
+    const key=node("input");
+    key.type="password";
+    key.autocomplete="off";
+    key.spellcheck=false;
+    key.placeholder="第二把人工授權金鑰";
+    keyField.appendChild(key);
+
+    const actorField=node("div","field");
+    actorField.appendChild(node("label","","Planner"));
+    const actor=node("input");
+    actor.value="human-deployment-ui";
+    actor.maxLength=200;
+    actorField.appendChild(actor);
+
+    const create=node("button","button","生成不可變 Deployment Plan");
+    create.type="button";
+    create.disabled=!d.deployment_authorization_gate_configured;
+    create.addEventListener("click",async()=>{
+      if(project.value.trim().length<3){
+        showToast("請填寫 Target Vercel Project ID",true);
+        return;
+      }
+      if(!key.value){
+        showToast("請輸入 X-Deployment-Key",true);
+        return;
+      }
+      if(!window.confirm(
+        "確認生成不可變 Deployment Plan？\n\n此動作只固化目標與 provenance，不會執行部署。"
+      )) return;
+      create.disabled=true;
+      try{
+        await api("/v1/release-candidates/"+encodeURIComponent(d.release_candidate_id)+"/deployment-plan",{
+          method:"POST",
+          headers:{
+            "Content-Type":"application/json",
+            "X-Deployment-Key":key.value,
+          },
+          body:JSON.stringify({
+            target_project_id:project.value.trim(),
+            target_team_id:team.value.trim()||null,
+            actor:actor.value.trim()||"human-deployment-ui",
+          }),
+        });
+        key.value="";
+        showToast("不可變 Deployment Plan 已生成；等待第二道人工作業授權。");
+        await loadCandidates();
+        await selectCandidate(d.release_candidate_id,false);
+      }catch(err){
+        key.value="";
+        create.disabled=false;
+        showToast("Deployment Plan 建立失敗："+err.message,true);
+      }
+    });
+
+    form.append(projectField,teamField,keyField,actorField,create);
+    card.appendChild(form);
+  }else if(d.release_status==="RELEASE_APPROVED"){
+    const why=node(
+      "div",
+      "notice warn",
+      d.archived_at
+        ? "此 Release Candidate 已歸檔，不能建立 Deployment Plan。"
+        : "目前不符合 Deployment Plan 建立條件。需要完整 Review Package、VERIFIED provenance，且 deployment/execution 必須保持 DISABLED。"
+    );
+    why.style.marginTop="10px";
+    card.appendChild(why);
+  }
+
+  if(!d.deployment_authorization_gate_configured){
+    const n=node(
+      "div",
+      "notice warn",
+      "伺服器尚未配置 HUMAN_DEPLOYMENT_KEY，因此 Deployment Authorization 保持關閉。"
+    );
+    n.style.marginTop="10px";
+    card.appendChild(n);
+  }
+
+  panel.appendChild(card);
+}
+
 function renderDecision(d){
   const panel=byId("tab-decision");
   clear(panel);
@@ -608,6 +875,8 @@ function renderDecision(d){
     history.appendChild(timeline);
     panel.appendChild(history);
   }
+
+  renderDeploymentAuthorization(d,panel);
 
   const formCard=section("Human Decision");
   const form=node("div","decision-box");
