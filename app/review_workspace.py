@@ -4,6 +4,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine
+from app.db_reliability import read_with_retry
 from app.release_integrity_gate import (
     evaluate_release_integrity,
     list_release_integrity_blocks,
@@ -48,8 +49,13 @@ def list_review_workspace(limit:int=50)->list[dict]:
       ORDER BY rc.updated_at DESC,rc.id DESC
       LIMIT :limit
     """)
-    with engine.connect() as db:
-        rows=db.execute(sql,{"limit":min(max(limit,1),200)}).mappings().all()
+    def _load_rows():
+        with engine.connect() as db:
+            return db.execute(
+                sql,
+                {"limit":min(max(limit,1),200)},
+            ).mappings().all()
+    rows=read_with_retry("review_workspace_list",_load_rows)
     result=[]
     for row in rows:
         item=dict(row)
@@ -131,24 +137,34 @@ def get_review_workspace(candidate_id:UUID)->dict:
       LEFT JOIN release_review_packages rrp ON rrp.release_candidate_id=rc.id
       WHERE rc.id=:id
     """)
-    with engine.connect() as db:
-        row=db.execute(sql,{"id":candidate_id}).mappings().one_or_none()
-        if row is None:
-            raise LookupError("Release candidate not found")
-        decisions=[
-            dict(item) for item in db.execute(text("""
-              SELECT id,candidate_status,decision,reason,actor,decided_at,
-                     review_package_id,review_package_sha256,source_tree_sha256
-              FROM release_decisions
-              WHERE release_candidate_id=:id
-              ORDER BY decided_at DESC,id DESC
-            """),{"id":candidate_id}).mappings().all()
-        ]
+    def _load_detail():
+        with engine.connect() as db:
+            row=db.execute(sql,{"id":candidate_id}).mappings().one_or_none()
+            if row is None:
+                raise LookupError("Release candidate not found")
+            decisions=[
+                dict(item) for item in db.execute(text("""
+                  SELECT id,candidate_status,decision,reason,actor,decided_at,
+                         review_package_id,review_package_sha256,source_tree_sha256
+                  FROM release_decisions
+                  WHERE release_candidate_id=:id
+                  ORDER BY decided_at DESC,id DESC
+                """),{"id":candidate_id}).mappings().all()
+            ]
+            return row,decisions
 
+    row,decisions=read_with_retry("review_workspace_detail",_load_detail)
     result=dict(row)
     integrity_gate=evaluate_release_integrity(result.get("source_tree_sha256"))
-    with engine.begin() as audit_db:
-        integrity_blocks=list_release_integrity_blocks(audit_db,candidate_id)
+
+    def _load_integrity_blocks():
+        with engine.begin() as audit_db:
+            return list_release_integrity_blocks(audit_db,candidate_id)
+
+    integrity_blocks=read_with_retry(
+        "review_workspace_integrity_blocks",
+        _load_integrity_blocks,
+    )
     terminal=result["release_status"] in {"RELEASE_APPROVED","RELEASE_REJECTED"}
     live_ok=(
         result["live_validation_verified"] is True
