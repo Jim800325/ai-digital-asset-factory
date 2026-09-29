@@ -4,6 +4,10 @@ import json
 from sqlalchemy import text
 
 from app.db import engine
+from app.release_integrity_gate import (
+    evaluate_release_integrity,
+    record_release_integrity_block,
+)
 
 
 def _manifest_sha(manifest:list[dict])->str:
@@ -174,6 +178,14 @@ def decide_release_candidate(
     if len(clean_reason)<3:
         raise ValueError("reason must contain at least 3 characters")
 
+    blocked_error=None
+    blocked_event_id=None
+    integrity_gate=None
+    decision_id=None
+    status=None
+    review_ok=False
+    row=None
+
     with engine.begin() as db:
         row=db.execute(text("""
           SELECT rc.id,rc.release_status,rc.live_validation_verified,
@@ -211,7 +223,8 @@ def decide_release_candidate(
 
         if normalized=="APPROVE":
             live_ok=(
-                row["gateway_mode"]=="PROXY"
+                row["live_validation_verified"] is True
+                and row["gateway_mode"]=="PROXY"
                 and row["budget_status"]=="WITHIN_BUDGET"
                 and row["live_model_verified"] is True
                 and row["request_status"]=="ARTIFACT_READY"
@@ -222,39 +235,68 @@ def decide_release_candidate(
                 raise RuntimeError("Controlled Live LLM Acceptance has not passed")
             if not review_ok:
                 raise RuntimeError("Immutable release review package is required")
+
             supplied=(review_package_sha256 or "").strip().lower()
             current=str(row["package_sha256"]).strip().lower()
             if supplied!=current:
                 raise RuntimeError("Reviewed package SHA-256 does not match current package")
-            status="RELEASE_APPROVED"
-            ts_column="approved_at"
+
+            integrity_gate=evaluate_release_integrity(row["source_tree_sha256"])
+            if not integrity_gate["allowed"]:
+                reason_codes=integrity_gate.get("blocking_reasons") or [
+                    "integrity_gate_failed"
+                ]
+                block_reason=(
+                    "Evidence Integrity Gate blocked APPROVE: "
+                    + ", ".join(reason_codes)
+                )
+                blocked_event_id=record_release_integrity_block(
+                    db,
+                    candidate_id=row["id"],
+                    actor=clean_actor,
+                    reason=block_reason,
+                    gate=integrity_gate,
+                )
+                blocked_error=block_reason
+            else:
+                status="RELEASE_APPROVED"
+                ts_column="approved_at"
         else:
             status="RELEASE_REJECTED"
             ts_column="rejected_at"
 
-        db.execute(text(f"""
-          UPDATE release_candidates
-          SET release_status=:status,{ts_column}=now(),deployment_enabled=false
-          WHERE id=:id
-        """),{"status":status,"id":row["id"]})
-        decision_id=db.execute(text("""
-          INSERT INTO release_decisions(
-            release_candidate_id,candidate_status,decision,reason,actor,
-            review_package_id,review_package_sha256,source_tree_sha256)
-          VALUES(
-            :id,:status,:decision,:reason,:actor,
-            :review_package_id,:review_package_sha256,:source_tree_sha256)
-          RETURNING id
-        """),{
-            "id":row["id"],
-            "status":status,
-            "decision":normalized,
-            "reason":clean_reason[:4000],
-            "actor":clean_actor[:200],
-            "review_package_id":row["review_package_id"] if review_ok else None,
-            "review_package_sha256":row["package_sha256"] if review_ok else None,
-            "source_tree_sha256":row["source_tree_sha256"] if review_ok else None,
-        }).scalar_one()
+        if blocked_error is None:
+            db.execute(text(f"""
+              UPDATE release_candidates
+              SET release_status=:status,{ts_column}=now(),deployment_enabled=false
+              WHERE id=:id
+            """),{"status":status,"id":row["id"]})
+            decision_id=db.execute(text("""
+              INSERT INTO release_decisions(
+                release_candidate_id,candidate_status,decision,reason,actor,
+                review_package_id,review_package_sha256,source_tree_sha256)
+              VALUES(
+                :id,:status,:decision,:reason,:actor,
+                :review_package_id,:review_package_sha256,:source_tree_sha256)
+              RETURNING id
+            """),{
+                "id":row["id"],
+                "status":status,
+                "decision":normalized,
+                "reason":clean_reason[:4000],
+                "actor":clean_actor[:200],
+                "review_package_id":row["review_package_id"] if review_ok else None,
+                "review_package_sha256":row["package_sha256"] if review_ok else None,
+                "source_tree_sha256":row["source_tree_sha256"] if review_ok else None,
+            }).scalar_one()
+
+    if blocked_error is not None:
+        suffix=(
+            f" [block_event_id={blocked_event_id}]"
+            if blocked_event_id is not None
+            else ""
+        )
+        raise RuntimeError(blocked_error + suffix)
 
     return {
         "release_candidate_id":str(row["id"]),
@@ -263,5 +305,6 @@ def decide_release_candidate(
         "review_package_sha256":row["package_sha256"] if review_ok else None,
         "source_tree_sha256":row["source_tree_sha256"] if review_ok else None,
         "live_validation_verified":normalized=="APPROVE",
+        "integrity_gate":integrity_gate if normalized=="APPROVE" else None,
         "deployment_enabled":False,
     }
