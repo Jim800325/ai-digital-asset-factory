@@ -6,6 +6,7 @@ from typing import Any
 
 GENESIS_SHA256 = "0" * 64
 MANIFEST_NAME = "manifest.json"
+DEPLOYMENT_SOURCES_NAME = "deployment-sources.json"
 
 
 def canonical(value: Any) -> bytes:
@@ -34,7 +35,7 @@ def build_manifest(
 ) -> dict[str, Any]:
     records = []
     for path in root.glob("*.json"):
-        if path.name == MANIFEST_NAME:
+        if path.name in {MANIFEST_NAME, DEPLOYMENT_SOURCES_NAME}:
             continue
         raw = path.read_bytes()
         payload = json.loads(raw.decode("utf-8"))
@@ -121,8 +122,8 @@ def main() -> int:
     rendered = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
 
     if args.check:
-        current = target.read_text(encoding="utf-8") if target.exists() else ""
-        if current != rendered:
+        current = load_json(target) if target.exists() else None
+        if current != manifest:
             raise SystemExit("integrity manifest is stale or does not match evidence")
         print("integrity manifest verified")
         return 0
