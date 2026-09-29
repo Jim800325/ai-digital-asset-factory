@@ -43,6 +43,8 @@ jobs:
       GITHUB_DISCOVERY_ENABLED: "false"
       SEED_URLS: ""
       HUMAN_APPROVAL_KEY: ci-approval-key
+      HUMAN_RELEASE_KEY: ci-release-key
+      HUMAN_DEPLOYMENT_KEY: ci-deployment-key
       SANDBOX_EXECUTION_ENABLED: "true"
       SANDBOX_WORKSPACE_ROOT: /tmp/asset-factory-workspaces
       SANDBOX_IMAGE: python:3.12-slim
@@ -67,7 +69,7 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q app tests
 
-      - name: Apply migrations 001 through 015
+      - name: Apply all repository migrations
         run: python -m app.migrate
 
       - name: Verify migration set
@@ -75,28 +77,15 @@ jobs:
           python - <<'PY'
           from sqlalchemy import text
           from app.db import engine
-          expected = [
-              "001_initial.sql",
-              "002_hunter_v02.sql",
-              "003_cross_source_aggregator.sql",
-              "004_evidence_quality.sql",
-              "005_research_reports.sql",
-              "006_audit_integrity.sql",
-              "007_research_validation.sql",
-              "008_build_proposals.sql",
-              "009_sandbox_execution.sql",
-              "010_openhands_adapter.sql",
-              "011_controlled_llm_proxy.sql",
-              "012_human_release_gate.sql",
-              "013_release_review_package.sql",
-              "014_human_review_workspace.sql",
-              "015_live_acceptance_audit.sql",
-          ]
+          from app.migrate import migration_files
+
+          expected = [path.name for path in migration_files()]
           with engine.connect() as db:
               actual = [r[0] for r in db.execute(
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
+          assert expected[-1] == "022_deployment_authorization_gate.sql", expected
           print("migrations:", actual)
           PY
 
