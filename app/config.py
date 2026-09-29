@@ -3,6 +3,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://assetfactory:assetfactory@postgres:5432/assetfactory"
     redis_url: str = "redis://redis:6379/0"
+    database_connect_timeout_seconds: int = 5
+    database_read_retry_attempts: int = 2
+    database_application_name: str = "ai-digital-asset-factory"
     user_agent: str = "AI-Digital-Asset-Factory/0.3"
     request_timeout_seconds: int = 20
     max_pages_per_run: int = 20
