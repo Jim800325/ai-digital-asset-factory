@@ -31,6 +31,7 @@ h3{font-size:15px}
 .safe-badge,.pill{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:6px 10px;font-size:12px;font-weight:750;white-space:nowrap}
 .safe-badge{color:var(--green);border-color:rgba(87,211,140,.35);background:rgba(87,211,140,.08)}
 .button{border:1px solid transparent;border-radius:9px;padding:9px 13px;font-weight:750;color:var(--text);background:var(--blue)}
+.link-button{text-decoration:none;display:inline-flex;align-items:center}
 .button:hover{filter:brightness(1.08)}
 .button:disabled{opacity:.42;cursor:not-allowed;filter:none}
 .button.ghost{background:transparent;border-color:var(--line)}
