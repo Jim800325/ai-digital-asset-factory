@@ -1,0 +1,58 @@
+{
+  "schema_version": "live-acceptance-audit-v1",
+  "occurred_at_utc": "2026-09-29T03:30:12Z",
+  "source_commit": "5e09b40649b07337aa895efca2cc37cfd146b459",
+  "vercel_deployment_id": "dpl_B5j5bC2ng82AwVboDrhL8VBqpnj6",
+  "audit_id": "8b385170ee00c667",
+  "audit_backend": "VERCEL_CONTROL_SANDBOX",
+  "provider": "AIHUBMIX",
+  "model": "gpt-5.6-luna",
+  "gateway_mode": "PROXY",
+  "acceptance_status": "PASSED",
+  "phase": "complete",
+  "live_model_verified": true,
+  "budget_status": "WITHIN_BUDGET",
+  "blocked_reason": null,
+  "gateway_request_count": 2,
+  "prompt_tokens": 26979,
+  "completion_tokens": 6000,
+  "total_tokens": 32979,
+  "estimated_cost_usd": 0.01394475,
+  "max_cost_usd": 0.04,
+  "model_request_observed": true,
+  "openhands_exit_code": 0,
+  "test_exit_code": 0,
+  "tests_passed": true,
+  "artifact_count": 3,
+  "source_tree_sha256": "f34dc11399590141886aacc006ee9c8c647bf517370684d516b0987f4aa7122c",
+  "artifacts": [
+    {
+      "relative_path": "README.md",
+      "byte_size": 109,
+      "sha256": "9da2d9dbf375d25a9d1899b3d01f40d410bfdd8150d79b4e7e4992342f7f2688"
+    },
+    {
+      "relative_path": "__pycache__/main.cpython-313.pyc",
+      "byte_size": 465,
+      "sha256": "e3d05d8a1d333a0be433fd3d88b75fbaee290c5228e532ca777979b12583cea5"
+    },
+    {
+      "relative_path": "main.py",
+      "byte_size": 169,
+      "sha256": "7057ef785dc9b82894bcf20c3d08d7ba3adfc030fe6d8513f6e26adf5ae1f366"
+    }
+  ],
+  "agent_network_policy": "GATEWAY_ONLY_THEN_DENY_ALL",
+  "gateway_network_policy": "AIHUBMIX_BROKER_ONLY",
+  "control_network_policy": "DENY_ALL",
+  "provider_key_in_agent_environment": false,
+  "provider_key_in_gateway_environment": false,
+  "external_side_effects": "DENY",
+  "deployment_enabled": false,
+  "git_push_enabled": false,
+  "release_approved": false,
+  "duplicate_requests_observed": 1,
+  "duplicate_suppression_verified": true,
+  "duration_seconds": 48.751,
+  "note": "Final controlled live acceptance passed. OpenHands used the real AIHubMix gpt-5.6-luna path through the constrained Responses API gateway, created the required isolated artifact, and both independent unittest cases passed. The gateway clamped max output tokens to the configured limit while retaining the USD 0.04 hard total budget."
+}
