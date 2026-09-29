@@ -26,7 +26,7 @@ AIHUBMIX_DOMAIN="aihubmix.com"
 LIVE_MODEL="gpt-5.6-luna"
 OPENHANDS_MODEL=f"openai/{LIVE_MODEL}"
 
-TRIGGER_TOKEN_SHA256="e644a1fd0d1a34eebceb66063681a4e83b3b9a2e7b70faa35c28b0e07fc3e8d1"
+TRIGGER_TOKEN_SHA256="b110207e798d2352199b963f9346a6a9b3413c9263d34be9086c8937d0bdc49d"
 
 MAX_REQUESTS=4
 MAX_PROMPT_TOKENS_PER_REQUEST=12_000
@@ -516,7 +516,7 @@ def _claim_control_audit(
         "name":name,
         "projectId":VERCEL_PROJECT_ID,
         "runtime":"python3.13",
-        "resources":{"vcpus":1,"memory":1024},
+        "resources":{"vcpus":1,"memory":2048},
         "timeout":300000,
         "persistent":False,
         "networkPolicy":{
