@@ -1,4 +1,6 @@
+import os
 import time
+from urllib.parse import parse_qs, urlparse
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -46,7 +48,50 @@ def read_with_retry(
     raise DatabaseUnavailable(operation=operation) from last
 
 
+
+def database_configuration() -> dict[str, Any]:
+    raw = settings.database_url.strip()
+    if raw.startswith("postgresql+psycopg://"):
+        parsed_url = "postgresql://" + raw[len("postgresql+psycopg://"):]
+    elif raw.startswith("postgres://"):
+        parsed_url = "postgresql://" + raw[len("postgres://"):]
+    else:
+        parsed_url = raw
+
+    parsed = urlparse(parsed_url)
+    host = (parsed.hostname or "").lower()
+    query = parse_qs(parsed.query)
+
+    if host == "postgres":
+        target = "LOCAL_DEFAULT"
+    elif "neon.tech" in host and "-pooler." in host:
+        target = "NEON_POOLER"
+    elif "neon.tech" in host:
+        target = "NEON_DIRECT"
+    elif host:
+        target = "EXTERNAL_POSTGRES"
+    else:
+        target = "UNRESOLVED"
+
+    return {
+        "configured_from_env": bool(os.getenv("DATABASE_URL")),
+        "target": target,
+        "driver": "psycopg",
+        "sslmode": (query.get("sslmode") or [None])[0],
+        "channel_binding": (query.get("channel_binding") or [None])[0],
+        "host_redacted": (
+            "postgres"
+            if host == "postgres"
+            else (
+                host.split(".", 1)[-1]
+                if host and "." in host
+                else ("configured" if host else None)
+            )
+        ),
+    }
+
 def database_health() -> dict[str, Any]:
+    config = database_configuration()
     try:
         def probe():
             with engine.connect() as conn:
@@ -63,6 +108,7 @@ def database_health() -> dict[str, Any]:
             ),
             "pooling": "NULL_POOL",
             "prepared_statements": "DISABLED",
+            "configuration": config,
         }
     return {
         "status": "AVAILABLE",
@@ -74,6 +120,7 @@ def database_health() -> dict[str, Any]:
         ),
         "pooling": "NULL_POOL",
         "prepared_statements": "DISABLED",
+        "configuration": config,
     }
 
 
