@@ -496,6 +496,14 @@ def release_candidate_decision(
     x_release_key: str | None = Header(default=None,alias="X-Release-Key"),
 ):
     _require_release_key(x_release_key)
+    db_state=database_health()
+    if not db_state["available"]:
+        failure=db_unavailable_payload(
+            operation="release_decision",
+            approval_sensitive=True,
+        )
+        failure["database_state"]=db_state
+        return JSONResponse(status_code=503,content=failure)
     try:
         return decide_release_candidate(
             candidate_id,
