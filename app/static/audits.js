@@ -20,7 +20,8 @@ function fmtMoney(value){return "$"+Number(value||0).toFixed(6);}
 function statusClass(value){
   const s=String(value||"").toUpperCase();
   if(["PASS","PASSED","WITHIN_BUDGET","VERIFIED","YES"].includes(s)) return "good";
-  if(["FAILED","BLOCKED","NO"].includes(s)) return "bad";
+  if(["FAILED","BLOCKED","NO","TAMPERED"].includes(s)) return "bad";
+  if(["ORPHANED"].includes(s)) return "warn";
   return "info";
 }
 function addPill(parent,text,value){
@@ -64,7 +65,8 @@ function renderIndex(){
   const i=state.index||{};
   s.append(
     summaryCard("Records",i.record_count||0,"repository JSON"),
-    summaryCard("Passed",i.passed_count||0,"final acceptance"),
+    summaryCard("Integrity",i.integrity_status||"—","chained manifest"),
+    summaryCard("Verified",i.integrity_verified_count||0,"integrity records"),
     summaryCard("Gateway Requests",i.total_gateway_requests||0,"historical only"),
     summaryCard("Total Tokens",Number(i.total_tokens||0).toLocaleString(),"historical usage"),
     summaryCard("Estimated Cost",fmtMoney(i.total_estimated_cost_usd),"historical aggregate")
@@ -80,6 +82,7 @@ function renderList(){
     const head=node("div","audit-list-title");
     head.appendChild(node("strong","",item.audit_id||"unknown"));
     addPill(head,item.acceptance_status,item.acceptance_status);
+    addPill(head,item.integrity_status||"ORPHANED",item.integrity_status||"ORPHANED");
     btn.appendChild(head);
     btn.appendChild(node("div","candidate-meta",(item.provider||"—")+" · "+(item.model||"—")+" · "+Number(item.total_tokens||0).toLocaleString()+" tokens"));
     btn.appendChild(node("div","candidate-hash","deploy "+shortHash(item.vercel_deployment_id)+" · "+fmtDate(item.occurred_at_utc)));
@@ -115,12 +118,14 @@ function renderDetail(d){
 
   const badges=byId("auditBadges");clear(badges);
   addPill(badges,d.acceptance_status,d.acceptance_status);
+  addPill(badges,"INTEGRITY "+(d._integrity?.status||"ORPHANED"),d._integrity?.status||"ORPHANED");
   addPill(badges,d.budget_status,d.budget_status);
   addPill(badges,d.live_model_verified?"LIVE VERIFIED":"NOT VERIFIED",d.live_model_verified?"VERIFIED":"NO");
   addPill(badges,"READ ONLY","YES");
 
   const sum=byId("auditSummary");clear(sum);
   sum.append(
+    summaryCard("Integrity",d._integrity?.status||"ORPHANED"),
     summaryCard("Requests",d.gateway_request_count||0),
     summaryCard("Tokens",Number(d.total_tokens||0).toLocaleString()),
     summaryCard("Cost",fmtMoney(d.estimated_cost_usd)),
@@ -194,7 +199,12 @@ function renderProvenance(d){
     kv("Evidence SHA-256",d._evidence?.sha256,true),
     kv("Evidence bytes",d._evidence?.byte_size),
     kv("Registry backend",d._evidence?.registry_backend),
-    kv("Read only",d._evidence?.read_only?"YES":"NO")
+    kv("Read only",d._evidence?.read_only?"YES":"NO"),
+    kv("Integrity status",d._integrity?.status||"ORPHANED"),
+    kv("Integrity reasons",(d._integrity?.reasons||[]).join(", ")||"none"),
+    kv("Deployment source commit",d._integrity?.deployment_source_commit,true),
+    kv("Previous chain SHA-256",d._integrity?.previous_chain_sha256,true),
+    kv("Chain SHA-256",d._integrity?.chain_sha256,true)
   );
   card.appendChild(g);panel.appendChild(card);
 }
