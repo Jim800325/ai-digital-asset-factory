@@ -16,6 +16,11 @@ from app.release_gate import decide_release_candidate, ensure_release_candidate
 from app.release_review import ensure_release_review_package
 from app.review_ui import STATIC_DIR, router as review_ui_router
 from app.review_workspace import get_review_workspace, list_review_workspace
+from app.live_acceptance_registry import (
+    get_live_acceptance_audit,
+    list_live_acceptance_audits,
+    live_acceptance_evidence_index,
+)
 from app.vercel_live_acceptance import (
     LiveAcceptanceError,
     live_acceptance_db_diagnostics,
@@ -513,6 +518,24 @@ def review_workspace(limit: int = 50):
 def review_workspace_candidate(candidate_id: UUID):
     try:
         return get_review_workspace(candidate_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.get("/v1/live-acceptance-audits")
+def live_acceptance_audits(limit: int = 100):
+    return list_live_acceptance_audits(limit)
+
+
+@app.get("/v1/live-acceptance-audits/evidence-index")
+def live_acceptance_audit_evidence_index():
+    return live_acceptance_evidence_index()
+
+
+@app.get("/v1/live-acceptance-audits/{audit_id}")
+def live_acceptance_audit(audit_id: str):
+    try:
+        return get_live_acceptance_audit(audit_id)
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
 
