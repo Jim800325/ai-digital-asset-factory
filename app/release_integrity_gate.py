@@ -90,6 +90,24 @@ def evaluate_release_integrity(
         ).upper()
         if audit.get("acceptance_status") != "PASSED":
             reasons.append("matching_live_acceptance_audit_not_passed")
+        if audit.get("gateway_mode") != "PROXY":
+            reasons.append("matching_live_acceptance_audit_gateway_not_proxy")
+        if audit.get("live_model_verified") is not True:
+            reasons.append(
+                "matching_live_acceptance_audit_live_model_not_verified"
+            )
+        if audit.get("budget_status") != "WITHIN_BUDGET":
+            reasons.append("matching_live_acceptance_audit_budget_not_within_budget")
+        if audit.get("tests_passed") is not True:
+            reasons.append("matching_live_acceptance_audit_tests_not_passed")
+        if audit.get("external_side_effects") != "DENY":
+            reasons.append(
+                "matching_live_acceptance_audit_side_effects_not_denied"
+            )
+        if audit.get("release_approved") is True:
+            reasons.append(
+                "matching_live_acceptance_audit_release_side_effect_detected"
+            )
         if audit.get("integrity_status") != "VERIFIED":
             reasons.append(
                 "matching_audit_integrity_"
@@ -126,6 +144,14 @@ def evaluate_release_integrity(
         "audit_id": audit.get("audit_id") if audit else None,
         "audit_acceptance_status": audit.get("acceptance_status") if audit else None,
         "audit_integrity_status": audit.get("integrity_status") if audit else None,
+        "audit_live_model_verified": (
+            audit.get("live_model_verified") if audit else None
+        ),
+        "audit_budget_status": audit.get("budget_status") if audit else None,
+        "audit_tests_passed": audit.get("tests_passed") if audit else None,
+        "audit_external_side_effects": (
+            audit.get("external_side_effects") if audit else None
+        ),
         "audit_evidence_sha256": audit.get("evidence_sha256") if audit else None,
         "audit_chain_sha256": audit.get("chain_sha256") if audit else None,
         "source_commit": audit.get("source_commit") if audit else None,
