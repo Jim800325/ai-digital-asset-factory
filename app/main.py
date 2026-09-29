@@ -20,6 +20,7 @@ from app.live_acceptance_registry import (
     get_live_acceptance_audit,
     list_live_acceptance_audits,
     live_acceptance_evidence_index,
+    live_acceptance_integrity_manifest,
 )
 from app.vercel_live_acceptance import (
     LiveAcceptanceError,
@@ -530,6 +531,11 @@ def live_acceptance_audits(limit: int = 100):
 @app.get("/v1/live-acceptance-audits/evidence-index")
 def live_acceptance_audit_evidence_index():
     return live_acceptance_evidence_index()
+
+
+@app.get("/v1/live-acceptance-audits/integrity-manifest")
+def live_acceptance_audit_integrity_manifest():
+    return live_acceptance_integrity_manifest()
 
 
 @app.get("/v1/live-acceptance-audits/{audit_id}")
