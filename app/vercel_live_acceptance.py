@@ -1049,7 +1049,7 @@ def run_vercel_live_acceptance(
                 and fields["estimated_cost_usd"]<=MAX_COST_USD
             )
 
-            return {
+            result={
                 "acceptance_status":"PASSED" if passed else "FAILED",
                 "phase":"complete",
                 "provider":"AIHUBMIX",
@@ -1087,6 +1087,12 @@ def run_vercel_live_acceptance(
                     limit=6_000,
                 ),
             }
+            print(
+                "[live-acceptance-result]"+
+                json.dumps(result,ensure_ascii=False,sort_keys=True),
+                flush=True,
+            )
+            return result
         except Exception as exc:
             audit={}
             if gateway_session:
@@ -1127,6 +1133,11 @@ def run_vercel_live_acceptance(
                     f"{WORKDIR}/gateway.log",
                     limit=8_000,
                 )
+            print(
+                "[live-acceptance-result]"+
+                json.dumps(result,ensure_ascii=False,sort_keys=True),
+                flush=True,
+            )
             return result
         finally:
             if agent_session:
