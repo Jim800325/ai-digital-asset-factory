@@ -3,15 +3,23 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from redis import Redis
 from rq import Queue
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from app.build_proposals import decide_build_proposal
 from app.config import settings
 from app.db import engine
+from app.db_reliability import (
+    DatabaseUnavailable,
+    database_health,
+    db_unavailable_payload,
+    is_database_unavailable,
+)
 from app.release_gate import decide_release_candidate, ensure_release_candidate
 from app.release_review import ensure_release_review_package
 from app.review_ui import STATIC_DIR, router as review_ui_router
@@ -67,11 +75,11 @@ def _require_release_key(provided: str | None) -> None:
 
 @app.get("/health")
 def health():
-    with engine.connect() as conn:
-        conn.execute(text("select 1"))
-    return {
-        "status":"ok",
+    db_state=database_health()
+    payload={
+        "status":"ok" if db_state["available"] else "degraded",
         "mode":"OBSERVE",
+        "database":db_state,
         "approval_gate":"ENABLED" if settings.human_approval_key.strip() else "DISABLED",
         "release_gate":"ENABLED" if settings.human_release_key.strip() else "DISABLED",
         "release_deployment":"DISABLED",
@@ -93,6 +101,11 @@ def health():
             )
         ) else "FAIL_CLOSED",
     }
+    if not db_state["available"]:
+        payload["release_approval"]="APPROVAL_FAIL_CLOSED"
+        return JSONResponse(status_code=503,content=payload)
+    payload["release_approval"]="AVAILABLE"
+    return payload
 
 @app.post("/v1/runs", status_code=202)
 def create_run():
@@ -459,6 +472,24 @@ def release_candidate_decision(
         )
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DatabaseUnavailable:
+        return JSONResponse(
+            status_code=503,
+            content=db_unavailable_payload(
+                operation="release_decision",
+                approval_sensitive=True,
+            ),
+        )
+    except DBAPIError as exc:
+        if is_database_unavailable(exc):
+            return JSONResponse(
+                status_code=503,
+                content=db_unavailable_payload(
+                    operation="release_decision",
+                    approval_sensitive=True,
+                ),
+            )
+        raise
     except RuntimeError as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
     except ValueError as exc:
@@ -513,7 +544,16 @@ def release_review_package(candidate_id: UUID):
 
 @app.get("/v1/review-workspace")
 def review_workspace(limit: int = 50):
-    return list_review_workspace(limit)
+    try:
+        return list_review_workspace(limit)
+    except DatabaseUnavailable:
+        return JSONResponse(
+            status_code=503,
+            content=db_unavailable_payload(
+                operation="review_workspace_list",
+                approval_sensitive=False,
+            ),
+        )
 
 @app.get("/v1/review-workspace/{candidate_id}")
 def review_workspace_candidate(candidate_id: UUID):
@@ -521,6 +561,14 @@ def review_workspace_candidate(candidate_id: UUID):
         return get_review_workspace(candidate_id)
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DatabaseUnavailable:
+        return JSONResponse(
+            status_code=503,
+            content=db_unavailable_payload(
+                operation="review_workspace_detail",
+                approval_sensitive=False,
+            ),
+        )
 
 
 @app.get("/v1/live-acceptance-audits")
