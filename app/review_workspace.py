@@ -5,6 +5,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.db import engine
 from app.db_reliability import read_with_retry
+from app.deployment_authorization import get_deployment_plan_for_candidate
 from app.release_integrity_gate import (
     evaluate_release_integrity,
     list_release_integrity_blocks,
@@ -19,6 +20,7 @@ def list_review_workspace(limit:int=50)->list[dict]:
              rc.live_validation_required,
              rc.deployment_enabled,
              rc.updated_at,
+             dp.plan_status AS deployment_plan_status,
              bp.id AS proposal_id,
              bp.revision AS proposal_revision,
              bp.title AS proposal_title,
@@ -47,6 +49,7 @@ def list_review_workspace(limit:int=50)->list[dict]:
       JOIN sandbox_build_requests sbr ON sbr.id=rc.request_id
       LEFT JOIN openhands_executions oe ON oe.request_id=rc.request_id
       LEFT JOIN release_review_packages rrp ON rrp.release_candidate_id=rc.id
+      LEFT JOIN deployment_plans dp ON dp.release_candidate_id=rc.id
       WHERE rc.archived_at IS NULL
       ORDER BY rc.updated_at DESC,rc.id DESC
       LIMIT :limit
@@ -87,6 +90,7 @@ def get_review_workspace(candidate_id:UUID)->dict:
              rc.artifact_manifest_sha256,
              rc.test_summary AS candidate_test_summary,
              rc.deployment_enabled,
+             rc.archived_at,
              rc.created_at AS candidate_created_at,
              rc.updated_at AS candidate_updated_at,
              rc.approved_at,
@@ -173,6 +177,10 @@ def get_review_workspace(candidate_id:UUID)->dict:
         "review_workspace_integrity_blocks",
         _load_integrity_blocks,
     )
+    deployment_plan=read_with_retry(
+        "review_workspace_deployment_plan",
+        lambda: get_deployment_plan_for_candidate(candidate_id),
+    )
     terminal=result["release_status"] in {"RELEASE_APPROVED","RELEASE_REJECTED"}
     live_ok=(
         result["live_validation_verified"] is True
@@ -189,6 +197,27 @@ def get_review_workspace(candidate_id:UUID)->dict:
         and bool(result["source_tree_sha256"])
     )
     result["release_gate_configured"]=bool(settings.human_release_key.strip())
+    result["deployment_authorization_gate_configured"]=bool(
+        settings.human_deployment_key.strip()
+    )
+    result["deployment_plan"]=deployment_plan
+    result["can_create_deployment_plan"]=(
+        result["release_status"]=="RELEASE_APPROVED"
+        and result["archived_at"] is None
+        and result["content_snapshot_complete"] is True
+        and integrity_gate["allowed"] is True
+        and result["deployment_enabled"] is False
+        and result["execution_enabled"] is False
+        and deployment_plan is None
+    )
+    result["can_authorize_deployment"]=(
+        deployment_plan is not None
+        and deployment_plan.get("plan_status")=="PENDING_AUTHORIZATION"
+        and result["deployment_authorization_gate_configured"] is True
+        and integrity_gate["allowed"] is True
+        and result["deployment_enabled"] is False
+        and result["execution_enabled"] is False
+    )
     result["can_approve"]=(
         not terminal
         and result["release_status"]=="READY_FOR_REVIEW"
@@ -211,5 +240,8 @@ def get_review_workspace(candidate_id:UUID)->dict:
         "release_key_persisted_in_browser":False,
         "approval_requires_live_validation":True,
         "approval_requires_integrity_verified":True,
+        "deployment_executor_enabled":False,
+        "deployment_key_persisted_in_browser":False,
+        "deployment_authorization_required":True,
     }
     return result
