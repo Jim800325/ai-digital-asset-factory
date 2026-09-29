@@ -45,8 +45,8 @@ function fmtMoney(value){
 function statusClass(value){
   const s=String(value||"").toUpperCase();
   if(["PASS","PASSED","CURRENT","APPROVED","ARTIFACT_READY","GENERATED","WITHIN_BUDGET","READY_FOR_REVIEW","LOW"].includes(s)) return "good";
-  if(["FAILED","BLOCKED","REJECTED","RELEASE_REJECTED","HIGH","STALE"].includes(s)) return "bad";
-  if(["WAITING_LIVE_VALIDATION","PENDING_APPROVAL","MEDIUM","NOT_EVALUATED"].includes(s)) return "warn";
+  if(["FAILED","BLOCKED","REJECTED","RELEASE_REJECTED","HIGH","STALE","TAMPERED"].includes(s)) return "bad";
+  if(["WAITING_LIVE_VALIDATION","PENDING_APPROVAL","MEDIUM","NOT_EVALUATED","ORPHANED"].includes(s)) return "warn";
   return "info";
 }
 
@@ -173,6 +173,7 @@ function renderCandidates(){
     btn.appendChild(node("div","candidate-title",item.opportunity_title||item.proposal_title||"未命名候選"));
     const meta=node("div","candidate-meta");
     addPill(meta,item.release_status,item.release_status);
+    addPill(meta,"Integrity "+(item.integrity_status||"ORPHANED"),item.integrity_status||"ORPHANED");
     addPill(meta,"風險 "+(item.risk_level||"—"),item.risk_level);
     meta.appendChild(node("span","",String(item.artifact_count||0)+" files"));
     btn.appendChild(meta);
@@ -214,6 +215,7 @@ function renderDetail(d){
   const badges=byId("statusBadges");
   clear(badges);
   addPill(badges,d.release_status,d.release_status);
+  addPill(badges,"Integrity "+(d.integrity_status||"ORPHANED"),d.integrity_status||"ORPHANED");
   addPill(badges,"Live "+(d.live_validation_verified?"VERIFIED":"NOT VERIFIED"),d.live_validation_verified?"APPROVED":"WAITING_LIVE_VALIDATION");
   addPill(badges,"Deploy DISABLED","APPROVED");
 
@@ -221,6 +223,7 @@ function renderDetail(d){
   clear(summary);
   summary.append(
     summaryCard("Release Status",d.release_status||"—"),
+    summaryCard("Integrity",d.integrity_status||"ORPHANED"),
     summaryCard("Static Risk",(d.risk_summary&&d.risk_summary.risk_level)||"—"),
     summaryCard("Tests",(d.test_report?.passed||0)+" / "+(d.test_report?.total||0)+" pass"),
     summaryCard("Artifacts",String((d.artifact_manifest||[]).length)),
@@ -245,6 +248,8 @@ function renderOverview(d){
   grid.append(
     kv("Release status",d.release_status),
     kv("Controlled Live LLM",d.live_validation_verified?"VERIFIED":"DEFERRED / NOT VERIFIED"),
+    kv("Evidence integrity",d.integrity_status||"ORPHANED"),
+    kv("Integrity audit ID",d.integrity_gate?.audit_id||"—",true),
     kv("Deployment",d.deployment_enabled?"ENABLED":"DISABLED"),
     kv("Production execution",d.execution_enabled?"ENABLED":"DISABLED"),
     kv("Sandbox request",d.request_status),
@@ -256,8 +261,8 @@ function renderOverview(d){
     "div",
     "notice "+(d.can_approve?"":"warn"),
     d.can_approve
-      ? "此候選已滿足 Live Validation 技術門檻，可以進入人工 Release Approval；批准仍不會啟用部署。"
-      : "Release Approval 目前鎖定。Review Package 可完整審查，但未滿足 Controlled Live LLM Acceptance 前不能批准。",
+      ? "此候選已同時滿足 Live Validation、Review Package 與 Evidence Integrity Gate；可以進入人工 Release Approval，批准仍不會啟用部署。"
+      : "Release Approval 目前鎖定。阻擋原因："+((d.integrity_blocking_reasons||[]).join(", ")||"尚未滿足全部 Live / Review / Integrity 硬門檻")+"。",
   );
   boundary.appendChild(notice);
   panel.appendChild(boundary);
@@ -476,6 +481,10 @@ function renderHashes(d){
     copyRow("Source tree SHA-256",d.source_tree_sha256),
     copyRow("Artifact manifest SHA-256",d.artifact_manifest_sha256),
     copyRow("Source fingerprint",d.source_fingerprint),
+    copyRow("Audit evidence SHA-256",d.integrity_gate?.audit_evidence_sha256),
+    copyRow("Audit chain SHA-256",d.integrity_gate?.audit_chain_sha256),
+    copyRow("Manifest root SHA-256",d.integrity_gate?.manifest_root_sha256),
+    copyRow("Chain head SHA-256",d.integrity_gate?.chain_head_sha256),
   );
   card.appendChild(grid);
   panel.appendChild(card);
@@ -489,6 +498,11 @@ function renderHashes(d){
     kv("Generated",fmtDate(d.review_generated_at)),
     kv("Content snapshot complete",d.content_snapshot_complete?"YES":"NO"),
     kv("Proposal revision",d.proposal_revision),
+    kv("Integrity status",d.integrity_status||"ORPHANED"),
+    kv("Integrity audit ID",d.integrity_gate?.audit_id||"—",true),
+    kv("Vercel deployment",d.integrity_gate?.vercel_deployment_id||"—",true),
+    kv("Deployment provenance",d.integrity_gate?.deployment_source_commit||"—",true),
+    kv("Blocking reasons",(d.integrity_blocking_reasons||[]).join(", ")||"none"),
   );
   provenance.appendChild(pgrid);
   panel.appendChild(provenance);
@@ -503,6 +517,8 @@ function renderDecision(d){
   grid.append(
     kv("Release status",d.release_status),
     kv("Live validation",d.live_validation_verified?"VERIFIED":"NOT VERIFIED"),
+    kv("Integrity gate",d.integrity_status||"ORPHANED"),
+    kv("Integrity audit",d.integrity_gate?.audit_id||"—",true),
     kv("Release key configured",d.release_gate_configured?"YES":"NO"),
     kv("Deployment",d.deployment_enabled?"ENABLED":"DISABLED"),
   );
@@ -512,14 +528,37 @@ function renderDecision(d){
     const why=node(
       "div",
       "notice warn",
-      d.release_status==="WAITING_LIVE_VALIDATION"
-        ? "批准按鈕已鎖定：Controlled Live LLM Acceptance 尚未通過。可以繼續審查或人工 Reject，但不能 Approve。"
-        : "此候選目前不符合 Release Approval 的硬門檻。",
+      (d.integrity_gate_allowed===false)
+        ? "批准按鈕已鎖定：Evidence Integrity Gate 未通過。"+((d.integrity_blocking_reasons||[]).length?" 原因："+d.integrity_blocking_reasons.join(", ")+"。":"")
+        : d.release_status==="WAITING_LIVE_VALIDATION"
+          ? "批准按鈕已鎖定：Controlled Live LLM Acceptance 尚未通過。可以繼續審查或人工 Reject，但不能 Approve。"
+          : "此候選目前不符合 Release Approval 的硬門檻。",
     );
     why.style.marginTop="10px";
     status.appendChild(why);
   }
   panel.appendChild(status);
+
+  if((d.integrity_block_events||[]).length){
+    const blocked=section("Integrity Gate Block History");
+    const timeline=node("div","timeline");
+    d.integrity_block_events.forEach(item=>{
+      const box=node("div","timeline-item");
+      const head=node("div","timeline-head");
+      addPill(head,"BLOCKED",item.integrity_status||"BLOCKED");
+      addPill(head,item.integrity_status||"ORPHANED",item.integrity_status||"ORPHANED");
+      head.appendChild(node("strong","",item.actor||"unknown"));
+      head.appendChild(node("span","muted",fmtDate(item.blocked_at)));
+      box.appendChild(head);
+      box.appendChild(node("div","",item.reason||"Evidence Integrity Gate blocked approval."));
+      if(item.live_acceptance_audit_id){
+        box.appendChild(node("div","candidate-hash","audit "+item.live_acceptance_audit_id+" · chain "+shortHash(item.audit_chain_sha256)));
+      }
+      timeline.appendChild(box);
+    });
+    blocked.appendChild(timeline);
+    panel.appendChild(blocked);
+  }
 
   if((d.decisions||[]).length){
     const history=section("Decision History");
