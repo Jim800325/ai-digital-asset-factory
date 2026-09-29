@@ -1,4 +1,7 @@
+import json
 from typing import Any
+
+from sqlalchemy import text
 
 from app.live_acceptance_registry import (
     list_live_acceptance_audits,
@@ -97,3 +100,94 @@ def evaluate_release_integrity(source_tree_sha256: str | None) -> dict[str, Any]
         "manifest_root_sha256": manifest.get("manifest_root_sha256"),
         "chain_head_sha256": manifest.get("chain_head_sha256"),
     }
+
+
+def ensure_release_gate_block_schema(db) -> None:
+    db.execute(text("""
+      CREATE TABLE IF NOT EXISTS release_gate_blocks (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        release_candidate_id uuid NOT NULL
+          REFERENCES release_candidates(id) ON DELETE CASCADE,
+        attempted_decision text NOT NULL
+          CHECK (attempted_decision IN ('APPROVE')),
+        actor text NOT NULL,
+        reason text NOT NULL,
+        integrity_status text NOT NULL
+          CHECK (integrity_status IN ('VERIFIED','TAMPERED','ORPHANED')),
+        blocking_reasons jsonb NOT NULL DEFAULT '[]'::jsonb,
+        live_acceptance_audit_id text,
+        source_tree_sha256 text,
+        audit_evidence_sha256 text,
+        audit_chain_sha256 text,
+        manifest_root_sha256 text,
+        chain_head_sha256 text,
+        vercel_deployment_id text,
+        source_commit text,
+        deployment_source_commit text,
+        blocked_at timestamptz NOT NULL DEFAULT now()
+      )
+    """))
+    db.execute(text("""
+      CREATE INDEX IF NOT EXISTS idx_release_gate_blocks_candidate
+      ON release_gate_blocks(release_candidate_id, blocked_at DESC)
+    """))
+
+
+def record_release_integrity_block(
+    db,
+    *,
+    candidate_id,
+    actor: str,
+    reason: str,
+    gate: dict[str, Any],
+):
+    ensure_release_gate_block_schema(db)
+    return db.execute(text("""
+      INSERT INTO release_gate_blocks(
+        release_candidate_id,attempted_decision,actor,reason,
+        integrity_status,blocking_reasons,live_acceptance_audit_id,
+        source_tree_sha256,audit_evidence_sha256,audit_chain_sha256,
+        manifest_root_sha256,chain_head_sha256,vercel_deployment_id,
+        source_commit,deployment_source_commit)
+      VALUES(
+        :candidate_id,'APPROVE',:actor,:reason,:integrity_status,
+        CAST(:blocking_reasons AS jsonb),:audit_id,:source_tree_sha256,
+        :audit_evidence_sha256,:audit_chain_sha256,:manifest_root_sha256,
+        :chain_head_sha256,:vercel_deployment_id,:source_commit,
+        :deployment_source_commit)
+      RETURNING id
+    """), {
+        "candidate_id": candidate_id,
+        "actor": actor[:200],
+        "reason": reason[:4000],
+        "integrity_status": gate["integrity_status"],
+        "blocking_reasons": json.dumps(
+            gate.get("blocking_reasons") or [],
+            ensure_ascii=False,
+        ),
+        "audit_id": gate.get("audit_id"),
+        "source_tree_sha256": gate.get("source_tree_sha256"),
+        "audit_evidence_sha256": gate.get("audit_evidence_sha256"),
+        "audit_chain_sha256": gate.get("audit_chain_sha256"),
+        "manifest_root_sha256": gate.get("manifest_root_sha256"),
+        "chain_head_sha256": gate.get("chain_head_sha256"),
+        "vercel_deployment_id": gate.get("vercel_deployment_id"),
+        "source_commit": gate.get("source_commit"),
+        "deployment_source_commit": gate.get("deployment_source_commit"),
+    }).scalar_one()
+
+
+def list_release_integrity_blocks(db, candidate_id) -> list[dict[str, Any]]:
+    ensure_release_gate_block_schema(db)
+    rows = db.execute(text("""
+      SELECT id,attempted_decision,actor,reason,integrity_status,
+             blocking_reasons,live_acceptance_audit_id,source_tree_sha256,
+             audit_evidence_sha256,audit_chain_sha256,manifest_root_sha256,
+             chain_head_sha256,vercel_deployment_id,source_commit,
+             deployment_source_commit,blocked_at
+      FROM release_gate_blocks
+      WHERE release_candidate_id=:candidate_id
+      ORDER BY blocked_at DESC,id DESC
+      LIMIT 100
+    """), {"candidate_id": candidate_id}).mappings().all()
+    return [dict(row) for row in rows]
