@@ -81,7 +81,7 @@ def _manifest_core(manifest: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in manifest.items()
-        if key != "manifest_root_sha256"
+        if key not in {"manifest_root_sha256", "_manifest_file"}
     }
 
 
