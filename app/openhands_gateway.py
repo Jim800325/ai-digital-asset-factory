@@ -109,6 +109,19 @@ def _requested_completion_tokens(body):
     except (TypeError,ValueError):
         return MAX_COMPLETION_TOKENS_PER_REQUEST+1
 
+def _clamp_completion_tokens(body):
+    for key in ("max_output_tokens","max_completion_tokens","max_tokens"):
+        if key not in body:
+            continue
+        try:
+            requested=int(body[key])
+        except (TypeError,ValueError):
+            return None,None,None
+        effective=min(requested,MAX_COMPLETION_TOKENS_PER_REQUEST)
+        body[key]=effective
+        return key,requested,effective
+    return None,None,None
+
 def _cost(prompt_tokens,completion_tokens):
     return round(
         (prompt_tokens/1_000_000)*INPUT_COST_PER_1M_USD
@@ -160,6 +173,9 @@ class BudgetState:
         self.blocked=False
         self.blocked_reason=""
         self.last_model=""
+        self.last_completion_token_key=""
+        self.last_requested_completion_tokens=0
+        self.last_effective_completion_tokens=0
         self._persist()
 
     def snapshot(self):
@@ -174,6 +190,9 @@ class BudgetState:
             "blocked":self.blocked,
             "blocked_reason":self.blocked_reason,
             "last_model":self.last_model,
+            "last_completion_token_key":self.last_completion_token_key,
+            "last_requested_completion_tokens":self.last_requested_completion_tokens,
+            "last_effective_completion_tokens":self.last_effective_completion_tokens,
             "limits":{
                 "allowed_models":ALLOWED_MODELS,
                 "max_requests":MAX_REQUESTS,
@@ -341,6 +360,17 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             self._json(400,{"error":{"message":"invalid json","type":"invalid_request_error"}})
             return
+
+        token_key,requested_completion,effective_completion=_clamp_completion_tokens(body)
+        if requested_completion is not None:
+            with BUDGET.lock:
+                BUDGET.last_completion_token_key=token_key or ""
+                BUDGET.last_requested_completion_tokens=requested_completion
+                BUDGET.last_effective_completion_tokens=effective_completion or 0
+                BUDGET._persist()
+            raw=json.dumps(
+                body,ensure_ascii=False,separators=(",",":")
+            ).encode("utf-8")
 
         ok,reason,reservation=BUDGET.preflight(body)
         if not ok:
