@@ -79,7 +79,7 @@ jobs:
           from app.db import engine
           from app.migrate import migration_files
 
-          expected = [path.name for path in migration_files()]
+          expected = migration_files()
           with engine.connect() as db:
               actual = [r[0] for r in db.execute(
                   text("SELECT version FROM schema_migrations ORDER BY version")
