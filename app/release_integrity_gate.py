@@ -1,3 +1,4 @@
+import hashlib
 import json
 from typing import Any
 
@@ -9,8 +10,45 @@ from app.live_acceptance_registry import (
 )
 
 
-def evaluate_release_integrity(source_tree_sha256: str | None) -> dict[str, Any]:
-    expected = (source_tree_sha256 or "").strip().lower()
+
+def acceptance_provenance_tree_sha256(
+    artifact_manifest: list[dict[str, Any]] | None,
+) -> str | None:
+    if not artifact_manifest:
+        return None
+    rows = []
+    for item in sorted(
+        artifact_manifest,
+        key=lambda value: str(value.get("relative_path") or ""),
+    ):
+        relative_path = str(item.get("relative_path") or "")
+        sha256 = str(item.get("sha256") or "").lower()
+        byte_size = item.get("byte_size")
+        if (
+            not relative_path
+            or len(sha256) != 64
+            or byte_size is None
+        ):
+            return None
+        rows.append({
+            "relative_path": relative_path,
+            "sha256": sha256,
+            "byte_size": int(byte_size),
+        })
+    encoded = json.dumps(
+        rows,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+def evaluate_release_integrity(
+    source_tree_sha256: str | None,
+    artifact_manifest: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    review_tree = (source_tree_sha256 or "").strip().lower()
+    acceptance_tree = acceptance_provenance_tree_sha256(artifact_manifest)
+    expected = (acceptance_tree or review_tree).strip().lower()
     manifest = live_acceptance_integrity_manifest()
     records = list_live_acceptance_audits(limit=500)
 
@@ -82,7 +120,9 @@ def evaluate_release_integrity(source_tree_sha256: str | None) -> dict[str, Any]
         "allowed": allowed,
         "integrity_status": "VERIFIED" if allowed else integrity_status,
         "blocking_reasons": reasons,
-        "source_tree_sha256": expected or None,
+        "source_tree_sha256": review_tree or None,
+        "acceptance_provenance_tree_sha256": acceptance_tree,
+        "matched_audit_source_tree_sha256": expected or None,
         "audit_id": audit.get("audit_id") if audit else None,
         "audit_acceptance_status": audit.get("acceptance_status") if audit else None,
         "audit_integrity_status": audit.get("integrity_status") if audit else None,
