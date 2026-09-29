@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 REVIEW_HTML=STATIC_DIR/"review.html"
+AUDITS_HTML=STATIC_DIR/"audits.html"
 
 router=APIRouter(include_in_schema=False)
 
@@ -27,16 +28,28 @@ _SECURITY_HEADERS={
     ),
 }
 
-def _review_file():
+def _html_file(path:Path):
     return FileResponse(
-        REVIEW_HTML,
+        path,
         media_type="text/html; charset=utf-8",
         headers=_SECURITY_HEADERS,
     )
 
+
+def _review_file():
+    return _html_file(REVIEW_HTML)
+
 @router.get("/review")
 def review_workspace_page():
     return _review_file()
+
+@router.get("/review/audits")
+def live_acceptance_audit_registry_page():
+    return _html_file(AUDITS_HTML)
+
+@router.get("/review/audits/{audit_id}")
+def live_acceptance_audit_registry_detail_page(audit_id:str):
+    return _html_file(AUDITS_HTML)
 
 @router.get("/review/{candidate_id}")
 def review_workspace_candidate_page(candidate_id:UUID):
