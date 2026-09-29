@@ -85,3 +85,29 @@ Next required stage:
 Vercel Preview -> PREVIEW_DATABASE_URL isolated Neon branch -> migrations
 001-022 -> real registry/provenance Deployment Plan -> drift block -> AUTHORIZE
 -> REJECT -> cleanup.
+
+
+## Post-acceptance integrity hardening
+
+After the three-path acceptance passed, the Release Integrity Gate was tightened
+so a matching repository audit is not sufficient merely because it is PASSED
+and hash-chain VERIFIED.
+
+A matching audit must now also satisfy the Controlled Live Acceptance contract:
+
+- gateway_mode = PROXY
+- live_model_verified = true
+- budget_status = WITHIN_BUDGET
+- tests_passed = true
+- external_side_effects = DENY
+- release_approved must not be true
+- source_commit must equal deployment_source_commit
+
+This prevents a synthetic or MOCK-only PASSED audit from unlocking Release or
+Deployment Authorization.
+
+Validation GitHub Actions run: 36549648042
+
+Result: SUCCESS. Full test suite, migrations 001-022, three-path Deployment
+Authorization acceptance, and production-disabled invariants all passed after
+the integrity hardening.
