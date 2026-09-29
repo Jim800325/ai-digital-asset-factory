@@ -11,6 +11,14 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.live_acceptance_audit import (
+    claim_live_acceptance,
+    duplicate_response,
+    ensure_live_acceptance_audit_schema,
+    finish_live_acceptance,
+    update_live_acceptance_phase,
+)
+
 
 VERCEL_API="https://api.vercel.com"
 VERCEL_PROJECT_ID="prj_orLCRCIm7aVfImH8ihB3gponFOEl"
@@ -98,10 +106,11 @@ class LiveAcceptanceError(RuntimeError):
     pass
 
 
-def _verify_trigger(token:str)->None:
+def _verify_trigger(token:str)->str:
     digest=hashlib.sha256((token or "").encode("utf-8")).hexdigest()
     if not secrets.compare_digest(digest,TRIGGER_TOKEN_SHA256):
         raise PermissionError("Invalid or expired live acceptance token")
+    return digest
 
 
 def _provider_key()->str:
@@ -893,12 +902,25 @@ def run_vercel_live_acceptance(
     *,
     vercel_oidc_token:str|None=None,
 )->dict[str,Any]:
-    _verify_trigger(trigger_token)
+    trigger_digest=_verify_trigger(trigger_token)
     provider_key=_provider_key()
     oidc=_require_oidc(vercel_oidc_token)
 
+    ensure_live_acceptance_audit_schema()
+    claim=claim_live_acceptance(trigger_digest,model=LIVE_MODEL)
+    if not claim["claimed"]:
+        return duplicate_response(claim)
+
+    audit_id=str(claim["id"])
     started=time.time()
-    phase="create_gateway_sandbox"
+    phase="claimed"
+
+    def advance(next_phase:str)->None:
+        nonlocal phase
+        phase=next_phase
+        update_live_acceptance_phase(audit_id,next_phase)
+
+    advance("create_gateway_sandbox")
     agent_session=None
     agent_name=None
     gateway_session=None
@@ -933,20 +955,20 @@ def run_vercel_live_acceptance(
             if not gateway_url:
                 raise LiveAcceptanceError("Gateway Sandbox route was not returned")
 
-            phase="upload_gateway"
+            advance("upload_gateway")
             gateway_bytes=(Path(__file__).resolve().parent/"openhands_gateway.py").read_bytes()
             _upload_files(
                 client,oidc,gateway_session,
                 {"gateway.py":gateway_bytes},
             )
 
-            phase="configure_gateway_egress"
+            advance("configure_gateway_egress")
             _configure_gateway_egress(
                 client,oidc,gateway_session,
                 provider_key,broker_nonce,
             )
 
-            phase="start_gateway"
+            advance("start_gateway")
             _start_gateway(
                 client,oidc,gateway_session,
                 local_token,broker_nonce,
@@ -957,31 +979,31 @@ def run_vercel_live_acceptance(
                     f"Gateway public route health failed: HTTP {health.status_code}"
                 )
 
-            phase="create_agent_sandbox"
+            advance("create_agent_sandbox")
             _,agent_session,agent_name=_create_sandbox(
                 client,oidc,agent_name,
                 vcpus=2,memory=4096,
                 allowed_domains=SETUP_DOMAINS,
             )
 
-            phase="upload_agent_task"
+            advance("upload_agent_task")
             _upload_files(
                 client,oidc,agent_session,
                 {"workspace/openhands-task.md":TASK_TEXT.encode("utf-8")},
             )
 
-            phase="install_openhands"
+            advance("install_openhands")
             _install_openhands(client,oidc,agent_session)
 
-            phase="prepare_agent"
+            advance("prepare_agent")
             _prepare_agent(client,oidc,agent_session)
 
-            phase="agent_gateway_only"
+            advance("agent_gateway_only")
             gateway_hostname=_configure_agent_gateway_only(
                 client,oidc,agent_session,gateway_url
             )
 
-            phase="agent_gateway_health"
+            advance("agent_gateway_health")
             health_code=_run_command(
                 client,oidc,agent_session,
                 "python",[
@@ -999,13 +1021,13 @@ def run_vercel_live_acceptance(
                     f"Agent-to-Gateway health check failed ({health_code})"
                 )
 
-            phase="openhands_agent_preflight"
+            advance("openhands_agent_preflight")
             _preflight_openhands_agent(
                 client,oidc,agent_session,
                 local_token,gateway_url,
             )
 
-            phase="run_openhands"
+            advance("run_openhands")
             openhands_exit_code=_run_openhands(
                 client,oidc,agent_session,
                 local_token,gateway_url,
@@ -1020,15 +1042,15 @@ def run_vercel_live_acceptance(
                     )
                 )
 
-            phase="agent_deny_all"
+            advance("agent_deny_all")
             _deny_all(client,oidc,agent_session)
 
-            phase="independent_tests"
+            advance("independent_tests")
             test_exit_code=_run_independent_tests(
                 client,oidc,agent_session
             )
 
-            phase="collect_evidence"
+            advance("collect_evidence")
             audit=_read_audit(
                 client,oidc,gateway_session
             )
@@ -1052,6 +1074,7 @@ def run_vercel_live_acceptance(
             result={
                 "acceptance_status":"PASSED" if passed else "FAILED",
                 "phase":"complete",
+                "audit_id":audit_id,
                 "provider":"AIHUBMIX",
                 "model":LIVE_MODEL,
                 "gateway_mode":"PROXY",
@@ -1087,6 +1110,7 @@ def run_vercel_live_acceptance(
                     limit=6_000,
                 ),
             }
+            finish_live_acceptance(audit_id,result)
             print(
                 "[live-acceptance-result]"+
                 json.dumps(result,ensure_ascii=False,sort_keys=True),
@@ -1104,6 +1128,7 @@ def run_vercel_live_acceptance(
             result={
                 "acceptance_status":"FAILED",
                 "phase":phase,
+                "audit_id":audit_id,
                 "error":str(exc)[:8000],
                 "provider":"AIHUBMIX",
                 "model":LIVE_MODEL,
@@ -1133,6 +1158,7 @@ def run_vercel_live_acceptance(
                     f"{WORKDIR}/gateway.log",
                     limit=8_000,
                 )
+            finish_live_acceptance(audit_id,result)
             print(
                 "[live-acceptance-result]"+
                 json.dumps(result,ensure_ascii=False,sort_keys=True),
