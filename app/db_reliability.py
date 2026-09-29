@@ -34,6 +34,16 @@ def read_with_retry(
     operation: str,
     fn: Callable[[], T],
 ) -> T:
+    config = database_configuration()
+    if (
+        config["vercel_runtime"]
+        and not config["configured_from_env"]
+        and config["target"] == "LOCAL_DEFAULT"
+    ):
+        raise DatabaseUnavailable(
+            "DATABASE_URL is not configured for Vercel",
+            operation=operation,
+        )
     attempts = max(1, int(settings.database_read_retry_attempts))
     last: BaseException | None = None
     for index in range(attempts):
@@ -75,6 +85,7 @@ def database_configuration() -> dict[str, Any]:
 
     return {
         "configured_from_env": bool(os.getenv("DATABASE_URL")),
+        "vercel_runtime": bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV")),
         "target": target,
         "driver": "psycopg",
         "sslmode": (query.get("sslmode") or [None])[0],
@@ -92,6 +103,24 @@ def database_configuration() -> dict[str, Any]:
 
 def database_health() -> dict[str, Any]:
     config = database_configuration()
+    if (
+        config["vercel_runtime"]
+        and not config["configured_from_env"]
+        and config["target"] == "LOCAL_DEFAULT"
+    ):
+        return {
+            "status": "DB_UNAVAILABLE",
+            "reason": "DATABASE_URL_NOT_CONFIGURED",
+            "available": False,
+            "approval_mode": "APPROVAL_FAIL_CLOSED",
+            "read_retry_attempts": max(
+                1,
+                int(settings.database_read_retry_attempts),
+            ),
+            "pooling": "NULL_POOL",
+            "prepared_statements": "DISABLED",
+            "configuration": config,
+        }
     try:
         def probe():
             with engine.connect() as conn:
