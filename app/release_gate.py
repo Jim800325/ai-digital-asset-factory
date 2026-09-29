@@ -189,7 +189,7 @@ def decide_release_candidate(
     with engine.begin() as db:
         row=db.execute(text("""
           SELECT rc.id,rc.release_status,rc.live_validation_verified,
-                 rc.deployment_enabled,
+                 rc.deployment_enabled,rc.source_fingerprint,
                  oe.gateway_mode,oe.budget_status,oe.live_model_verified,
                  sbr.request_status,
                  bp.proposal_status,bp.execution_enabled,
