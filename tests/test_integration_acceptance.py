@@ -45,6 +45,7 @@ def test_full_v02_integration_acceptance():
         "012_human_release_gate.sql",
         "013_release_review_package.sql",
         "014_human_review_workspace.sql",
+        "015_live_acceptance_audit.sql",
     ]
 
     assert Redis.from_url(settings.redis_url).ping() is True
