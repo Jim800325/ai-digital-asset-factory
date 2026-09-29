@@ -1,0 +1,35 @@
+{
+  "schema_version": "live-acceptance-manifest-v1",
+  "chain_algorithm": "SHA-256",
+  "chain_order": "occurred_at_utc_ascending",
+  "genesis_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "entry_count": 2,
+  "chain_head_sha256": "3339917f9d111c9cb729aa6030efb977d0428c17d720cdc3cbfbe25619668880",
+  "manifest_root_sha256": "83d24e3c22ecd436709776dad6565fe637d594b9c309a3cd3beeae67650e8c8c",
+  "entries": [
+    {
+      "audit_id": "f94a4213e6dac12a",
+      "filename": "2026-09-29-attempt-f94a4213e6da.json",
+      "occurred_at_utc": "2026-09-29T02:55:04Z",
+      "evidence_sha256": "56f048a954406acd68e17aad7a1164164a2121f477f7e7d96bee978cb9814a93",
+      "source_commit": "a780462eef470f011ddefd55a938b3c455c75e6c",
+      "vercel_deployment_id": "dpl_JAQDG8DEBkngPGpoLYksJjxrU8Nf",
+      "deployment_source_commit": "a780462eef470f011ddefd55a938b3c455c75e6c",
+      "source_tree_sha256": null,
+      "previous_chain_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "chain_sha256": "7a42a7e4b2718035a3158becd849b943f78e37b59b945c6fd39981b5542ce1ea"
+    },
+    {
+      "audit_id": "8b385170ee00c667",
+      "filename": "2026-09-29-final-pass-8b385170ee00.json",
+      "occurred_at_utc": "2026-09-29T03:30:12Z",
+      "evidence_sha256": "34329712ed6be40c78eaa24076c8be17dd703dcbe62f1dff77945a61eb997fc0",
+      "source_commit": "5e09b40649b07337aa895efca2cc37cfd146b459",
+      "vercel_deployment_id": "dpl_B5j5bC2ng82AwVboDrhL8VBqpnj6",
+      "deployment_source_commit": "5e09b40649b07337aa895efca2cc37cfd146b459",
+      "source_tree_sha256": "f34dc11399590141886aacc006ee9c8c647bf517370684d516b0987f4aa7122c",
+      "previous_chain_sha256": "7a42a7e4b2718035a3158becd849b943f78e37b59b945c6fd39981b5542ce1ea",
+      "chain_sha256": "3339917f9d111c9cb729aa6030efb977d0428c17d720cdc3cbfbe25619668880"
+    }
+  ]
+}
