@@ -161,3 +161,11 @@ Result: SUCCESS.
 - sandbox external_side_effects outside DENY count = 0
 
 No Live model call occurred during this CI bridge validation.
+
+
+## Preview redeploy trigger
+
+A feature-branch-only redeploy marker was added on 2026-09-30 after the Vercel
+build-rate-limit was reported cleared. This commit changes no runtime logic and
+must create Preview only. Production main, Production database, and Production
+alias remain frozen.
