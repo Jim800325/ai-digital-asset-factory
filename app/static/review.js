@@ -83,6 +83,14 @@ async function api(url,options={}){
   }
   if(!response.ok){
     const detail=payload && payload.detail ? payload.detail : payload;
+    if(detail && typeof detail==="object" && detail.status==="DB_UNAVAILABLE"){
+      const err=new Error(
+        "DB_UNAVAILABLE · "+(detail.approval_mode||"READ_DEGRADED")
+      );
+      err.code="DB_UNAVAILABLE";
+      err.payload=detail;
+      throw err;
+    }
     throw new Error(typeof detail==="string" ? detail : JSON.stringify(detail));
   }
   return payload;
@@ -150,7 +158,19 @@ async function loadCandidates(){
     }
   }catch(err){
     clear(list);
-    list.appendChild(node("div","loading","載入失敗："+err.message));
+    if(err.code==="DB_UNAVAILABLE"){
+      const box=node("div","notice warn");
+      box.appendChild(node("strong","","DB_UNAVAILABLE"));
+      box.appendChild(node(
+        "div",
+        "",
+        "資料庫暫時不可用；Review Workspace 進入 READ_DEGRADED，Release Approval 保持 APPROVAL_FAIL_CLOSED。請稍後重新整理。"
+      ));
+      list.appendChild(box);
+      byId("candidateCount").textContent="DB unavailable";
+    }else{
+      list.appendChild(node("div","loading","載入失敗："+err.message));
+    }
   }
 }
 
@@ -200,8 +220,13 @@ async function selectCandidate(id,push=true){
     renderCandidates();
     renderDetail(state.selected);
   }catch(err){
-    showToast("候選載入失敗："+err.message,true);
-    byId("candidateTitle").textContent="載入失敗";
+    if(err.code==="DB_UNAVAILABLE"){
+      showToast("DB_UNAVAILABLE：資料庫暫時不可用，Release Approval 已 fail-closed。",true);
+      byId("candidateTitle").textContent="DB_UNAVAILABLE";
+    }else{
+      showToast("候選載入失敗："+err.message,true);
+      byId("candidateTitle").textContent="載入失敗";
+    }
   }
 }
 
@@ -655,7 +680,14 @@ function renderDecision(d){
       await selectCandidate(d.release_candidate_id,false);
     }catch(err){
       key.value="";
-      showToast("決策被拒絕："+err.message,true);
+      if(err.code==="DB_UNAVAILABLE"){
+        showToast(
+          "DB_UNAVAILABLE：決策未自動重試；Approval 保持 fail-closed。重新載入狀態後再人工確認。",
+          true,
+        );
+      }else{
+        showToast("決策被拒絕："+err.message,true);
+      }
       renderDecision(d);
     }
   }
