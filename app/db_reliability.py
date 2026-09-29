@@ -23,7 +23,9 @@ class DatabaseUnavailable(RuntimeError):
 
 
 def is_database_unavailable(exc: BaseException) -> bool:
-    return isinstance(exc, (OperationalError, DBAPIError))
+    if isinstance(exc, OperationalError):
+        return True
+    return isinstance(exc, DBAPIError) and bool(exc.connection_invalidated)
 
 
 def read_with_retry(
