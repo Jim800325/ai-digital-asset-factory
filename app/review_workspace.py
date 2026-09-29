@@ -46,6 +46,7 @@ def list_review_workspace(limit:int=50)->list[dict]:
       JOIN sandbox_build_requests sbr ON sbr.id=rc.request_id
       LEFT JOIN openhands_executions oe ON oe.request_id=rc.request_id
       LEFT JOIN release_review_packages rrp ON rrp.release_candidate_id=rc.id
+      WHERE rc.archived_at IS NULL
       ORDER BY rc.updated_at DESC,rc.id DESC
       LIMIT :limit
     """)
