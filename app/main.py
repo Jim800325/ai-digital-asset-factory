@@ -12,6 +12,12 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from app.build_proposals import decide_build_proposal
+from app.deployment_authorization import (
+    create_deployment_plan,
+    decide_deployment_authorization,
+    get_deployment_plan,
+    get_deployment_plan_for_candidate,
+)
 from app.config import settings
 from app.db import engine
 from app.db_reliability import (
@@ -26,7 +32,7 @@ from app.release_integrity_gate import list_release_integrity_blocks
 from app.release_review import ensure_release_review_package
 from app.review_ui import STATIC_DIR, router as review_ui_router
 from app.review_workspace import get_review_workspace, list_review_workspace
-from app.migrate import migrate, migration_status
+from app.migrate import migrate, migration_files, migration_status
 from app.live_acceptance_registry import (
     get_live_acceptance_audit,
     list_live_acceptance_audits,
@@ -61,6 +67,17 @@ class ReleaseDecision(BaseModel):
     actor: str = Field(default="human-release-api",min_length=1,max_length=200)
     review_package_sha256: str | None = Field(default=None,min_length=64,max_length=64)
 
+class DeploymentPlanRequest(BaseModel):
+    target_project_id: str = Field(min_length=3,max_length=160)
+    target_team_id: str | None = Field(default=None,max_length=160)
+    actor: str = Field(default="human-deployment-api",min_length=1,max_length=200)
+
+class DeploymentAuthorizationDecision(BaseModel):
+    decision: Literal["AUTHORIZE","REJECT"]
+    reason: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(default="human-deployment-api",min_length=1,max_length=200)
+    plan_sha256: str = Field(min_length=64,max_length=64)
+
 def _require_approval_key(provided: str | None) -> None:
     expected=settings.human_approval_key.strip()
     if not expected:
@@ -81,12 +98,22 @@ def _require_release_key(provided: str | None) -> None:
     if provided is None or not secrets.compare_digest(provided,expected):
         raise HTTPException(status_code=403,detail="Invalid human release key")
 
+def _require_deployment_key(provided: str | None) -> None:
+    expected=settings.human_deployment_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Deployment authorization gate is not configured",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(status_code=403,detail="Invalid deployment authorization key")
+
 @app.get("/health")
 def health():
     db_state=database_health()
     migrations = migration_status() if db_state["available"] else {
         "status": "DB_UNAVAILABLE",
-        "expected_count": 16,
+        "expected_count": len(migration_files()),
         "applied_count": None,
         "latest_version": None,
         "pending": None,
@@ -98,6 +125,9 @@ def health():
         "migrations":migrations,
         "approval_gate":"ENABLED" if settings.human_approval_key.strip() else "DISABLED",
         "release_gate":"ENABLED" if settings.human_release_key.strip() else "DISABLED",
+        "deployment_authorization_gate":"ENABLED" if settings.human_deployment_key.strip() else "DISABLED",
+        "controlled_production_release":"AUTHORIZATION_ONLY",
+        "deployment_executor":"DISABLED",
         "release_deployment":"DISABLED",
         "release_review_package":"ENABLED",
         "human_review_workspace":"ENABLED",
@@ -603,6 +633,140 @@ def release_review_package(candidate_id: UUID):
     if row is None:
         raise HTTPException(status_code=404,detail="Release review package not found")
     return dict(row)
+
+
+@app.post("/v1/release-candidates/{candidate_id}/deployment-plan")
+def create_release_deployment_plan(
+    candidate_id: UUID,
+    payload: DeploymentPlanRequest,
+    x_deployment_key: str | None = Header(default=None,alias="X-Deployment-Key"),
+):
+    _require_deployment_key(x_deployment_key)
+    db_state=database_health()
+    if not db_state["available"]:
+        failure=db_unavailable_payload(
+            operation="deployment_plan_create",
+            approval_sensitive=True,
+        )
+        failure["database_state"]=db_state
+        return JSONResponse(status_code=503,content=failure)
+    try:
+        return create_deployment_plan(
+            candidate_id,
+            target_project_id=payload.target_project_id,
+            target_team_id=payload.target_team_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DBAPIError as exc:
+        if is_database_unavailable(exc):
+            return JSONResponse(
+                status_code=503,
+                content=db_unavailable_payload(
+                    operation="deployment_plan_create",
+                    approval_sensitive=True,
+                ),
+            )
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status":"DEPLOYMENT_CONSTRAINT_REJECTED",
+                "detail":str(exc.orig) if getattr(exc,"orig",None) else str(exc),
+                "execution_enabled":False,
+            },
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.get("/v1/release-candidates/{candidate_id}/deployment-plan")
+def release_deployment_plan(candidate_id: UUID):
+    try:
+        result=read_with_retry(
+            "deployment_plan_read",
+            lambda: get_deployment_plan_for_candidate(candidate_id),
+        )
+    except DatabaseUnavailable:
+        return JSONResponse(
+            status_code=503,
+            content=db_unavailable_payload(
+                operation="deployment_plan_read",
+                approval_sensitive=False,
+            ),
+        )
+    if result is None:
+        raise HTTPException(status_code=404,detail="Deployment Plan not found")
+    return result
+
+
+@app.get("/v1/deployment-plans/{plan_id}")
+def deployment_plan(plan_id: UUID):
+    try:
+        return read_with_retry(
+            "deployment_plan_read",
+            lambda: get_deployment_plan(plan_id),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DatabaseUnavailable:
+        return JSONResponse(
+            status_code=503,
+            content=db_unavailable_payload(
+                operation="deployment_plan_read",
+                approval_sensitive=False,
+            ),
+        )
+
+
+@app.post("/v1/deployment-plans/{plan_id}/decision")
+def deployment_plan_decision(
+    plan_id: UUID,
+    payload: DeploymentAuthorizationDecision,
+    x_deployment_key: str | None = Header(default=None,alias="X-Deployment-Key"),
+):
+    _require_deployment_key(x_deployment_key)
+    db_state=database_health()
+    if not db_state["available"]:
+        failure=db_unavailable_payload(
+            operation="deployment_authorization_decision",
+            approval_sensitive=True,
+        )
+        failure["database_state"]=db_state
+        return JSONResponse(status_code=503,content=failure)
+    try:
+        return decide_deployment_authorization(
+            plan_id,
+            decision=payload.decision,
+            reason=payload.reason,
+            actor=payload.actor,
+            plan_sha256=payload.plan_sha256,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DBAPIError as exc:
+        if is_database_unavailable(exc):
+            return JSONResponse(
+                status_code=503,
+                content=db_unavailable_payload(
+                    operation="deployment_authorization_decision",
+                    approval_sensitive=True,
+                ),
+            )
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status":"DEPLOYMENT_CONSTRAINT_REJECTED",
+                "detail":str(exc.orig) if getattr(exc,"orig",None) else str(exc),
+                "execution_enabled":False,
+            },
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
 
 
 @app.get("/v1/review-workspace")
