@@ -10,7 +10,11 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
 
+from app.config import settings
+from app.db import engine
 from app.live_acceptance_audit import (
     claim_live_acceptance,
     duplicate_response,
@@ -111,6 +115,40 @@ def _verify_trigger(token:str)->str:
     if not secrets.compare_digest(digest,TRIGGER_TOKEN_SHA256):
         raise PermissionError("Invalid or expired live acceptance token")
     return digest
+
+
+def live_acceptance_db_diagnostics(trigger_token:str)->dict[str,Any]:
+    _verify_trigger(trigger_token)
+    env_value=(os.environ.get("DATABASE_URL") or "").strip()
+    effective=settings.database_url
+    parsed=make_url(effective)
+
+    result={
+        "database_url_env_present":bool(env_value),
+        "drivername":parsed.drivername,
+        "host":parsed.host,
+        "port":parsed.port,
+        "database":parsed.database,
+        "username_present":bool(parsed.username),
+        "password_present":bool(parsed.password),
+        "uses_local_default":parsed.host=="postgres",
+        "connected":False,
+        "error_type":None,
+        "error_detail":None,
+    }
+    try:
+        with engine.connect() as db:
+            db.execute(text("SELECT 1"))
+        result["connected"]=True
+    except Exception as exc:
+        detail=str(getattr(exc,"orig",exc))
+        if "://" in detail and "@" in detail:
+            prefix,rest=detail.split("://",1)
+            _,tail=rest.split("@",1)
+            detail=prefix+"://***@"+tail
+        result["error_type"]=type(exc).__name__
+        result["error_detail"]=detail[-1200:]
+    return result
 
 
 def _provider_key()->str:
