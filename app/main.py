@@ -1,3 +1,5 @@
+import hashlib
+import os
 import secrets
 from typing import Literal
 from uuid import UUID
@@ -19,7 +21,7 @@ from app.deployment_authorization import (
     get_deployment_plan_for_candidate,
 )
 from app.config import settings
-from app.db import engine
+from app.db import database_selection, engine
 from app.db_reliability import (
     DatabaseUnavailable,
     database_health,
@@ -108,6 +110,27 @@ def _require_deployment_key(provided: str | None) -> None:
     if provided is None or not secrets.compare_digest(provided,expected):
         raise HTTPException(status_code=403,detail="Invalid deployment authorization key")
 
+
+def _require_preview_acceptance_key(provided: str | None) -> str:
+    vercel_env=(os.getenv("VERCEL_ENV") or "").strip().lower()
+    if (
+        vercel_env!="preview"
+        or settings.deployment_authorization_preview_only is not True
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Preview acceptance endpoint is unavailable",
+        )
+    expected=settings.preview_acceptance_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Preview acceptance key is not configured",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(status_code=403,detail="Invalid preview acceptance key")
+    return expected
+
 @app.get("/health")
 def health():
     db_state=database_health()
@@ -126,6 +149,10 @@ def health():
         "approval_gate":"ENABLED" if settings.human_approval_key.strip() else "DISABLED",
         "release_gate":"ENABLED" if settings.human_release_key.strip() else "DISABLED",
         "deployment_authorization_gate":"ENABLED" if settings.human_deployment_key.strip() else "DISABLED",
+        "preview_acceptance_bridge":"ENABLED" if (
+            (os.getenv("VERCEL_ENV") or "").strip().lower()=="preview"
+            and settings.preview_acceptance_key.strip()
+        ) else "DISABLED",
         "controlled_production_release":"AUTHORIZATION_ONLY",
         "deployment_executor":"DISABLED",
         "release_deployment":"DISABLED",
@@ -819,6 +846,88 @@ def live_acceptance_audit(audit_id: str):
         return get_live_acceptance_audit(audit_id)
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.get(
+    "/internal/preview-live-acceptance/preflight",
+    include_in_schema=False,
+)
+def internal_preview_live_acceptance_preflight(
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    try:
+        selected=database_selection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503,detail=str(exc)) from exc
+
+    db_state=database_health()
+    migrations=(
+        migration_status()
+        if db_state["available"]
+        else {
+            "status":"DB_UNAVAILABLE",
+            "expected_count":len(migration_files()),
+            "applied_count":None,
+            "latest_version":None,
+            "pending":None,
+        }
+    )
+    return {
+        "status":"READY" if (
+            db_state["available"]
+            and migrations.get("status")=="CURRENT"
+            and selected.get("source")=="PREVIEW_DATABASE_URL"
+            and selected.get("preview_isolated") is True
+            and bool((os.getenv("AIHUBMIX_API_KEY") or "").strip())
+        ) else "NOT_READY",
+        "vercel_env":selected.get("vercel_env"),
+        "database_source":selected.get("source"),
+        "preview_isolated":bool(selected.get("preview_isolated")),
+        "database_available":bool(db_state.get("available")),
+        "migrations":migrations,
+        "aihubmix_api_key_present":bool(
+            (os.getenv("AIHUBMIX_API_KEY") or "").strip()
+        ),
+        "live_model_invoked":False,
+        "deployment_executor":"DISABLED",
+        "deployment_enabled":False,
+        "execution_enabled":False,
+        "production_deployment_executed":False,
+    }
+
+
+@app.post(
+    "/internal/preview-live-acceptance",
+    include_in_schema=False,
+)
+def internal_preview_live_acceptance(
+    request: Request,
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+):
+    expected=_require_preview_acceptance_key(x_preview_acceptance_key)
+    digest=hashlib.sha256(expected.encode("utf-8")).hexdigest()
+    try:
+        result=run_vercel_live_acceptance(
+            "",
+            vercel_oidc_token=request.headers.get("x-vercel-oidc-token"),
+            preverified_digest=digest,
+            persist_preview_fixture=True,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403,detail=str(exc)) from exc
+    except LiveAcceptanceError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+    if result.get("acceptance_status")!="PASSED":
+        return JSONResponse(status_code=409,content=result)
+    return result
 
 
 @app.get(
