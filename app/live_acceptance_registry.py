@@ -6,6 +6,7 @@ from typing import Any
 
 AUDIT_DIR = Path(__file__).resolve().parent.parent / "audits" / "live-acceptance"
 MANIFEST_NAME = "manifest.json"
+DEPLOYMENT_SOURCES_NAME = "deployment-sources.json"
 MANIFEST_PATH = AUDIT_DIR / MANIFEST_NAME
 GENESIS_SHA256 = "0" * 64
 _AUDIT_ID = re.compile(r"^[a-f0-9]{8,64}$", re.IGNORECASE)
@@ -58,7 +59,7 @@ def _audit_paths(root: Path) -> list[Path]:
     return [
         path
         for path in sorted(root.glob("*.json"))
-        if path.name != MANIFEST_NAME
+        if path.name not in {MANIFEST_NAME, DEPLOYMENT_SOURCES_NAME}
     ]
 
 
