@@ -161,7 +161,7 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  plan_row deployment_plans%ROWTYPE;
+  plan_row deployment_plans%%ROWTYPE;
 BEGIN
   SELECT * INTO plan_row
   FROM deployment_plans
