@@ -4,6 +4,10 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine
+from app.release_integrity_gate import (
+    evaluate_release_integrity,
+    list_release_integrity_blocks,
+)
 
 
 def list_review_workspace(limit:int=50)->list[dict]:
@@ -46,7 +50,16 @@ def list_review_workspace(limit:int=50)->list[dict]:
     """)
     with engine.connect() as db:
         rows=db.execute(sql,{"limit":min(max(limit,1),200)}).mappings().all()
-    return [dict(row) for row in rows]
+    result=[]
+    for row in rows:
+        item=dict(row)
+        gate=evaluate_release_integrity(item.get("source_tree_sha256"))
+        item["integrity_status"]=gate["integrity_status"]
+        item["integrity_gate_allowed"]=gate["allowed"]
+        item["integrity_audit_id"]=gate.get("audit_id")
+        item["integrity_blocking_reasons"]=gate.get("blocking_reasons") or []
+        result.append(item)
+    return result
 
 
 def get_review_workspace(candidate_id:UUID)->dict:
@@ -133,6 +146,9 @@ def get_review_workspace(candidate_id:UUID)->dict:
         ]
 
     result=dict(row)
+    integrity_gate=evaluate_release_integrity(result.get("source_tree_sha256"))
+    with engine.begin() as audit_db:
+        integrity_blocks=list_release_integrity_blocks(audit_db,candidate_id)
     terminal=result["release_status"] in {"RELEASE_APPROVED","RELEASE_REJECTED"}
     live_ok=(
         result["live_validation_verified"] is True
@@ -154,15 +170,22 @@ def get_review_workspace(candidate_id:UUID)->dict:
         and result["release_status"]=="READY_FOR_REVIEW"
         and live_ok
         and review_ok
+        and integrity_gate["allowed"] is True
         and result["deployment_enabled"] is False
         and result["execution_enabled"] is False
     )
     result["can_reject"]=not terminal
+    result["integrity_gate"]=integrity_gate
+    result["integrity_status"]=integrity_gate["integrity_status"]
+    result["integrity_gate_allowed"]=integrity_gate["allowed"]
+    result["integrity_blocking_reasons"]=integrity_gate.get("blocking_reasons") or []
+    result["integrity_block_events"]=integrity_blocks
     result["decisions"]=decisions
     result["ui_safety"]={
         "deployment_enabled":False,
         "auto_deploy":False,
         "release_key_persisted_in_browser":False,
         "approval_requires_live_validation":True,
+        "approval_requires_integrity_verified":True,
     }
     return result
