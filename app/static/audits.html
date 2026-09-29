@@ -24,8 +24,8 @@
 
     <div class="safety-banner">
       <strong>Evidence Index：</strong>
-      本頁只读取仓库 <span class="code">audits/live-acceptance/*.json</span>。
-      不连接模型、不创建 Sandbox、不执行部署、不修改审计记录。
+      本頁只读取仓库 <span class="code">audits/live-acceptance/*.json</span> 与链式 manifest，自动核对证据文件、source commit、deployment、artifact tree hash 与前序链哈希。<br>
+      <strong>INTEGRITY VERIFIED</strong> 表示链与证据一致；<strong>TAMPERED</strong> 表示内容/来源/链不一致；<strong>ORPHANED</strong> 表示证据缺失或未登记。不连接模型、不创建 Sandbox、不执行部署、不修改审计记录。
     </div>
 
     <main class="audit-shell">
