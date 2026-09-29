@@ -113,7 +113,7 @@ def test_release_integrity_gate_blocks_deployment_provenance_mismatch(monkeypatc
     result = gate.evaluate_release_integrity("c" * 64)
 
     assert result["allowed"] is False
-    assert result["integrity_status"] == "VERIFIED"
+    assert result["integrity_status"] == "TAMPERED"
     assert "deployment_provenance_mismatch" in result["blocking_reasons"]
 
 
