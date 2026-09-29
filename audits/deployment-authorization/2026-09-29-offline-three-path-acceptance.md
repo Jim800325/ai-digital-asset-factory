@@ -111,3 +111,53 @@ Validation GitHub Actions run: 36549648042
 Result: SUCCESS. Full test suite, migrations 001-022, three-path Deployment
 Authorization acceptance, and production-disabled invariants all passed after
 the integrity hardening.
+
+
+## Preview Live Acceptance Bridge hardening
+
+A Preview-only bridge was added so the real Vercel Controlled Live Acceptance
+can persist exact artifact bytes into the isolated Preview database before the
+disposable sandbox is destroyed.
+
+The bridge is fail-closed and requires:
+
+- VERCEL_ENV = preview
+- deployment_authorization_preview_only = true
+- database source = PREVIEW_DATABASE_URL
+- PASSED Controlled Live Acceptance
+- gateway_mode = PROXY
+- live_model_verified = true
+- budget_status = WITHIN_BUDGET
+- tests_passed = true
+- external_side_effects = DENY
+- deployment_enabled = false
+- release_approved = false
+- exact artifact byte/hash/source-tree equality
+
+It creates two independent strict fixtures:
+
+- AUTHORIZE acceptance candidate
+- REJECT acceptance candidate
+
+Both stop at READY_FOR_REVIEW and require normal Release Gate approval after
+repository Registry provenance is persisted. The bridge never writes a Release
+APPROVE decision, never creates a Deployment Plan, and never executes
+deployment.
+
+A separate PREVIEW_ACCEPTANCE_KEY is required; HUMAN_DEPLOYMENT_KEY is not
+reused for paid Live Acceptance execution.
+
+Validation GitHub Actions run: 36553412281
+
+Result: SUCCESS.
+
+- full pytest suite passed
+- migrations 001-022 passed
+- strict artifact content snapshots passed
+- both Review Packages were content_snapshot_complete=true
+- global build execution count with execution_enabled=true = 0
+- global Release Candidate deployment_enabled=true count = 0
+- global Deployment Plan execution_enabled=true count = 0
+- sandbox external_side_effects outside DENY count = 0
+
+No Live model call occurred during this CI bridge validation.
