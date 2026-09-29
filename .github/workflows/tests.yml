@@ -67,7 +67,7 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q app tests
 
-      - name: Apply migrations 001 through 014
+      - name: Apply migrations 001 through 015
         run: python -m app.migrate
 
       - name: Verify migration set
@@ -90,6 +90,7 @@ jobs:
               "012_human_release_gate.sql",
               "013_release_review_package.sql",
               "014_human_review_workspace.sql",
+              "015_live_acceptance_audit.sql",
           ]
           with engine.connect() as db:
               actual = [r[0] for r in db.execute(
