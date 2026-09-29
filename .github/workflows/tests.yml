@@ -182,10 +182,36 @@ jobs:
                   LEFT JOIN sandbox_artifacts sa ON sa.run_id=sr.id
                   LEFT JOIN sandbox_test_results str ON str.run_id=sr.id
                   WHERE sbr.executor_kind='OPENHANDS'
+                    AND oe.gateway_mode='MOCK'
+                    AND oe.model_name='openai/mock-test-model'
                   GROUP BY sbr.id,sr.id,oe.id
                   ORDER BY sr.finished_at DESC
                   LIMIT 1
               """)).mappings().one()
+
+              unsafe_build_execution = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM build_proposals
+                  WHERE execution_enabled=true
+              """)).scalar_one()
+
+              unsafe_release_deployment = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM release_candidates
+                  WHERE deployment_enabled=true
+              """)).scalar_one()
+
+              unsafe_plan_execution = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM deployment_plans
+                  WHERE execution_enabled=true
+              """)).scalar_one()
+
+              unsafe_external_effects = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM sandbox_build_requests
+                  WHERE external_side_effects<>'DENY'
+              """)).scalar_one()
 
           assert base["status"] == "CANDIDATE", base
           assert base["evidence_gate_passed"] is True, base
@@ -222,6 +248,11 @@ jobs:
           assert oh["live_model_verified"] is False, oh
           assert oh["artifacts"] >= 2, oh
           assert oh["passed_tests"] == 1, oh
+
+          assert unsafe_build_execution == 0, unsafe_build_execution
+          assert unsafe_release_deployment == 0, unsafe_release_deployment
+          assert unsafe_plan_execution == 0, unsafe_plan_execution
+          assert unsafe_external_effects == 0, unsafe_external_effects
 
           print("base:", dict(base))
           print("ordinary_sandbox:", dict(ordinary))
