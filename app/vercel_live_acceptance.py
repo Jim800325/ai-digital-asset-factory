@@ -1058,24 +1058,15 @@ def run_vercel_live_acceptance(
     vercel_oidc_token:str|None=None,
 )->dict[str,Any]:
     trigger_digest=_verify_trigger(trigger_token)
-    provider_key=_provider_key()
     oidc=_require_oidc(vercel_oidc_token)
 
-    ensure_live_acceptance_audit_schema()
-    claim=claim_live_acceptance(trigger_digest,model=LIVE_MODEL)
-    if not claim["claimed"]:
-        return duplicate_response(claim)
-
-    audit_id=str(claim["id"])
     started=time.time()
-    phase="claimed"
+    phase="claim_control"
+    audit_id=trigger_digest[:16]
 
-    def advance(next_phase:str)->None:
-        nonlocal phase
-        phase=next_phase
-        update_live_acceptance_phase(audit_id,next_phase)
-
-    advance("create_gateway_sandbox")
+    control_session=None
+    control_name=None
+    control_state:dict[str,Any]={}
     agent_session=None
     agent_name=None
     gateway_session=None
@@ -1083,13 +1074,31 @@ def run_vercel_live_acceptance(
     gateway_url=None
 
     nonce=hashlib.sha256(
-        f"{time.time_ns()}:{trigger_token}".encode("utf-8")
+        f"{time.time_ns()}:{trigger_digest}".encode("utf-8")
     ).hexdigest()[:12]
     gateway_name=f"asset-gateway-{nonce}"
     agent_name=f"asset-agent-{nonce}"
 
     with httpx.Client(timeout=60,follow_redirects=False) as client:
         try:
+            claimed,control_session,control_name,control_state=_claim_control_audit(
+                client,oidc,trigger_digest
+            )
+            if not claimed:
+                return _duplicate_control_response(control_state)
+
+            def advance(next_phase:str)->None:
+                nonlocal phase,control_state
+                phase=next_phase
+                control_state["phase"]=next_phase
+                control_state["updated_at_epoch"]=time.time()
+                _write_control_audit(
+                    client,oidc,control_session,control_state
+                )
+
+            provider_key=_provider_key()
+            advance("create_gateway_sandbox")
+
             broker_nonce=secrets.token_urlsafe(32)
             local_token=secrets.token_urlsafe(32)
 
@@ -1230,6 +1239,7 @@ def run_vercel_live_acceptance(
                 "acceptance_status":"PASSED" if passed else "FAILED",
                 "phase":"complete",
                 "audit_id":audit_id,
+                "audit_backend":"VERCEL_CONTROL_SANDBOX",
                 "provider":"AIHUBMIX",
                 "model":LIVE_MODEL,
                 "gateway_mode":"PROXY",
@@ -1244,9 +1254,14 @@ def run_vercel_live_acceptance(
                 "source_tree_sha256":artifacts.get("source_tree_sha256"),
                 "agent_sandbox_session_id":agent_session,
                 "gateway_sandbox_session_id":gateway_session,
+                "control_sandbox_name":control_name,
+                "duplicate_requests":int(
+                    control_state.get("duplicate_requests") or 0
+                ),
                 "agent_network_policy":"GATEWAY_ONLY_THEN_DENY_ALL",
                 "agent_allowed_gateway_host":gateway_hostname,
                 "gateway_network_policy":"AIHUBMIX_BROKER_ONLY",
+                "control_network_policy":"DENY_ALL",
                 "provider_key_in_agent_environment":False,
                 "provider_key_in_gateway_environment":False,
                 "external_side_effects":"DENY",
@@ -1265,7 +1280,9 @@ def run_vercel_live_acceptance(
                     limit=6_000,
                 ),
             }
-            finish_live_acceptance(audit_id,result)
+            _write_control_audit(
+                client,oidc,control_session,result
+            )
             print(
                 "[live-acceptance-result]"+
                 json.dumps(result,ensure_ascii=False,sort_keys=True),
@@ -1284,6 +1301,7 @@ def run_vercel_live_acceptance(
                 "acceptance_status":"FAILED",
                 "phase":phase,
                 "audit_id":audit_id,
+                "audit_backend":"VERCEL_CONTROL_SANDBOX",
                 "error":str(exc)[:8000],
                 "provider":"AIHUBMIX",
                 "model":LIVE_MODEL,
@@ -1298,6 +1316,11 @@ def run_vercel_live_acceptance(
                 "git_push_enabled":False,
                 "release_approved":False,
                 "duration_seconds":round(time.time()-started,3),
+                "control_sandbox_name":control_name,
+                "control_network_policy":"DENY_ALL",
+                "duplicate_requests":int(
+                    control_state.get("duplicate_requests") or 0
+                ),
             }
             if agent_session:
                 result["agent_sandbox_session_id"]=agent_session
@@ -1313,7 +1336,13 @@ def run_vercel_live_acceptance(
                     f"{WORKDIR}/gateway.log",
                     limit=8_000,
                 )
-            finish_live_acceptance(audit_id,result)
+            if control_session:
+                try:
+                    _write_control_audit(
+                        client,oidc,control_session,result
+                    )
+                except Exception as persist_exc:
+                    result["audit_persist_error"]=str(persist_exc)[:2000]
             print(
                 "[live-acceptance-result]"+
                 json.dumps(result,ensure_ascii=False,sort_keys=True),
