@@ -1,0 +1,10 @@
+.audit-shell{padding:18px 34px 34px}
+.audit-grid{display:grid;grid-template-columns:350px minmax(0,1fr);gap:18px;margin-top:18px}
+.audit-sidebar,.audit-detail{min-height:650px}
+.link-button{text-decoration:none;display:inline-flex;align-items:center}
+.audit-list-title{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.audit-list-title strong{overflow:hidden;text-overflow:ellipsis}
+.audit-cost{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--cyan);font-size:11px}
+.raw-json{white-space:pre-wrap;word-break:break-word}
+.metric-note{font-size:11px;color:var(--muted);margin-top:5px}
+@media(max-width:900px){.audit-shell{padding:14px}.audit-grid{grid-template-columns:1fr}.audit-sidebar{min-height:0}.audit-detail{min-height:500px}}
