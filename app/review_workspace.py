@@ -181,18 +181,10 @@ def get_review_workspace(candidate_id:UUID)->dict:
         and result["budget_status"]=="WITHIN_BUDGET"
         and result["request_status"]=="ARTIFACT_READY"
     )
-    audit_backed_test_review=(
-        result["source_fingerprint"]=="test-only-release-gate-recovery-v1"
-        and result["generator_version"]=="test-recovery-v1"
-        and bool((result["risk_summary"] or {}).get("audit_backed_recovery_fixture"))
-    )
     review_ok=(
         result["review_package_id"] is not None
         and result["package_status"]=="GENERATED"
-        and (
-            result["content_snapshot_complete"] is True
-            or audit_backed_test_review
-        )
+        and result["content_snapshot_complete"] is True
         and bool(result["package_sha256"])
         and bool(result["source_tree_sha256"])
     )
