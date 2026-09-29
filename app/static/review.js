@@ -642,9 +642,24 @@ function renderDecision(d){
   const reject=node("button","button danger","拒絕 Release");
   reject.type="button";
   reject.disabled=!d.can_reject || !d.release_gate_configured;
-  actions.append(approve,reject);
 
-  async function submitDecision(decision){
+  const isControlledFixture=(
+    d.release_candidate_id==="00000000-0000-0000-0000-000000001709"
+    && d.source_fingerprint==="test-only-release-gate-fixture-v1"
+    && d.integrity_gate_allowed===false
+  );
+  const probeApprove=node(
+    "button",
+    "button",
+    "TEST ONLY · 嘗試後端 APPROVE"
+  );
+  probeApprove.type="button";
+  probeApprove.disabled=!isControlledFixture || !d.release_gate_configured;
+
+  actions.append(approve,reject);
+  if(isControlledFixture) actions.appendChild(probeApprove);
+
+  async function submitDecision(decision,controlledProbe=false){
     if(reason.value.trim().length<3){
       showToast("請填寫至少 3 個字元的決策理由",true);
       return;
@@ -654,11 +669,15 @@ function renderDecision(d){
       return;
     }
     const label=decision==="APPROVE"?"批准":"拒絕";
-    if(!window.confirm("確認"+label+"這個 Release Candidate？\n\n此操作會留下不可變決策紀錄，但不會部署。")){
+    const confirmText=controlledProbe
+      ? "確認執行 TEST_ONLY 後端 APPROVE 探針？\n\n預期結果：後端 Evidence Integrity Gate 必須拒絕，寫入 release_gate_blocks，不得產生 APPROVE decision，也不得啟用部署。"
+      : "確認"+label+"這個 Release Candidate？\n\n此操作會留下不可變決策紀錄，但不會部署。";
+    if(!window.confirm(confirmText)){
       return;
     }
     approve.disabled=true;
     reject.disabled=true;
+    probeApprove.disabled=true;
     try{
       await api("/v1/release-candidates/"+encodeURIComponent(d.release_candidate_id)+"/decision",{
         method:"POST",
@@ -685,18 +704,42 @@ function renderDecision(d){
           "DB_UNAVAILABLE：決策未自動重試；Approval 保持 fail-closed。重新載入狀態後再人工確認。",
           true,
         );
+      }else if(controlledProbe){
+        showToast("TEST ONLY：後端已拒絕 APPROVE；正在重新讀取持久化阻擋紀錄。",true);
       }else{
         showToast("決策被拒絕："+err.message,true);
       }
-      renderDecision(d);
+      if(controlledProbe){
+        await loadCandidates();
+        await selectCandidate(d.release_candidate_id,false);
+      }else{
+        renderDecision(d);
+      }
     }
   }
 
   approve.addEventListener("click",()=>submitDecision("APPROVE"));
   reject.addEventListener("click",()=>submitDecision("REJECT"));
+  probeApprove.addEventListener("click",()=>{
+    if(reason.value.trim().length<3){
+      reason.value="Controlled TEST_ONLY fail-closed persistence acceptance";
+    }
+    actor.value="controlled-release-gate-test-ui";
+    submitDecision("APPROVE",true);
+  });
 
   form.append(keyField,actorField,reasonField,actions);
   formCard.appendChild(form);
+
+  if(isControlledFixture){
+    const testNotice=node(
+      "div",
+      "notice warn",
+      "TEST_ONLY 探針只會對固定 Fixture 呼叫原本的 Release Decision API；不繞過 X-Release-Key，也不繞過後端 Integrity Gate。預期必須被拒絕。"
+    );
+    testNotice.style.marginTop="10px";
+    formCard.appendChild(testNotice);
+  }
 
   if(!d.release_gate_configured){
     const n=node("div","notice warn","伺服器尚未配置 HUMAN_RELEASE_KEY，因此 UI 決策功能保持關閉。");
