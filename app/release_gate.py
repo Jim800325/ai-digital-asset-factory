@@ -197,7 +197,8 @@ def decide_release_candidate(
                  rrp.package_status AS review_package_status,
                  rrp.content_snapshot_complete,
                  rrp.package_sha256,
-                 rrp.source_tree_sha256
+                 rrp.source_tree_sha256,
+                 rrp.artifact_manifest
           FROM release_candidates rc
           JOIN sandbox_build_requests sbr ON sbr.id=rc.request_id
           JOIN build_proposals bp ON bp.id=rc.proposal_id
@@ -241,7 +242,10 @@ def decide_release_candidate(
             if supplied!=current:
                 raise RuntimeError("Reviewed package SHA-256 does not match current package")
 
-            integrity_gate=evaluate_release_integrity(row["source_tree_sha256"])
+            integrity_gate=evaluate_release_integrity(
+                row["source_tree_sha256"],
+                list(row["artifact_manifest"] or []),
+            )
             if not integrity_gate["allowed"]:
                 reason_codes=integrity_gate.get("blocking_reasons") or [
                     "integrity_gate_failed"
