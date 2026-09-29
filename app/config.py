@@ -2,6 +2,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://assetfactory:assetfactory@postgres:5432/assetfactory"
+    preview_database_url: str = ""
+    deployment_authorization_preview_only: bool = True
     redis_url: str = "redis://redis:6379/0"
     database_connect_timeout_seconds: int = 5
     database_read_retry_attempts: int = 2
