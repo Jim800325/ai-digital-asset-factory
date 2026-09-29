@@ -766,7 +766,8 @@ sudo -u openhands-agent env \
   LLM_MODEL="$LIVE_MODEL" \
   LLM_BASE_URL="$GATEWAY_BASE_URL" \
   /opt/openhands/bin/openhands --headless --json --override-with-envs \
-    -f /home/vercel-sandbox/workspace/openhands-task.md \
+    --exit-without-confirmation \
+    -t "$(cat /home/vercel-sandbox/workspace/openhands-task.md)" \
     > /home/vercel-sandbox/openhands.log 2>&1
 """
     return _run_command(
