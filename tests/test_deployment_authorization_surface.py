@@ -57,5 +57,5 @@ def test_authorization_routes_are_plan_and_decision_only():
     assert '@app.post("/v1/deployment-plans/{plan_id}/decision")' in main
 
     # Authorization may record readiness, but must not expose an execution action.
-    assert "deployment_executor":"DISABLED"" in main
-    assert "controlled_production_release":"AUTHORIZATION_ONLY"" in main
+    assert '"deployment_executor":"DISABLED"' in main
+    assert '"controlled_production_release":"AUTHORIZATION_ONLY"' in main
