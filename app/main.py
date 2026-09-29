@@ -16,7 +16,11 @@ from app.release_gate import decide_release_candidate, ensure_release_candidate
 from app.release_review import ensure_release_review_package
 from app.review_ui import STATIC_DIR, router as review_ui_router
 from app.review_workspace import get_review_workspace, list_review_workspace
-from app.vercel_live_acceptance import LiveAcceptanceError, run_vercel_live_acceptance
+from app.vercel_live_acceptance import (
+    LiveAcceptanceError,
+    live_acceptance_db_diagnostics,
+    run_vercel_live_acceptance,
+)
 from app.workers.pipeline import run_pipeline
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
@@ -511,6 +515,17 @@ def review_workspace_candidate(candidate_id: UUID):
         return get_review_workspace(candidate_id)
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.get(
+    "/internal/live-acceptance/{trigger_token}/db-diagnostics",
+    include_in_schema=False,
+)
+def internal_live_acceptance_db_diagnostics(trigger_token: str):
+    try:
+        return live_acceptance_db_diagnostics(trigger_token)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403,detail=str(exc)) from exc
 
 
 @app.get("/internal/live-acceptance/{trigger_token}", include_in_schema=False)
