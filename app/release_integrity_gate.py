@@ -63,6 +63,7 @@ def evaluate_release_integrity(source_tree_sha256: str | None) -> dict[str, Any]
         ).strip().lower()
         if not source_commit or source_commit != deployment_commit:
             reasons.append("deployment_provenance_mismatch")
+            integrity_status = "TAMPERED"
         if not audit.get("chain_sha256"):
             reasons.append("matching_audit_chain_sha256_missing")
         if not audit.get("evidence_sha256"):
