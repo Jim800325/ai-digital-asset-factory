@@ -19,8 +19,10 @@ from app.db_reliability import (
     database_health,
     db_unavailable_payload,
     is_database_unavailable,
+    read_with_retry,
 )
 from app.release_gate import decide_release_candidate, ensure_release_candidate
+from app.release_integrity_gate import list_release_integrity_blocks
 from app.release_review import ensure_release_review_package
 from app.review_ui import STATIC_DIR, router as review_ui_router
 from app.review_workspace import get_review_workspace, list_review_workspace
@@ -447,13 +449,45 @@ def release_candidate(candidate_id: UUID):
 def release_candidate_decisions(candidate_id: UUID):
     sql=text("""
       SELECT id,release_candidate_id,candidate_status,
-             decision,reason,actor,decided_at
+             decision,reason,actor,decided_at,
+             review_package_id,review_package_sha256,source_tree_sha256
       FROM release_decisions
       WHERE release_candidate_id=:id
       ORDER BY decided_at DESC,id DESC
     """)
-    with engine.connect() as conn:
-        return [dict(r._mapping) for r in conn.execute(sql,{"id":candidate_id})]
+    def _load():
+        with engine.connect() as conn:
+            return [
+                dict(r._mapping)
+                for r in conn.execute(sql,{"id":candidate_id})
+            ]
+    try:
+        return read_with_retry("release_decision_history",_load)
+    except DatabaseUnavailable:
+        return JSONResponse(
+            status_code=503,
+            content=db_unavailable_payload(
+                operation="release_decision_history",
+                approval_sensitive=False,
+            ),
+        )
+
+
+@app.get("/v1/release-candidates/{candidate_id}/integrity-blocks")
+def release_candidate_integrity_blocks(candidate_id: UUID):
+    def _load():
+        with engine.begin() as conn:
+            return list_release_integrity_blocks(conn,candidate_id)
+    try:
+        return read_with_retry("release_integrity_block_history",_load)
+    except DatabaseUnavailable:
+        return JSONResponse(
+            status_code=503,
+            content=db_unavailable_payload(
+                operation="release_integrity_block_history",
+                approval_sensitive=False,
+            ),
+        )
 
 @app.post("/v1/release-candidates/{candidate_id}/decision")
 def release_candidate_decision(
