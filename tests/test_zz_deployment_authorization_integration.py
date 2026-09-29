@@ -99,17 +99,32 @@ def _new_proposal_id(suffix: str):
     return str(row["id"])
 
 
-def _approved_release_fixture(monkeypatch, suffix: str, integrity: dict):
-    proposal_id = _new_proposal_id(suffix)
-
-    proposal_decision = decide_build_proposal(
-        proposal_id,
-        decision="APPROVE",
-        reason="CI deployment authorization acceptance",
-        actor="ci-human",
-    )
-    assert proposal_decision["proposal_status"] == "APPROVED"
-    assert proposal_decision["execution_enabled"] is False
+def _approved_release_fixture(
+    monkeypatch,
+    suffix: str,
+    integrity: dict,
+    *,
+    proposal_id: str | None = None,
+):
+    if proposal_id is None:
+        proposal_id = _new_proposal_id(suffix)
+        proposal_decision = decide_build_proposal(
+            proposal_id,
+            decision="APPROVE",
+            reason="CI deployment authorization acceptance",
+            actor="ci-human",
+        )
+        assert proposal_decision["proposal_status"] == "APPROVED"
+        assert proposal_decision["execution_enabled"] is False
+    else:
+        with engine.connect() as db:
+            proposal = db.execute(text("""
+              SELECT proposal_status,execution_enabled
+              FROM build_proposals
+              WHERE id=CAST(:id AS uuid)
+            """), {"id": proposal_id}).mappings().one()
+        assert proposal["proposal_status"] == "APPROVED"
+        assert proposal["execution_enabled"] is False
 
     request = create_sandbox_request(
         proposal_id,
@@ -182,12 +197,12 @@ def _approved_release_fixture(monkeypatch, suffix: str, integrity: dict):
     assert plan["execution_enabled"] is False
     assert len(plan["plan_sha256"]) == 64
 
-    return release, plan
+    return release, plan, proposal_id
 
 
 def test_deployment_authorization_three_path_acceptance(monkeypatch):
     integrity_a = _verified_integrity("1")
-    release_a, plan_a = _approved_release_fixture(
+    release_a, plan_a, proposal_id = _approved_release_fixture(
         monkeypatch,
         "authorize",
         integrity_a,
@@ -258,10 +273,11 @@ def test_deployment_authorization_three_path_acceptance(monkeypatch):
 
     # 3) Independent REJECT path because terminal authorization is immutable.
     integrity_b = _verified_integrity("6")
-    release_b, plan_b = _approved_release_fixture(
+    release_b, plan_b, _ = _approved_release_fixture(
         monkeypatch,
         "reject",
         integrity_b,
+        proposal_id=proposal_id,
     )
     rejected = deployment_auth.decide_deployment_authorization(
         plan_b["id"],
