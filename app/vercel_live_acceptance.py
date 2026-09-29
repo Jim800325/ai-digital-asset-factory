@@ -765,10 +765,35 @@ sudo -u openhands-agent env \
   LLM_API_KEY="$LOCAL_GATEWAY_TOKEN" \
   LLM_MODEL="$LIVE_MODEL" \
   LLM_BASE_URL="$GATEWAY_BASE_URL" \
-  /opt/openhands/bin/openhands --headless --json --override-with-envs \
-    --exit-without-confirmation \
-    -t "$(cat /home/vercel-sandbox/workspace/openhands-task.md)" \
-    > /home/vercel-sandbox/openhands.log 2>&1
+  /opt/openhands/bin/python - <<'PY' > /home/vercel-sandbox/openhands.log 2>&1
+from pathlib import Path
+from uuid import uuid4
+
+from openhands.sdk import Message, TextContent
+from openhands.sdk.security.confirmation_policy import NeverConfirm
+from openhands_cli.setup import setup_conversation
+from openhands_cli.utils import json_callback
+
+task=Path("/home/vercel-sandbox/workspace/openhands-task.md").read_text(
+    encoding="utf-8"
+)
+conversation=setup_conversation(
+    uuid4(),
+    confirmation_policy=NeverConfirm(),
+    event_callback=json_callback,
+    env_overrides_enabled=True,
+    critic_disabled=True,
+)
+conversation.send_message(
+    Message(
+        role="user",
+        content=[TextContent(text=task)],
+    )
+)
+conversation.run()
+status=getattr(conversation.state,"execution_status",None)
+print("conversation_execution_status="+str(status))
+PY
 """
     return _run_command(
         client,oidc,session_id,
@@ -780,9 +805,8 @@ sudo -u openhands-agent env \
         },
         sudo=True,
         timeout_ms=155_000,
-        operation="run real OpenHands acceptance",
+        operation="run real OpenHands conversation acceptance",
     )
-
 
 def _run_independent_tests(
     client:httpx.Client,
