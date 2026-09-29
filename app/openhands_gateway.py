@@ -83,12 +83,25 @@ def _allowed_model(requested, allowed):
     return bool(requested_aliases & allowed_aliases)
 
 def _estimate_prompt_tokens(body):
-    messages=body.get("messages") or []
-    raw=json.dumps(messages,ensure_ascii=False,separators=(",",":"))
+    if body.get("messages") is not None:
+        prompt_payload={
+            "messages":body.get("messages") or [],
+            "tools":body.get("tools") or [],
+        }
+    else:
+        prompt_payload={
+            "input":body.get("input") or [],
+            "instructions":body.get("instructions") or "",
+            "tools":body.get("tools") or [],
+        }
+    raw=json.dumps(prompt_payload,ensure_ascii=False,separators=(",",":"))
     return max(1,math.ceil(len(raw.encode("utf-8"))/3))
 
 def _requested_completion_tokens(body):
-    value=body.get("max_completion_tokens",body.get("max_tokens"))
+    value=body.get(
+        "max_output_tokens",
+        body.get("max_completion_tokens",body.get("max_tokens")),
+    )
     if value is None:
         return MAX_COMPLETION_TOKENS_PER_REQUEST
     try:
@@ -304,7 +317,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json(401,{"error":{"message":"invalid local gateway token","type":"invalid_api_key"}})
             return
         path=self.path.split("?",1)[0]
-        if path not in ("/v1/chat/completions","/chat/completions","/completions"):
+        allowed_paths={
+            "/v1/chat/completions":"chat/completions",
+            "/chat/completions":"chat/completions",
+            "/completions":"chat/completions",
+            "/v1/responses":"responses",
+            "/responses":"responses",
+        }
+        upstream_path=allowed_paths.get(path)
+        if upstream_path is None:
             self._json(404,{"error":{"message":"unsupported path","type":"not_found"}})
             return
         try:
@@ -329,7 +350,7 @@ class Handler(BaseHTTPRequestHandler):
         if MODE=="MOCK":
             self._mock(body)
         elif MODE=="PROXY":
-            self._proxy(raw,reservation)
+            self._proxy(raw,reservation,upstream_path)
         else:
             self._json(500,{"error":{"message":"invalid gateway mode","type":"server_error"}})
 
@@ -427,11 +448,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
-    def _proxy(self,raw,reservation):
+    def _proxy(self,raw,reservation,upstream_path):
         if not UPSTREAM_BASE_URL or not UPSTREAM_API_KEY:
             self._json(503,{"error":{"message":"upstream not configured","type":"server_error"}})
             return
-        url=UPSTREAM_BASE_URL+"/chat/completions"
+        if upstream_path not in ("chat/completions","responses"):
+            self._json(500,{"error":{"message":"invalid upstream path","type":"server_error"}})
+            return
+        url=UPSTREAM_BASE_URL+"/"+upstream_path
         headers={
             "Content-Type":"application/json",
             "Authorization":f"Bearer {UPSTREAM_API_KEY}",
