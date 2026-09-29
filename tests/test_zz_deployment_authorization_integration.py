@@ -49,31 +49,34 @@ def _verified_integrity(seed: str = "1"):
 
 
 def _new_proposal_id(suffix: str):
-    with engine.connect() as db:
-        before = {
-            str(row[0])
-            for row in db.execute(text("SELECT id FROM build_proposals")).all()
-        }
+    if suffix == "authorize":
+        subject = "commercial drone roof damage inspection"
+        github_url = "https://github.com/ci/drone-roof-damage-dataset/issues/1"
+        news_url = "https://ci.example.invalid/drone-roof-damage-dataset"
+    else:
+        subject = "restaurant allergen menu normalization"
+        github_url = "https://github.com/ci/allergen-menu-dataset/issues/1"
+        news_url = "https://ci.example.invalid/allergen-menu-dataset"
 
     items = [
         _item(
             "GITHUB_ISSUE",
-            f"https://github.com/ci/deployment-auth-{suffix}/issues/1",
-            f"Deployment authorization pricing tracker {suffix}",
+            github_url,
+            f"{subject} dataset API demand",
             (
-                "Developers need an automated competitor pricing tracker API. "
-                "We pay $20 per month for manual pricing data and want a better "
-                "database workflow with reliable automated price monitoring."
+                f"Developers need an automated {subject} dataset API and database. "
+                "We currently pay $39 per month for manual data collection and "
+                "want reliable automation because the manual workflow takes hours."
             ),
         ),
         _item(
             "NEWS_ARTICLE",
-            f"https://ci.example.invalid/deployment-auth-{suffix}",
-            f"Pricing dataset demand {suffix}",
+            news_url,
+            f"{subject} commercial data service",
             (
-                "Teams need a competitor pricing dataset API and database. "
-                "The budget is $25 per month and teams are willing to pay for "
-                "automated price tracking because manual tracking is too slow."
+                f"Teams need a {subject} dataset API as an alternative to manual work. "
+                "The budget is $45 per month and buyers are willing to pay for "
+                "automated structured data, monitoring, and reliable database access."
             ),
         ),
     ]
@@ -82,15 +85,18 @@ def _new_proposal_id(suffix: str):
     assert result["mode"] == "ACCEPTANCE"
 
     with engine.connect() as db:
-        rows = db.execute(text("""
-          SELECT id
+        row = db.execute(text("""
+          SELECT id,proposal_status,revision
           FROM build_proposals
-          ORDER BY generated_at,id
-        """)).all()
+          WHERE proposal_status='PENDING_APPROVAL'
+          ORDER BY updated_at DESC,id DESC
+          LIMIT 1
+        """)).mappings().one_or_none()
 
-    created = [str(row[0]) for row in rows if str(row[0]) not in before]
-    assert len(created) == 1, created
-    return created[0]
+    assert row is not None
+    assert row["proposal_status"] == "PENDING_APPROVAL"
+    assert int(row["revision"]) >= 1
+    return str(row["id"])
 
 
 def _approved_release_fixture(monkeypatch, suffix: str, integrity: dict):
