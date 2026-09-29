@@ -15,14 +15,6 @@ from sqlalchemy.engine import make_url
 
 from app.config import settings
 from app.db import engine
-from app.live_acceptance_audit import (
-    claim_live_acceptance,
-    duplicate_response,
-    ensure_live_acceptance_audit_schema,
-    finish_live_acceptance,
-    update_live_acceptance_phase,
-)
-
 
 VERCEL_API="https://api.vercel.com"
 VERCEL_PROJECT_ID="prj_orLCRCIm7aVfImH8ihB3gponFOEl"
@@ -51,6 +43,7 @@ GATEWAY_PATH=f"{WORKDIR}/gateway.py"
 TASK_PATH=f"{WORKSPACE}/openhands-task.md"
 AUDIT_PATH=f"{WORKDIR}/audit/usage.json"
 RESULT_PATH=f"{WORKDIR}/live-result.json"
+CONTROL_AUDIT_PATH=f"{WORKDIR}/control-audit.json"
 GATEWAY_PORT=9999
 
 SETUP_DOMAINS=[
@@ -480,6 +473,130 @@ def _read_text_safe(
         )[-limit:]
     except Exception as exc:
         return f"<unavailable: {exc}>"
+
+
+def _write_control_audit(
+    client:httpx.Client,
+    oidc:str,
+    session_id:str,
+    payload:dict[str,Any],
+)->None:
+    data=json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    ).encode("utf-8")
+    _upload_files(
+        client,oidc,session_id,
+        {"control-audit.json":data},
+    )
+
+
+def _read_control_audit(
+    client:httpx.Client,
+    oidc:str,
+    session_id:str,
+)->dict[str,Any]|None:
+    try:
+        raw=_read_file(client,oidc,session_id,CONTROL_AUDIT_PATH)
+        payload=json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload,dict) else None
+
+
+def _claim_control_audit(
+    client:httpx.Client,
+    oidc:str,
+    trigger_digest:str,
+)->tuple[bool,str,str,dict[str,Any]]:
+    name=f"asset-live-audit-{trigger_digest[:12]}"
+    body={
+        "name":name,
+        "projectId":VERCEL_PROJECT_ID,
+        "runtime":"python3.13",
+        "resources":{"vcpus":1,"memory":1024},
+        "timeout":300000,
+        "persistent":False,
+        "networkPolicy":{
+            "mode":"custom",
+            "allowedDomains":[],
+            "allowedCIDRs":[],
+            "deniedCIDRs":[],
+        },
+        "tags":{
+            "purpose":"controlled-live-acceptance-audit-lock",
+            "auditKey":trigger_digest[:12],
+        },
+    }
+    response=client.post(
+        f"{VERCEL_API}/v2/sandboxes",
+        params=_query(),
+        headers=_headers(oidc),
+        json=body,
+        timeout=60,
+    )
+    if response.is_success:
+        data=response.json()
+        session_id=_extract_session_id(data)
+        state={
+            "acceptance_status":"IN_PROGRESS",
+            "phase":"claimed",
+            "audit_id":trigger_digest[:16],
+            "provider":"AIHUBMIX",
+            "model":LIVE_MODEL,
+            "gateway_mode":"PROXY",
+            "live_model_verified":False,
+            "budget_status":"NOT_EVALUATED",
+            "gateway_request_count":0,
+            "prompt_tokens":0,
+            "completion_tokens":0,
+            "total_tokens":0,
+            "estimated_cost_usd":0.0,
+            "model_request_observed":False,
+            "tests_passed":False,
+            "artifact_count":0,
+            "duplicate_requests":0,
+            "started_at_epoch":time.time(),
+        }
+        _write_control_audit(client,oidc,session_id,state)
+        return True,session_id,name,state
+
+    body_text=(response.text or "").lower()
+    duplicate=(
+        response.status_code in (400,409)
+        and any(x in body_text for x in ("exist","duplicate","conflict"))
+    )
+    if not duplicate:
+        _raise_api(response,"claim live acceptance control sandbox")
+
+    data=_get_named_sandbox(client,oidc,name)
+    session_id=_extract_session_id(data)
+    state=_read_control_audit(client,oidc,session_id) or {
+        "acceptance_status":"IN_PROGRESS",
+        "phase":"claimed",
+        "audit_id":trigger_digest[:16],
+        "provider":"AIHUBMIX",
+        "model":LIVE_MODEL,
+        "gateway_mode":"PROXY",
+        "duplicate_requests":0,
+    }
+    state["duplicate_requests"]=int(state.get("duplicate_requests") or 0)+1
+    state["duplicate_suppressed"]=True
+    try:
+        _write_control_audit(client,oidc,session_id,state)
+    except Exception:
+        pass
+    return False,session_id,name,state
+
+
+def _duplicate_control_response(state:dict[str,Any])->dict[str,Any]:
+    result=dict(state)
+    result["duplicate_suppressed"]=True
+    if result.get("acceptance_status") not in ("PASSED","FAILED"):
+        result["acceptance_status"]="IN_PROGRESS"
+    return result
 
 
 def _update_network_policy(
