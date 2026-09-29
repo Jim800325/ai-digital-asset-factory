@@ -169,3 +169,11 @@ A feature-branch-only redeploy marker was added on 2026-09-30 after the Vercel
 build-rate-limit was reported cleared. This commit changes no runtime logic and
 must create Preview only. Production main, Production database, and Production
 alias remain frozen.
+
+
+## Preview database URL correction redeploy
+
+A feature-branch-only redeploy marker was added after PREVIEW_DATABASE_URL was
+corrected. This commit changes no runtime logic. It exists only to create a new
+Preview deployment that receives the updated Preview-only environment
+variables. Production remains unchanged.
