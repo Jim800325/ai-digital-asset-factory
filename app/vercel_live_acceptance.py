@@ -28,10 +28,10 @@ OPENHANDS_MODEL=f"openai/{LIVE_MODEL}"
 
 TRIGGER_TOKEN_SHA256="13624dd777a1e80c15e1d39ea2c74e0666c6b395514eed6dde0c9bc2055beaa0"
 
-MAX_REQUESTS=4
+MAX_REQUESTS=6
 MAX_PROMPT_TOKENS_PER_REQUEST=30_000
-MAX_COMPLETION_TOKENS_PER_REQUEST=4_000
-MAX_TOTAL_TOKENS=102_000
+MAX_COMPLETION_TOKENS_PER_REQUEST=3_000
+MAX_TOTAL_TOKENS=150_000
 MAX_COST_PER_REQUEST_USD=0.0125
 MAX_COST_USD=0.04
 INPUT_COST_PER_1M_USD=0.25
@@ -86,6 +86,14 @@ Behavior:
 tests/test_artifact.py must use Python unittest and verify both:
 - quote_price(25) == 300
 - negative input raises ValueError
+
+## Execution strategy
+
+- Use the terminal tool immediately.
+- In one shell command, create all three required files and run the unittest suite.
+- Do not inspect directories before creating the files.
+- Do not use the file editor or task tracker unless the single terminal command fails.
+- After the tests pass, respond with completion and make no further tool calls.
 
 ## Hard restrictions
 
