@@ -545,7 +545,14 @@ def release_candidate_decision(
                     approval_sensitive=True,
                 ),
             )
-        raise
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status":"RELEASE_CONSTRAINT_REJECTED",
+                "detail":str(exc.orig) if getattr(exc,"orig",None) else str(exc),
+                "deployment_enabled":False,
+            },
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
     except ValueError as exc:
