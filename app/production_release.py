@@ -10,13 +10,19 @@ from sqlalchemy import text
 from app.config import settings
 from app.db import engine
 from app.live_acceptance_registry import live_acceptance_integrity_manifest
-from app.production_execution_adapter import get_production_execution_adapter
+from app.production_execution_adapter import (
+    ProviderPrepareRejected,
+    ProviderWriteOutcomeUnknown,
+    VercelControlledExecutionAdapter,
+    get_production_execution_adapter,
+)
 from app.release_integrity_gate import evaluate_release_integrity
 
 
 _TRANSITIONS = {
     "SNAPSHOT_CREATED": {"PREPARING", "ABORTED"},
-    "PREPARING": {"READY_FOR_PROMOTION", "PREPARE_FAILED"},
+    "PREPARING": {"PREPARE_UNKNOWN", "READY_FOR_PROMOTION", "PREPARE_FAILED"},
+    "PREPARE_UNKNOWN": {"READY_FOR_PROMOTION", "PREPARE_FAILED"},
     "READY_FOR_PROMOTION": {"ABORTED", "PROMOTION_REQUESTED"},
     "PROMOTION_REQUESTED": {
         "PROMOTION_UNKNOWN",
@@ -64,21 +70,42 @@ def _normalize_artifact_path(value: str) -> str:
     return path
 
 
+def _configured_execution_adapter() -> str:
+    return (
+        settings.production_execution_adapter.strip().upper()
+        or "MOCK"
+    )
+
+
 def _require_step1_disabled() -> None:
-    if settings.controlled_production_executor_enabled:
-        raise RuntimeError(
-            "Step 1 refuses CONTROLLED_PRODUCTION_EXECUTOR_ENABLED=true"
-        )
+    adapter = _configured_execution_adapter()
     if settings.production_promotion_enabled:
         raise RuntimeError(
-            "Step 1 refuses PRODUCTION_PROMOTION_ENABLED=true"
+            "Controlled PREPARE refuses PRODUCTION_PROMOTION_ENABLED=true"
         )
     if settings.production_rollback_enabled:
         raise RuntimeError(
-            "Step 1 refuses PRODUCTION_ROLLBACK_ENABLED=true"
+            "Controlled PREPARE refuses PRODUCTION_ROLLBACK_ENABLED=true"
         )
-    if settings.production_execution_adapter.strip().upper() != "MOCK":
-        raise RuntimeError("Step 1 requires PRODUCTION_EXECUTION_ADAPTER=MOCK")
+
+    if adapter == "MOCK":
+        if settings.controlled_production_executor_enabled:
+            raise RuntimeError(
+                "MOCK mode requires CONTROLLED_PRODUCTION_EXECUTOR_ENABLED=false"
+            )
+        return
+
+    if adapter == "VERCEL_CONTROLLED_EXECUTOR":
+        if not settings.controlled_production_executor_enabled:
+            raise RuntimeError(
+                "Vercel controlled PREPARE requires "
+                "CONTROLLED_PRODUCTION_EXECUTOR_ENABLED=true"
+            )
+        return
+
+    raise RuntimeError(
+        "Unsupported PRODUCTION_EXECUTION_ADAPTER for controlled release"
+    )
 
 
 def _load_authorized_source(db, plan_id):
