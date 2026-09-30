@@ -493,6 +493,15 @@ def _execution_integrity_locked(
         "VERCEL_CONTROLLED_EXECUTOR",
     }:
         reasons.append("executor_adapter_unsupported")
+    if row["executor_adapter"] == "VERCEL_CONTROLLED_EXECUTOR":
+        try:
+            get_production_execution_adapter(
+                "VERCEL_CONTROLLED_EXECUTOR"
+            ).validate_target(row)
+        except RuntimeError as exc:
+            reasons.append(
+                "vercel_target_policy_" + str(exc).lower().replace(" ", "_")[:160]
+            )
     if row["production_execution_enabled"]:
         reasons.append("production_execution_enabled_unexpectedly")
     if row["automatic_execution"]:
