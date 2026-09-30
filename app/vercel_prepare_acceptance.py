@@ -542,7 +542,7 @@ def _clone_fixture(
             budget_snapshot,live_model_verified,finished_at)
           VALUES(
             :id,:request_id,:run_id,:cli_version,:model_name,:inner_runtime,
-            'DENY','PROXY',:task_sha256,0,:trace_jsonl,
+            'INTERNAL_GATEWAY_ONLY','PROXY',:task_sha256,0,:trace_jsonl,
             'WITHIN_BUDGET',:gateway_request_count,:prompt_tokens,
             :completion_tokens,:total_tokens,:estimated_cost_usd,
             CAST(:budget_snapshot AS jsonb),true,now())
