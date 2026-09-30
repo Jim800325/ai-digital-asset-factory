@@ -894,7 +894,7 @@ def internal_preview_live_acceptance_readiness():
         settings.human_deployment_key.strip()
     )
     vercel_oidc_token_present=bool(
-        (os.getenv("VERCEL_OIDC_TOKEN") or "").strip()
+        _vercel_runtime_oidc_token()
     )
 
     ready=(
