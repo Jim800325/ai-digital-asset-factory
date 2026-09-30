@@ -114,7 +114,7 @@ BEGIN
         AND OLD.prepare_outcome='REJECTED'
         AND OLD.prepare_last_error_type='RuntimeError'
         AND OLD.prepare_last_error_sha256='c68382c941fad4db26ecd4307fbe97fbab738f05648cdba4e280e1138a75a57d'
-        AND NEW.prepare_provider_deployment_id LIKE 'dpl_%'
+        AND NEW.prepare_provider_deployment_id LIKE 'dpl_%%'
         AND NEW.production_vercel_deployment_id IS NULL
         AND NEW.previous_production_deployment_id IS NULL
       ) THEN
@@ -163,7 +163,7 @@ BEGIN
           AND OLD.prepare_outcome='REJECTED'
           AND OLD.prepare_last_error_type='RuntimeError'
           AND OLD.prepare_last_error_sha256='c68382c941fad4db26ecd4307fbe97fbab738f05648cdba4e280e1138a75a57d'
-          AND NEW.prepare_provider_deployment_id LIKE 'dpl_%'
+          AND NEW.prepare_provider_deployment_id LIKE 'dpl_%%'
           AND NEW.candidate_vercel_deployment_id=NEW.prepare_provider_deployment_id
           AND NEW.production_vercel_deployment_id IS NULL
           AND NEW.previous_production_deployment_id IS NULL
