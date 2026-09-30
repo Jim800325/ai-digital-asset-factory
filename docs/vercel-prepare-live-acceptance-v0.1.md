@@ -231,3 +231,5 @@ This does not authorize or invoke the sacrificial PREPARE provider mutation.
 <!-- preview-env-refresh: 2026-10-01-step4a-3 -->
 
 <!-- preview-env-refresh: 2026-10-01-step4a-key-rotation -->
+
+<!-- preview-recovery-refresh: migration-028-psycopg-safe -->
