@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     production_promotion_enabled: bool = False
     production_rollback_enabled: bool = False
     production_execution_adapter: str = "MOCK"
+    production_execution_preview_only: bool = True
+    production_execution_allowed_project_ids: str = ""
+    production_execution_allowed_team_ids: str = ""
+    production_execution_denied_project_ids: str = "prj_orLCRCIm7aVfImH8ihB3gponFOEl"
+    vercel_controlled_executor_token: str = ""
+    vercel_controlled_executor_api_base: str = "https://api.vercel.com"
+    vercel_controlled_executor_timeout_seconds: int = 30
     sandbox_execution_enabled: bool = False
     sandbox_workspace_root: str = "/tmp/asset-factory-workspaces"
     sandbox_image: str = "python:3.12-slim"
@@ -59,5 +66,29 @@ class Settings(BaseSettings):
     @property
     def openhands_allowed_model_list(self) -> list[str]:
         return [x.strip() for x in self.openhands_allowed_models.split(",") if x.strip()]
+
+    @property
+    def production_execution_allowed_project_id_list(self) -> list[str]:
+        return [
+            x.strip()
+            for x in self.production_execution_allowed_project_ids.split(",")
+            if x.strip()
+        ]
+
+    @property
+    def production_execution_allowed_team_id_list(self) -> list[str]:
+        return [
+            x.strip()
+            for x in self.production_execution_allowed_team_ids.split(",")
+            if x.strip()
+        ]
+
+    @property
+    def production_execution_denied_project_id_list(self) -> list[str]:
+        return [
+            x.strip()
+            for x in self.production_execution_denied_project_ids.split(",")
+            if x.strip()
+        ]
 
 settings = Settings()
