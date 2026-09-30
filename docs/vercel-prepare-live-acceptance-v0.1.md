@@ -220,6 +220,38 @@ cleanup                         PASS
 
 Step 4A passing does not authorize Step 5 provider promotion.
 
+## Connector-safe recovery control path
+
+When a Step 4A PREPARE has already consumed its one provider write and the
+execution is in the narrowly fingerprinted provider-ID mismatch state, recovery
+must not depend on a local shell holding the two human secrets.
+
+The endpoint below is intentionally GET-only from the caller's perspective and
+provider-GET-only internally:
+
+```text
+GET /internal/vercel-prepare-acceptance/{run_id}/recover-readonly
+```
+
+It is Preview-only, idempotent, accepts no caller-supplied project/team/provider
+credential, and may only recover an execution that already satisfies the
+existing Step 4A recovery guards:
+
+- Vercel controlled executor only.
+- exactly one PREPARE provider write already consumed.
+- exact known provider-ID mismatch error fingerprint.
+- immutable execution / plan / bundle metadata match.
+- sacrificial project/team remain the server-side allowlisted target.
+- real Production project remains denylisted.
+- Production and previous-Production pointers remain NULL.
+- provider discovery/reconciliation performs GET requests only.
+- recovery itself cannot promote, rollback, alias, or change Production traffic.
+
+This route exists so an authorized Vercel connector can perform recovery
+without receiving or exposing PREVIEW_ACCEPTANCE_KEY or
+HUMAN_PRODUCTION_EXECUTION_KEY. The original secret-gated POST recovery route
+remains available for human-operated workflows.
+
 ## Preview environment refresh
 
 A documentation-only branch update may be used after Preview environment variables
