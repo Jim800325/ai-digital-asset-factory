@@ -227,3 +227,5 @@ change so Vercel creates a fresh Git-integrated Preview with the new variables.
 This does not authorize or invoke the sacrificial PREPARE provider mutation.
 
 <!-- preview-env-refresh: 2026-10-01-step4a-2 -->
+
+<!-- preview-env-refresh: 2026-10-01-step4a-3 -->
