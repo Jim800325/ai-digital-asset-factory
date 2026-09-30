@@ -193,3 +193,10 @@ PREVIEW_ACCEPTANCE_KEY and Preview AIHUBMIX_API_KEY were confirmed in Vercel
 Preview scope. This feature-branch-only marker triggers a fresh Preview so the
 updated Preview-only secret bindings are injected. No Production configuration,
 alias, database, or branch is modified.
+
+
+## Preview OIDC token redeploy
+
+A Preview-only VERCEL_OIDC_TOKEN was configured. This feature-branch-only
+marker triggers a fresh Preview so the short-lived OIDC credential is injected.
+No Production configuration, alias, database, or branch is modified.
