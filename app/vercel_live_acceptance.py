@@ -159,11 +159,35 @@ def _provider_key()->str:
     return value
 
 
+def _vercel_runtime_oidc_token()->str:
+    vercel_env=(os.environ.get("VERCEL_ENV") or "").strip().lower()
+    if vercel_env!="preview":
+        return ""
+
+    try:
+        from vercel.functions import get_env
+        runtime_env=get_env()
+        value=(getattr(runtime_env,"VERCEL_OIDC_TOKEN","") or "").strip()
+        if value:
+            return value
+    except Exception:
+        pass
+
+    return (os.environ.get("VERCEL_OIDC_TOKEN") or "").strip()
+
+
 def _require_oidc(token:str|None)->str:
     value=(token or "").strip()
-    if not value:
-        raise LiveAcceptanceError("x-vercel-oidc-token request header is unavailable")
-    return value
+    if value:
+        return value
+
+    runtime_value=_vercel_runtime_oidc_token()
+    if runtime_value:
+        return runtime_value
+
+    raise LiveAcceptanceError(
+        "Vercel OIDC token is unavailable from request header or Preview runtime"
+    )
 
 
 def _headers(token:str,content_type:str="application/json")->dict[str,str]:
@@ -1048,6 +1072,43 @@ pathlib.Path('/home/vercel-sandbox/live-result.json').write_text(
     )
 
 
+def _read_artifact_payloads(
+    client:httpx.Client,
+    oidc:str,
+    session_id:str,
+    artifact_list:list[dict[str,Any]],
+)->list[dict[str,Any]]:
+    payloads=[]
+    total_bytes=0
+    for item in artifact_list:
+        relative_path=str(item.get("relative_path") or "").strip()
+        if (
+            not relative_path
+            or relative_path.startswith("/")
+            or ".." in relative_path.split("/")
+        ):
+            raise LiveAcceptanceError("Unsafe live artifact path")
+        raw=_read_file(
+            client,oidc,session_id,
+            f"{WORKSPACE}/artifact/{relative_path}",
+        )
+        expected_sha=str(item.get("sha256") or "").strip().lower()
+        expected_size=int(item.get("byte_size") or -1)
+        actual_sha=hashlib.sha256(raw).hexdigest()
+        if actual_sha!=expected_sha or len(raw)!=expected_size:
+            raise LiveAcceptanceError(
+                "Live artifact bytes do not match collected hash metadata"
+            )
+        total_bytes+=len(raw)
+        if len(payloads)>=100 or total_bytes>10*1024*1024:
+            raise LiveAcceptanceError("Live artifact persistence limit exceeded")
+        payloads.append({
+            "relative_path":relative_path,
+            "content_bytes":raw,
+        })
+    return payloads
+
+
 def _audit_fields(audit:dict[str,Any])->dict[str,Any]:
     return {
         "budget_status":str(audit.get("budget_status") or "NOT_EVALUATED"),
@@ -1064,8 +1125,18 @@ def run_vercel_live_acceptance(
     trigger_token:str,
     *,
     vercel_oidc_token:str|None=None,
+    preverified_digest:str|None=None,
+    persist_preview_fixture:bool=False,
 )->dict[str,Any]:
-    trigger_digest=_verify_trigger(trigger_token)
+    if preverified_digest is None:
+        trigger_digest=_verify_trigger(trigger_token)
+    else:
+        trigger_digest=(preverified_digest or "").strip().lower()
+        if (
+            len(trigger_digest)!=64
+            or any(ch not in "0123456789abcdef" for ch in trigger_digest)
+        ):
+            raise PermissionError("Invalid preverified acceptance digest")
     oidc=_require_oidc(vercel_oidc_token)
 
     started=time.time()
@@ -1245,6 +1316,15 @@ def run_vercel_live_acceptance(
 
             result={
                 "acceptance_status":"PASSED" if passed else "FAILED",
+                "occurred_at_utc":time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ",time.gmtime()
+                ),
+                "source_commit":(
+                    os.environ.get("VERCEL_GIT_COMMIT_SHA") or ""
+                ).strip() or None,
+                "vercel_url":(
+                    os.environ.get("VERCEL_URL") or ""
+                ).strip() or None,
                 "phase":"complete",
                 "audit_id":audit_id,
                 "audit_backend":"VERCEL_CONTROL_SANDBOX",
@@ -1288,6 +1368,22 @@ def run_vercel_live_acceptance(
                     limit=6_000,
                 ),
             }
+            if persist_preview_fixture:
+                if not passed:
+                    raise LiveAcceptanceError(
+                        "Preview fixture persistence requires PASSED acceptance"
+                    )
+                artifact_payloads=_read_artifact_payloads(
+                    client,oidc,agent_session,artifact_list
+                )
+                from app.preview_acceptance_bridge import (
+                    persist_preview_live_acceptance_fixture,
+                )
+                result["preview_fixture"]=persist_preview_live_acceptance_fixture(
+                    result,
+                    artifact_payloads,
+                )
+
             _write_control_audit(
                 client,oidc,control_session,result
             )
@@ -1307,6 +1403,15 @@ def run_vercel_live_acceptance(
             fields=_audit_fields(audit)
             result={
                 "acceptance_status":"FAILED",
+                "occurred_at_utc":time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ",time.gmtime()
+                ),
+                "source_commit":(
+                    os.environ.get("VERCEL_GIT_COMMIT_SHA") or ""
+                ).strip() or None,
+                "vercel_url":(
+                    os.environ.get("VERCEL_URL") or ""
+                ).strip() or None,
                 "phase":phase,
                 "audit_id":audit_id,
                 "audit_backend":"VERCEL_CONTROL_SANDBOX",

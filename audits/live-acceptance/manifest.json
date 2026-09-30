@@ -3,9 +3,8 @@
   "chain_algorithm": "SHA-256",
   "chain_order": "occurred_at_utc_ascending",
   "genesis_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-  "entry_count": 2,
-  "chain_head_sha256": "3339917f9d111c9cb729aa6030efb977d0428c17d720cdc3cbfbe25619668880",
-  "manifest_root_sha256": "83d24e3c22ecd436709776dad6565fe637d594b9c309a3cd3beeae67650e8c8c",
+  "entry_count": 3,
+  "chain_head_sha256": "6378f4ab88e9ae8ba919e13b3c9e63e6e8d82126efc99f93f5a2463c0205d5b3",
   "entries": [
     {
       "audit_id": "f94a4213e6dac12a",
@@ -30,6 +29,19 @@
       "source_tree_sha256": "f34dc11399590141886aacc006ee9c8c647bf517370684d516b0987f4aa7122c",
       "previous_chain_sha256": "7a42a7e4b2718035a3158becd849b943f78e37b59b945c6fd39981b5542ce1ea",
       "chain_sha256": "3339917f9d111c9cb729aa6030efb977d0428c17d720cdc3cbfbe25619668880"
+    },
+    {
+      "audit_id": "d0aad7d14ba60788",
+      "filename": "2026-09-30-preview-pass-d0aad7d14ba6.json",
+      "occurred_at_utc": "2026-09-30T04:58:17Z",
+      "evidence_sha256": "3b47bd2838e240ddf6cccea5cea08169752ac3d4d97960e53f61df641d65eca0",
+      "source_commit": "059dea0ff338db30a4a571377d49451413be4df2",
+      "vercel_deployment_id": "dpl_77SjGavoDW2RF1EYUYqoTPtkboWS",
+      "deployment_source_commit": "059dea0ff338db30a4a571377d49451413be4df2",
+      "source_tree_sha256": "f565592c4b3de45c2996151d276be49d03dba9d02d0d4180239f6b93ee3e039f",
+      "previous_chain_sha256": "3339917f9d111c9cb729aa6030efb977d0428c17d720cdc3cbfbe25619668880",
+      "chain_sha256": "6378f4ab88e9ae8ba919e13b3c9e63e6e8d82126efc99f93f5a2463c0205d5b3"
     }
-  ]
+  ],
+  "manifest_root_sha256": "219e42593518c306dc117ce54958fbf039f3d6b97eae21624420702b798aeba8"
 }

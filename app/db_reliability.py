@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
 
 from app.config import settings
-from app.db import engine
+from app.db import database_selection, engine
 
 T = TypeVar("T")
 
@@ -60,7 +60,8 @@ def read_with_retry(
 
 
 def database_configuration() -> dict[str, Any]:
-    raw = settings.database_url.strip()
+    selection = database_selection()
+    raw = str(selection["url"]).strip()
     if raw.startswith("postgresql+psycopg://"):
         parsed_url = "postgresql://" + raw[len("postgresql+psycopg://"):]
     elif raw.startswith("postgres://"):
@@ -83,8 +84,18 @@ def database_configuration() -> dict[str, Any]:
     else:
         target = "UNRESOLVED"
 
+    selected_source = str(selection["source"])
+    configured_from_env = bool(
+        os.getenv(selected_source)
+        if selected_source in {"DATABASE_URL", "PREVIEW_DATABASE_URL"}
+        else raw
+    )
+
     return {
-        "configured_from_env": bool(os.getenv("DATABASE_URL")),
+        "configured_from_env": configured_from_env,
+        "database_source": selected_source,
+        "vercel_env": selection["vercel_env"],
+        "preview_isolated": bool(selection["preview_isolated"]),
         "vercel_runtime": bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV")),
         "target": target,
         "driver": "psycopg",

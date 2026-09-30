@@ -1,3 +1,5 @@
+import hashlib
+import os
 import secrets
 from typing import Literal
 from uuid import UUID
@@ -12,8 +14,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from app.build_proposals import decide_build_proposal
+from app.deployment_authorization import (
+    create_deployment_plan,
+    decide_deployment_authorization,
+    get_deployment_plan,
+    get_deployment_plan_for_candidate,
+)
 from app.config import settings
-from app.db import engine
+from app.db import database_selection, engine
 from app.db_reliability import (
     DatabaseUnavailable,
     database_health,
@@ -26,7 +34,7 @@ from app.release_integrity_gate import list_release_integrity_blocks
 from app.release_review import ensure_release_review_package
 from app.review_ui import STATIC_DIR, router as review_ui_router
 from app.review_workspace import get_review_workspace, list_review_workspace
-from app.migrate import migrate, migration_status
+from app.migrate import migrate, migration_files, migration_status
 from app.live_acceptance_registry import (
     get_live_acceptance_audit,
     list_live_acceptance_audits,
@@ -35,6 +43,7 @@ from app.live_acceptance_registry import (
 )
 from app.vercel_live_acceptance import (
     LiveAcceptanceError,
+    _vercel_runtime_oidc_token,
     live_acceptance_db_diagnostics,
     run_vercel_live_acceptance,
 )
@@ -61,6 +70,17 @@ class ReleaseDecision(BaseModel):
     actor: str = Field(default="human-release-api",min_length=1,max_length=200)
     review_package_sha256: str | None = Field(default=None,min_length=64,max_length=64)
 
+class DeploymentPlanRequest(BaseModel):
+    target_project_id: str = Field(min_length=3,max_length=160)
+    target_team_id: str | None = Field(default=None,max_length=160)
+    actor: str = Field(default="human-deployment-api",min_length=1,max_length=200)
+
+class DeploymentAuthorizationDecision(BaseModel):
+    decision: Literal["AUTHORIZE","REJECT"]
+    reason: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(default="human-deployment-api",min_length=1,max_length=200)
+    plan_sha256: str = Field(min_length=64,max_length=64)
+
 def _require_approval_key(provided: str | None) -> None:
     expected=settings.human_approval_key.strip()
     if not expected:
@@ -81,12 +101,43 @@ def _require_release_key(provided: str | None) -> None:
     if provided is None or not secrets.compare_digest(provided,expected):
         raise HTTPException(status_code=403,detail="Invalid human release key")
 
+def _require_deployment_key(provided: str | None) -> None:
+    expected=settings.human_deployment_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Deployment authorization gate is not configured",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(status_code=403,detail="Invalid deployment authorization key")
+
+
+def _require_preview_acceptance_key(provided: str | None) -> str:
+    vercel_env=(os.getenv("VERCEL_ENV") or "").strip().lower()
+    if (
+        vercel_env!="preview"
+        or settings.deployment_authorization_preview_only is not True
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Preview acceptance endpoint is unavailable",
+        )
+    expected=settings.preview_acceptance_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Preview acceptance key is not configured",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(status_code=403,detail="Invalid preview acceptance key")
+    return expected
+
 @app.get("/health")
 def health():
     db_state=database_health()
     migrations = migration_status() if db_state["available"] else {
         "status": "DB_UNAVAILABLE",
-        "expected_count": 16,
+        "expected_count": len(migration_files()),
         "applied_count": None,
         "latest_version": None,
         "pending": None,
@@ -98,6 +149,13 @@ def health():
         "migrations":migrations,
         "approval_gate":"ENABLED" if settings.human_approval_key.strip() else "DISABLED",
         "release_gate":"ENABLED" if settings.human_release_key.strip() else "DISABLED",
+        "deployment_authorization_gate":"ENABLED" if settings.human_deployment_key.strip() else "DISABLED",
+        "preview_acceptance_bridge":"ENABLED" if (
+            (os.getenv("VERCEL_ENV") or "").strip().lower()=="preview"
+            and settings.preview_acceptance_key.strip()
+        ) else "DISABLED",
+        "controlled_production_release":"AUTHORIZATION_ONLY",
+        "deployment_executor":"DISABLED",
         "release_deployment":"DISABLED",
         "release_review_package":"ENABLED",
         "human_review_workspace":"ENABLED",
@@ -605,6 +663,140 @@ def release_review_package(candidate_id: UUID):
     return dict(row)
 
 
+@app.post("/v1/release-candidates/{candidate_id}/deployment-plan")
+def create_release_deployment_plan(
+    candidate_id: UUID,
+    payload: DeploymentPlanRequest,
+    x_deployment_key: str | None = Header(default=None,alias="X-Deployment-Key"),
+):
+    _require_deployment_key(x_deployment_key)
+    db_state=database_health()
+    if not db_state["available"]:
+        failure=db_unavailable_payload(
+            operation="deployment_plan_create",
+            approval_sensitive=True,
+        )
+        failure["database_state"]=db_state
+        return JSONResponse(status_code=503,content=failure)
+    try:
+        return create_deployment_plan(
+            candidate_id,
+            target_project_id=payload.target_project_id,
+            target_team_id=payload.target_team_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DBAPIError as exc:
+        if is_database_unavailable(exc):
+            return JSONResponse(
+                status_code=503,
+                content=db_unavailable_payload(
+                    operation="deployment_plan_create",
+                    approval_sensitive=True,
+                ),
+            )
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status":"DEPLOYMENT_CONSTRAINT_REJECTED",
+                "detail":str(exc.orig) if getattr(exc,"orig",None) else str(exc),
+                "execution_enabled":False,
+            },
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.get("/v1/release-candidates/{candidate_id}/deployment-plan")
+def release_deployment_plan(candidate_id: UUID):
+    try:
+        result=read_with_retry(
+            "deployment_plan_read",
+            lambda: get_deployment_plan_for_candidate(candidate_id),
+        )
+    except DatabaseUnavailable:
+        return JSONResponse(
+            status_code=503,
+            content=db_unavailable_payload(
+                operation="deployment_plan_read",
+                approval_sensitive=False,
+            ),
+        )
+    if result is None:
+        raise HTTPException(status_code=404,detail="Deployment Plan not found")
+    return result
+
+
+@app.get("/v1/deployment-plans/{plan_id}")
+def deployment_plan(plan_id: UUID):
+    try:
+        return read_with_retry(
+            "deployment_plan_read",
+            lambda: get_deployment_plan(plan_id),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DatabaseUnavailable:
+        return JSONResponse(
+            status_code=503,
+            content=db_unavailable_payload(
+                operation="deployment_plan_read",
+                approval_sensitive=False,
+            ),
+        )
+
+
+@app.post("/v1/deployment-plans/{plan_id}/decision")
+def deployment_plan_decision(
+    plan_id: UUID,
+    payload: DeploymentAuthorizationDecision,
+    x_deployment_key: str | None = Header(default=None,alias="X-Deployment-Key"),
+):
+    _require_deployment_key(x_deployment_key)
+    db_state=database_health()
+    if not db_state["available"]:
+        failure=db_unavailable_payload(
+            operation="deployment_authorization_decision",
+            approval_sensitive=True,
+        )
+        failure["database_state"]=db_state
+        return JSONResponse(status_code=503,content=failure)
+    try:
+        return decide_deployment_authorization(
+            plan_id,
+            decision=payload.decision,
+            reason=payload.reason,
+            actor=payload.actor,
+            plan_sha256=payload.plan_sha256,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DBAPIError as exc:
+        if is_database_unavailable(exc):
+            return JSONResponse(
+                status_code=503,
+                content=db_unavailable_payload(
+                    operation="deployment_authorization_decision",
+                    approval_sensitive=True,
+                ),
+            )
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status":"DEPLOYMENT_CONSTRAINT_REJECTED",
+                "detail":str(exc.orig) if getattr(exc,"orig",None) else str(exc),
+                "execution_enabled":False,
+            },
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
 @app.get("/v1/review-workspace")
 def review_workspace(limit: int = 50):
     try:
@@ -655,6 +847,188 @@ def live_acceptance_audit(audit_id: str):
         return get_live_acceptance_audit(audit_id)
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.get(
+    "/internal/preview-live-acceptance/readiness",
+    include_in_schema=False,
+)
+def internal_preview_live_acceptance_readiness():
+    vercel_env=(os.getenv("VERCEL_ENV") or "").strip().lower()
+    if (
+        vercel_env!="preview"
+        or settings.deployment_authorization_preview_only is not True
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Preview readiness endpoint is unavailable",
+        )
+
+    try:
+        selected=database_selection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503,detail=str(exc)) from exc
+
+    db_state=database_health()
+    migrations=(
+        migration_status()
+        if db_state["available"]
+        else {
+            "status":"DB_UNAVAILABLE",
+            "expected_count":len(migration_files()),
+            "applied_count":None,
+            "latest_version":None,
+            "pending":None,
+        }
+    )
+
+    preview_acceptance_key_present=bool(
+        settings.preview_acceptance_key.strip()
+    )
+    aihubmix_api_key_present=bool(
+        (os.getenv("AIHUBMIX_API_KEY") or "").strip()
+    )
+    human_release_key_present=bool(
+        settings.human_release_key.strip()
+    )
+    human_deployment_key_present=bool(
+        settings.human_deployment_key.strip()
+    )
+    vercel_oidc_token_present=bool(
+        _vercel_runtime_oidc_token()
+    )
+
+    ready=(
+        db_state["available"]
+        and migrations.get("status")=="CURRENT"
+        and selected.get("source")=="PREVIEW_DATABASE_URL"
+        and selected.get("preview_isolated") is True
+        and preview_acceptance_key_present
+        and aihubmix_api_key_present
+        and human_release_key_present
+        and human_deployment_key_present
+        and vercel_oidc_token_present
+    )
+
+    return {
+        "status":"READY" if ready else "NOT_READY",
+        "vercel_env":"preview",
+        "database_source":selected.get("source"),
+        "preview_isolated":bool(selected.get("preview_isolated")),
+        "database_available":bool(db_state.get("available")),
+        "migrations":migrations,
+        "preview_acceptance_key_present":preview_acceptance_key_present,
+        "aihubmix_api_key_present":aihubmix_api_key_present,
+        "human_release_key_present":human_release_key_present,
+        "human_deployment_key_present":human_deployment_key_present,
+        "vercel_oidc_token_present":vercel_oidc_token_present,
+        "live_model_invoked":False,
+        "deployment_executor":"DISABLED",
+        "deployment_enabled":False,
+        "execution_enabled":False,
+        "production_deployment_executed":False,
+    }
+
+
+@app.get(
+    "/internal/preview-live-acceptance/preflight",
+    include_in_schema=False,
+)
+def internal_preview_live_acceptance_preflight(
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    try:
+        selected=database_selection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503,detail=str(exc)) from exc
+
+    db_state=database_health()
+    migrations=(
+        migration_status()
+        if db_state["available"]
+        else {
+            "status":"DB_UNAVAILABLE",
+            "expected_count":len(migration_files()),
+            "applied_count":None,
+            "latest_version":None,
+            "pending":None,
+        }
+    )
+    return {
+        "status":"READY" if (
+            db_state["available"]
+            and migrations.get("status")=="CURRENT"
+            and selected.get("source")=="PREVIEW_DATABASE_URL"
+            and selected.get("preview_isolated") is True
+            and bool((os.getenv("AIHUBMIX_API_KEY") or "").strip())
+        ) else "NOT_READY",
+        "vercel_env":selected.get("vercel_env"),
+        "database_source":selected.get("source"),
+        "preview_isolated":bool(selected.get("preview_isolated")),
+        "database_available":bool(db_state.get("available")),
+        "migrations":migrations,
+        "aihubmix_api_key_present":bool(
+            (os.getenv("AIHUBMIX_API_KEY") or "").strip()
+        ),
+        "live_model_invoked":False,
+        "deployment_executor":"DISABLED",
+        "deployment_enabled":False,
+        "execution_enabled":False,
+        "production_deployment_executed":False,
+    }
+
+
+
+
+def _preview_acceptance_attempt_digest(expected: str) -> str:
+    source_commit=(os.getenv("VERCEL_GIT_COMMIT_SHA") or "").strip().lower()
+    if (
+        len(source_commit)!=40
+        or any(ch not in "0123456789abcdef" for ch in source_commit)
+    ):
+        raise RuntimeError(
+            "Preview acceptance requires a full VERCEL_GIT_COMMIT_SHA"
+        )
+    return hashlib.sha256(
+        (expected+"\n"+source_commit).encode("utf-8")
+    ).hexdigest()
+
+
+@app.post(
+    "/internal/preview-live-acceptance",
+    include_in_schema=False,
+)
+def internal_preview_live_acceptance(
+    request: Request,
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+):
+    expected=_require_preview_acceptance_key(x_preview_acceptance_key)
+    try:
+        digest=_preview_acceptance_attempt_digest(expected)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503,detail=str(exc)) from exc
+    try:
+        result=run_vercel_live_acceptance(
+            "",
+            vercel_oidc_token=request.headers.get("x-vercel-oidc-token"),
+            preverified_digest=digest,
+            persist_preview_fixture=True,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403,detail=str(exc)) from exc
+    except LiveAcceptanceError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+    if result.get("acceptance_status")!="PASSED":
+        return JSONResponse(status_code=409,content=result)
+    return result
 
 
 @app.get(

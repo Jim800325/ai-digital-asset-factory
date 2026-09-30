@@ -18,6 +18,12 @@ def _audit(**overrides):
     value = {
         "audit_id": "8b385170ee00c667",
         "acceptance_status": "PASSED",
+        "gateway_mode": "PROXY",
+        "live_model_verified": True,
+        "budget_status": "WITHIN_BUDGET",
+        "tests_passed": True,
+        "external_side_effects": "DENY",
+        "release_approved": False,
         "integrity_status": "VERIFIED",
         "source_tree_sha256": "c" * 64,
         "evidence_sha256": "d" * 64,
@@ -137,3 +143,55 @@ def test_release_integrity_gate_blocks_duplicate_audits_for_same_tree(monkeypatc
     assert result["allowed"] is False
     assert result["integrity_status"] == "TAMPERED"
     assert "multiple_live_acceptance_audits_for_source_tree" in result["blocking_reasons"]
+
+
+def test_release_integrity_gate_requires_real_live_model_verification(monkeypatch):
+    monkeypatch.setattr(
+        gate,
+        "live_acceptance_integrity_manifest",
+        lambda: _manifest(),
+    )
+    monkeypatch.setattr(
+        gate,
+        "list_live_acceptance_audits",
+        lambda limit=500: [_audit(live_model_verified=False)],
+    )
+
+    result = gate.evaluate_release_integrity("c" * 64)
+
+    assert result["allowed"] is False
+    assert (
+        "matching_live_acceptance_audit_live_model_not_verified"
+        in result["blocking_reasons"]
+    )
+
+
+def test_release_integrity_gate_requires_safe_acceptance_contract(monkeypatch):
+    monkeypatch.setattr(
+        gate,
+        "live_acceptance_integrity_manifest",
+        lambda: _manifest(),
+    )
+    monkeypatch.setattr(
+        gate,
+        "list_live_acceptance_audits",
+        lambda limit=500: [
+            _audit(
+                gateway_mode="MOCK",
+                budget_status="NOT_EVALUATED",
+                tests_passed=False,
+                external_side_effects="ALLOW",
+                release_approved=True,
+            )
+        ],
+    )
+
+    result = gate.evaluate_release_integrity("c" * 64)
+
+    assert result["allowed"] is False
+    reasons = result["blocking_reasons"]
+    assert "matching_live_acceptance_audit_gateway_not_proxy" in reasons
+    assert "matching_live_acceptance_audit_budget_not_within_budget" in reasons
+    assert "matching_live_acceptance_audit_tests_not_passed" in reasons
+    assert "matching_live_acceptance_audit_side_effects_not_denied" in reasons
+    assert "matching_live_acceptance_audit_release_side_effect_detected" in reasons

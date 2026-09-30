@@ -1,4 +1,5 @@
 .env
+.env.preview.acceptance
 __pycache__/
 *.py[cod]
 .pytest_cache/

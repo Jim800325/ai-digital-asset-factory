@@ -2,6 +2,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://assetfactory:assetfactory@postgres:5432/assetfactory"
+    preview_database_url: str = ""
+    preview_acceptance_key: str = ""
+    deployment_authorization_preview_only: bool = True
     redis_url: str = "redis://redis:6379/0"
     database_connect_timeout_seconds: int = 5
     database_read_retry_attempts: int = 2
@@ -15,6 +18,7 @@ class Settings(BaseSettings):
     github_results_per_query: int = 10
     human_approval_key: str = ""
     human_release_key: str = ""
+    human_deployment_key: str = ""
     sandbox_execution_enabled: bool = False
     sandbox_workspace_root: str = "/tmp/asset-factory-workspaces"
     sandbox_image: str = "python:3.12-slim"
