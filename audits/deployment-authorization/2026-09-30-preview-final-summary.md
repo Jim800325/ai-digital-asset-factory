@@ -6,7 +6,7 @@ Status:
 
 ```text
 DEPLOYMENT AUTHORIZATION PREVIEW ACCEPTANCE
-— PASSED / BIDIRECTIONAL / CLEANUP PENDING
+— PASSED / BIDIRECTIONAL / CLEANED UP
 ```
 
 ## Controlled Live Acceptance
@@ -109,11 +109,18 @@ No Production alias, Production database, or Production environment was modified
 
 ## Cleanup
 
-Remaining cleanup actions:
+Completed acceptance cleanup:
 
-- archive both Preview-only release candidates
-- remove Preview-only temporary acceptance / deployment secrets when no longer needed
-- delete local `.env.preview.acceptance`
-- verify Preview runtime errors after cleanup = 0
-- verify Production remains migration 21/21
-- retain this summary and the Live Acceptance registry as read-only evidence
+- both Preview-only release candidates archived
+- immutable terminal Deployment Plans retained
+- AUTHORIZE drift block retained as audit evidence
+- AUTHORIZE / REJECT decisions retained
+- one-shot Preview cleanup endpoint removed after successful use
+- no TEST_ONLY exception remained in the branch
+- Preview cleanup runtime request completed HTTP 200 with no runtime error
+- Production remained migration 21/21 on the Release Gate stable baseline
+- deployment executor remained absent / DISABLED
+- this summary and the Live Acceptance registry are retained as read-only evidence
+
+Local / Vercel secret disposal is an operational credential-hygiene step and does
+not alter the acceptance evidence or terminal authorization records.
