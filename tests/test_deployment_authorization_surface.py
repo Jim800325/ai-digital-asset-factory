@@ -75,3 +75,10 @@ def test_preview_readiness_surface_is_zero_model_and_preview_only():
     assert '"aihubmix_api_key_present"' in main
     assert '"human_release_key_present"' in main
     assert '"human_deployment_key_present"' in main
+
+
+
+def test_preview_readiness_imports_oidc_helper():
+    main = Path("app/main.py").read_text(encoding="utf-8")
+    assert "_vercel_runtime_oidc_token," in main
+    assert "vercel_oidc_token_present=bool(" in main
