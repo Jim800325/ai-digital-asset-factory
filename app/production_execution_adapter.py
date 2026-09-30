@@ -166,11 +166,33 @@ class ProductionExecutionAdapter(Protocol):
                     != execution_sha
                 ):
                     continue
-                if (
-                    str(meta.get("controlledReconciliationKey") or "")
-                    != reconciliation_key
-                ):
-                    continue
+                plan_sha = str(
+                    execution_snapshot.get("plan_sha256") or ""
+                ).strip().lower()
+                bundle_sha = str(
+                    execution_snapshot.get("execution_bundle_sha256") or ""
+                ).strip().lower()
+                metadata_key = str(
+                    meta.get("controlledReconciliationKey") or ""
+                ).strip()
+                if metadata_key:
+                    if metadata_key != reconciliation_key:
+                        continue
+                else:
+                    # Legacy Step 4A writes predate the reconciliation key.
+                    # Recover them only when the full immutable metadata
+                    # fingerprint from that old request matches exactly.
+                    if (
+                        str(meta.get("controlledPlanSha256") or "").lower()
+                        != plan_sha
+                        or str(
+                            meta.get("controlledBundleSha256") or ""
+                        ).lower()
+                        != bundle_sha
+                        or str(meta.get("controlledMode") or "")
+                        != "SACRIFICIAL_PREPARE_ONLY"
+                    ):
+                        continue
 
                 evidence_sha = self._response_evidence(
                     status_code=detail.status_code,
