@@ -61,6 +61,7 @@ from app.vercel_prepare_acceptance import (
     cleanup_prepare_acceptance,
     get_prepare_acceptance,
     reconcile_prepare_acceptance,
+    recover_prepare_acceptance,
     start_prepare_acceptance,
 )
 from app.workers.pipeline import run_pipeline
@@ -1212,6 +1213,36 @@ def internal_vercel_prepare_acceptance_reconcile(
     _require_production_execution_key(x_production_execution_key)
     try:
         return reconcile_prepare_acceptance(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except VercelPrepareAcceptanceError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/internal/vercel-prepare-acceptance/{run_id}/recover",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_recover(
+    run_id: UUID,
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    _require_production_execution_key(x_production_execution_key)
+    try:
+        result = recover_prepare_acceptance(run_id)
+        result["provider_recovery_read_only"] = True
+        result["production_traffic_changed"] = False
+        return result
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
     except VercelPrepareAcceptanceError as exc:
