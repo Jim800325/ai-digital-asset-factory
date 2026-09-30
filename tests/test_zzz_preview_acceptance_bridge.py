@@ -5,7 +5,17 @@ import pytest
 from sqlalchemy import text
 
 from app import preview_acceptance_bridge as bridge
+import app.deployment_authorization as deployment_auth
+import app.production_release as production_release
+import app.release_gate as release_gate
+import app.vercel_prepare_acceptance as prepare_acceptance
+from app.config import settings
 from app.db import engine
+from app.production_execution_adapter import (
+    CandidateDeployment,
+    PreparedDeploymentRequest,
+    REAL_PRODUCTION_PROJECT_ID,
+)
 
 
 def _synthetic_payloads():
@@ -155,3 +165,269 @@ def test_preview_bridge_persists_two_strict_review_fixtures(monkeypatch):
     assert [
         item["release_candidate_id"] for item in again["fixtures"]
     ] == candidate_ids
+
+
+
+def test_step4a_live_prepare_acceptance_reuses_verified_bytes_and_stops_before_promotion(
+    monkeypatch,
+):
+    payloads = _synthetic_payloads()
+    tree = _tree(payloads)
+    audit_id = "ci-preview-bridge-0001"
+
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setenv("VERCEL_GIT_COMMIT_SHA", "a" * 40)
+    monkeypatch.setenv(
+        "VERCEL_URL",
+        "ai-digital-asset-factory-step4a-preview.vercel.app",
+    )
+    monkeypatch.setattr(
+        bridge.settings,
+        "preview_database_url",
+        bridge.settings.database_url,
+    )
+    monkeypatch.setattr(
+        bridge.settings,
+        "deployment_authorization_preview_only",
+        True,
+    )
+    bridge.persist_preview_live_acceptance_fixture(
+        _result(payloads),
+        payloads,
+    )
+
+    monkeypatch.setattr(settings, "preview_database_url", settings.database_url)
+    monkeypatch.setattr(settings, "deployment_authorization_preview_only", True)
+    monkeypatch.setattr(
+        settings,
+        "production_execution_adapter",
+        "VERCEL_CONTROLLED_EXECUTOR",
+    )
+    monkeypatch.setattr(settings, "controlled_production_executor_enabled", True)
+    monkeypatch.setattr(settings, "production_promotion_enabled", False)
+    monkeypatch.setattr(settings, "production_rollback_enabled", False)
+    monkeypatch.setattr(settings, "production_execution_preview_only", True)
+    monkeypatch.setattr(
+        settings,
+        "production_execution_allowed_project_ids",
+        "prj_ci_sacrificial",
+    )
+    monkeypatch.setattr(
+        settings,
+        "production_execution_allowed_team_ids",
+        "team_ci_sacrificial",
+    )
+    monkeypatch.setattr(
+        settings,
+        "production_execution_denied_project_ids",
+        REAL_PRODUCTION_PROJECT_ID,
+    )
+    monkeypatch.setattr(
+        settings,
+        "vercel_controlled_executor_token",
+        "ci-vercel-token",
+    )
+    monkeypatch.setattr(settings, "preview_acceptance_key", "ci-preview-key")
+    monkeypatch.setattr(
+        settings,
+        "human_production_execution_key",
+        "ci-production-execution-key",
+    )
+    monkeypatch.setattr(settings, "human_approval_key", "ci-approval-key")
+    monkeypatch.setattr(settings, "human_release_key", "ci-release-key")
+    monkeypatch.setattr(settings, "human_deployment_key", "ci-deployment-key")
+
+    integrity = {
+        "allowed": True,
+        "integrity_status": "VERIFIED",
+        "blocking_reasons": [],
+        "acceptance_provenance_tree_sha256": tree,
+        "audit_id": audit_id,
+        "audit_evidence_sha256": "2" * 64,
+        "audit_chain_sha256": "3" * 64,
+        "manifest_root_sha256": "4" * 64,
+        "chain_head_sha256": "5" * 64,
+        "source_commit": "1" * 40,
+        "deployment_source_commit": "1" * 40,
+        "vercel_deployment_id": "dpl_ci_live_source",
+    }
+    manifest = {
+        "status": "VERIFIED",
+        "manifest_root_valid": True,
+        "chain_valid": True,
+        "manifest_root_sha256": "4" * 64,
+        "chain_head_sha256": "5" * 64,
+        "entries": {
+            audit_id: {
+                "status": "VERIFIED",
+                "chain_sha256": "5" * 64,
+            }
+        },
+    }
+
+    monkeypatch.setattr(
+        release_gate,
+        "evaluate_release_integrity",
+        lambda *_args, **_kwargs: dict(integrity),
+    )
+    monkeypatch.setattr(
+        deployment_auth,
+        "evaluate_release_integrity",
+        lambda *_args, **_kwargs: dict(integrity),
+    )
+    monkeypatch.setattr(
+        production_release,
+        "evaluate_release_integrity",
+        lambda *_args, **_kwargs: dict(integrity),
+    )
+    monkeypatch.setattr(
+        production_release,
+        "live_acceptance_integrity_manifest",
+        lambda: dict(manifest),
+    )
+    monkeypatch.setattr(
+        prepare_acceptance,
+        "_latest_verified_audit",
+        lambda: {
+            "audit_id": audit_id,
+            "acceptance_status": "PASSED",
+            "integrity_status": "VERIFIED",
+            "live_model_verified": True,
+            "tests_passed": True,
+            "budget_status": "WITHIN_BUDGET",
+            "external_side_effects": "DENY",
+            "source_tree_sha256": tree,
+        },
+    )
+
+    class FakeSacrificialAdapter:
+        def __init__(self):
+            self.writes = 0
+            self.reads = 0
+            self.deployment_id = "dpl_ci_step4a_sacrificial"
+
+        def validate_target(self, snapshot):
+            if snapshot["target_project_id"] == REAL_PRODUCTION_PROJECT_ID:
+                raise RuntimeError(
+                    "Controlled Vercel PREPARE target is denylisted"
+                )
+            assert snapshot["target_project_id"] == "prj_ci_sacrificial"
+            assert snapshot["target_team_id"] == "team_ci_sacrificial"
+            return (
+                snapshot["target_project_id"],
+                snapshot["target_team_id"],
+            )
+
+        def probe_target(self, snapshot):
+            self.validate_target(snapshot)
+            return {
+                "project_id": snapshot["target_project_id"],
+                "team_id": snapshot["target_team_id"],
+                "project_name": "ci-sacrificial",
+                "provider_write_performed": False,
+                "production_traffic_changed": False,
+            }
+
+        def build_prepare_request(self, snapshot):
+            self.validate_target(snapshot)
+            return PreparedDeploymentRequest(
+                deployment_id=self.deployment_id,
+                project_id=snapshot["target_project_id"],
+                team_id=snapshot["target_team_id"],
+                body={
+                    "target": "production",
+                    "autoAssignCustomDomains": False,
+                },
+                request_sha256="6" * 64,
+            )
+
+        def send_prepare(self, request):
+            self.writes += 1
+            return CandidateDeployment(
+                deployment_id=request.deployment_id,
+                url="https://ci-sacrificial-step4a.vercel.app",
+                state="READY",
+                provider_write_performed=True,
+                metadata={
+                    "provider_result_sha256": "7" * 64,
+                    "auto_assign_custom_domains": False,
+                    "alias_assigned": False,
+                    "production_traffic_changed": False,
+                },
+            )
+
+        def read_candidate(self, snapshot, deployment_id):
+            self.reads += 1
+            raise AssertionError("READY path must not require reconciliation")
+
+    fake = FakeSacrificialAdapter()
+    monkeypatch.setattr(
+        prepare_acceptance,
+        "_configured_adapter",
+        lambda: fake,
+    )
+
+    started = prepare_acceptance.start_prepare_acceptance()
+
+    assert started["acceptance_status"] == "READY_FOR_PROMOTION"
+    assert started["sacrificial_project_id"] == "prj_ci_sacrificial"
+    assert started["real_project_id"] == REAL_PRODUCTION_PROJECT_ID
+    assert started["real_project_denylist_verified"] is True
+    assert started["target_lookup_verified"] is True
+    assert started["prepare_write_count"] == 1
+    assert started["candidate_vercel_deployment_id"] == fake.deployment_id
+    assert started["production_traffic_changed"] is False
+    assert started["production_promotion_performed"] is False
+    assert started["production_rollback_performed"] is False
+    assert fake.writes == 1
+    assert fake.reads == 0
+
+    execution = production_release.get_production_release_execution(
+        started["execution_id"]
+    )
+    assert execution["execution_status"] == "READY_FOR_PROMOTION"
+    assert execution["prepare_write_count"] == 1
+    assert execution["production_vercel_deployment_id"] is None
+    assert execution["previous_production_deployment_id"] is None
+    assert execution["decisions"] == []
+
+    authorized = prepare_acceptance.authorize_prepare_acceptance(
+        started["id"]
+    )
+    assert authorized["acceptance_status"] == "PROMOTE_AUTHORIZED"
+    assert authorized["human_decision_id"] is not None
+    assert len(authorized["decision_sha256"]) == 64
+    assert authorized["production_traffic_changed"] is False
+    assert authorized["production_promotion_performed"] is False
+    assert authorized["production_rollback_performed"] is False
+    assert fake.writes == 1
+
+    final_execution = production_release.get_production_release_execution(
+        started["execution_id"]
+    )
+    assert final_execution["execution_status"] == "READY_FOR_PROMOTION"
+    assert len(final_execution["decisions"]) == 1
+    assert final_execution["decisions"][0]["decision"] == "PROMOTE"
+    assert (
+        final_execution["decisions"][0]["provider_write_performed"]
+        is False
+    )
+    assert (
+        final_execution["decisions"][0]["production_traffic_changed"]
+        is False
+    )
+
+    cleaned = prepare_acceptance.cleanup_prepare_acceptance(started["id"])
+    assert cleaned["acceptance_status"] == "CLEANED_UP"
+    assert cleaned["production_traffic_changed"] is False
+
+    with engine.connect() as db:
+        archived = db.execute(text("""
+          SELECT archived_at,archive_reason
+          FROM release_candidates
+          WHERE id=:id
+        """), {
+            "id": cleaned["release_candidate_id"],
+        }).mappings().one()
+    assert archived["archived_at"] is not None
+    assert "Step 4A" in archived["archive_reason"]
