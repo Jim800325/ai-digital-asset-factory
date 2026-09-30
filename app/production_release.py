@@ -1528,8 +1528,10 @@ def reconcile_vercel_prepare(
     provider = adapter or get_production_execution_adapter(
         "VERCEL_CONTROLLED_EXECUTOR"
     )
-    legacy_reconciliation_key = provider.deterministic_deployment_id(
-        str(snapshot.get("execution_sha256") or "")
+    legacy_reconciliation_key = (
+        VercelControlledExecutionAdapter.deterministic_deployment_id(
+            str(snapshot.get("execution_sha256") or "")
+        )
     )
     if not deployment_id or deployment_id == legacy_reconciliation_key:
         candidate = provider.find_candidate_by_execution(snapshot)
