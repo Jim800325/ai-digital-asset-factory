@@ -229,3 +229,5 @@ This does not authorize or invoke the sacrificial PREPARE provider mutation.
 <!-- preview-env-refresh: 2026-10-01-step4a-2 -->
 
 <!-- preview-env-refresh: 2026-10-01-step4a-3 -->
+
+<!-- preview-env-refresh: 2026-10-01-step4a-key-rotation -->
