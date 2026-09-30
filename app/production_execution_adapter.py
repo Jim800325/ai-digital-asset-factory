@@ -272,6 +272,20 @@ class VercelControlledExecutionAdapter:
     ) -> tuple[str, str]:
         return self._target(execution_snapshot)
 
+    def probe_target(
+        self,
+        execution_snapshot: dict[str, Any],
+    ) -> dict[str, str]:
+        project_id, team_id = self._target(execution_snapshot)
+        project_name = self._project_name(project_id, team_id)
+        return {
+            "project_id": project_id,
+            "team_id": team_id,
+            "project_name": project_name,
+            "provider_write_performed": False,
+            "production_traffic_changed": False,
+        }
+
     def _require_token(self) -> str:
         if not self.token:
             raise RuntimeError(
