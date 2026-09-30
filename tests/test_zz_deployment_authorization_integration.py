@@ -420,6 +420,41 @@ def test_deployment_authorization_three_path_acceptance(monkeypatch):
             execution_sha256="0" * 64,
         )
 
+    promotion_drift = dict(integrity_a)
+    promotion_drift["audit_evidence_sha256"] = "9" * 64
+    monkeypatch.setattr(
+        production_release,
+        "evaluate_release_integrity",
+        lambda *_args, **_kwargs: dict(promotion_drift),
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="Execution Integrity Gate blocked PROMOTE",
+    ):
+        production_release.decide_production_execution(
+            execution["id"],
+            decision="PROMOTE",
+            reason="CI promotion-time drift must fail closed",
+            actor="ci-human-production",
+            execution_sha256=execution["execution_sha256"],
+        )
+
+    blocked_promote = production_release.get_production_release_execution(
+        execution["id"]
+    )
+    assert blocked_promote["execution_status"] == "READY_FOR_PROMOTION"
+    assert blocked_promote["decisions"] == []
+    assert blocked_promote["integrity_checks"][-1]["check_status"] == "BLOCKED"
+    assert "audit_evidence_sha256_drift" in blocked_promote[
+        "integrity_checks"
+    ][-1]["blocking_reasons"]
+
+    monkeypatch.setattr(
+        production_release,
+        "evaluate_release_integrity",
+        lambda *_args, **_kwargs: dict(integrity_a),
+    )
+
     promoted = production_release.decide_production_execution(
         execution["id"],
         decision="PROMOTE",
@@ -462,7 +497,7 @@ def test_deployment_authorization_three_path_acceptance(monkeypatch):
         after_promote["decisions"][0]["candidate_vercel_deployment_id"]
         == prepared["candidate_vercel_deployment_id"]
     )
-    assert len(after_promote["integrity_checks"]) == 4
+    assert len(after_promote["integrity_checks"]) == 5
     assert after_promote["integrity_checks"][-1]["check_status"] == "VERIFIED"
 
     with engine.connect() as db:
