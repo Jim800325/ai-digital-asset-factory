@@ -849,6 +849,82 @@ def live_acceptance_audit(audit_id: str):
 
 
 @app.get(
+    "/internal/preview-live-acceptance/readiness",
+    include_in_schema=False,
+)
+def internal_preview_live_acceptance_readiness():
+    vercel_env=(os.getenv("VERCEL_ENV") or "").strip().lower()
+    if (
+        vercel_env!="preview"
+        or settings.deployment_authorization_preview_only is not True
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Preview readiness endpoint is unavailable",
+        )
+
+    try:
+        selected=database_selection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503,detail=str(exc)) from exc
+
+    db_state=database_health()
+    migrations=(
+        migration_status()
+        if db_state["available"]
+        else {
+            "status":"DB_UNAVAILABLE",
+            "expected_count":len(migration_files()),
+            "applied_count":None,
+            "latest_version":None,
+            "pending":None,
+        }
+    )
+
+    preview_acceptance_key_present=bool(
+        settings.preview_acceptance_key.strip()
+    )
+    aihubmix_api_key_present=bool(
+        (os.getenv("AIHUBMIX_API_KEY") or "").strip()
+    )
+    human_release_key_present=bool(
+        settings.human_release_key.strip()
+    )
+    human_deployment_key_present=bool(
+        settings.human_deployment_key.strip()
+    )
+
+    ready=(
+        db_state["available"]
+        and migrations.get("status")=="CURRENT"
+        and selected.get("source")=="PREVIEW_DATABASE_URL"
+        and selected.get("preview_isolated") is True
+        and preview_acceptance_key_present
+        and aihubmix_api_key_present
+        and human_release_key_present
+        and human_deployment_key_present
+    )
+
+    return {
+        "status":"READY" if ready else "NOT_READY",
+        "vercel_env":"preview",
+        "database_source":selected.get("source"),
+        "preview_isolated":bool(selected.get("preview_isolated")),
+        "database_available":bool(db_state.get("available")),
+        "migrations":migrations,
+        "preview_acceptance_key_present":preview_acceptance_key_present,
+        "aihubmix_api_key_present":aihubmix_api_key_present,
+        "human_release_key_present":human_release_key_present,
+        "human_deployment_key_present":human_deployment_key_present,
+        "live_model_invoked":False,
+        "deployment_executor":"DISABLED",
+        "deployment_enabled":False,
+        "execution_enabled":False,
+        "production_deployment_executed":False,
+    }
+
+
+@app.get(
     "/internal/preview-live-acceptance/preflight",
     include_in_schema=False,
 )
