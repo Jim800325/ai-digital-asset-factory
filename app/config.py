@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""
+    human_production_execution_key: str = ""
+    controlled_production_executor_enabled: bool = False
+    production_promotion_enabled: bool = False
+    production_rollback_enabled: bool = False
+    production_execution_adapter: str = "MOCK"
     sandbox_execution_enabled: bool = False
     sandbox_workspace_root: str = "/tmp/asset-factory-workspaces"
     sandbox_image: str = "python:3.12-slim"

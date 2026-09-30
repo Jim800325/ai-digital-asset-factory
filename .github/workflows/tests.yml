@@ -45,6 +45,11 @@ jobs:
       HUMAN_APPROVAL_KEY: ci-approval-key
       HUMAN_RELEASE_KEY: ci-release-key
       HUMAN_DEPLOYMENT_KEY: ci-deployment-key
+      HUMAN_PRODUCTION_EXECUTION_KEY: ci-production-execution-key
+      CONTROLLED_PRODUCTION_EXECUTOR_ENABLED: "false"
+      PRODUCTION_PROMOTION_ENABLED: "false"
+      PRODUCTION_ROLLBACK_ENABLED: "false"
+      PRODUCTION_EXECUTION_ADAPTER: MOCK
       SANDBOX_EXECUTION_ENABLED: "true"
       SANDBOX_WORKSPACE_ROOT: /tmp/asset-factory-workspaces
       SANDBOX_IMAGE: python:3.12-slim
@@ -85,7 +90,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "022_deployment_authorization_gate.sql", expected
+          assert expected[-1] == "023_controlled_production_release_executor.sql", expected
           print("migrations:", actual)
           PY
 
@@ -213,6 +218,15 @@ jobs:
                   WHERE external_side_effects<>'DENY'
               """)).scalar_one()
 
+              unsafe_production_execution = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM production_release_executions
+                  WHERE production_execution_enabled=true
+                     OR automatic_execution=true
+                     OR automatic_promotion=true
+                     OR executor_adapter<>'MOCK'
+              """)).scalar_one()
+
           assert base["status"] == "CANDIDATE", base
           assert base["evidence_gate_passed"] is True, base
           assert base["build_readiness"] == "BUILD_READY", base
@@ -253,6 +267,7 @@ jobs:
           assert unsafe_release_deployment == 0, unsafe_release_deployment
           assert unsafe_plan_execution == 0, unsafe_plan_execution
           assert unsafe_external_effects == 0, unsafe_external_effects
+          assert unsafe_production_execution == 0, unsafe_production_execution
 
           print("base:", dict(base))
           print("ordinary_sandbox:", dict(ordinary))
