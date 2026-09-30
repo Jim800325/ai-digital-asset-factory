@@ -1667,6 +1667,50 @@ def reconcile_vercel_prepare(
         return output
 
 
+def prepare_controlled_candidate(
+    execution_id,
+    *,
+    actor: str = "controlled-production-preparer",
+) -> dict[str, Any]:
+    with engine.connect() as db:
+        row = db.execute(text("""
+          SELECT executor_adapter
+          FROM production_release_executions
+          WHERE id=CAST(:id AS uuid)
+        """), {"id": execution_id}).mappings().one_or_none()
+    if row is None:
+        raise LookupError("Production release execution not found")
+
+    adapter = str(row["executor_adapter"] or "").strip().upper()
+    if adapter == "MOCK":
+        return prepare_mock_candidate(execution_id, actor=actor)
+    if adapter == "VERCEL_CONTROLLED_EXECUTOR":
+        return prepare_vercel_candidate(execution_id, actor=actor)
+    raise RuntimeError("Unsupported execution adapter")
+
+
+def reconcile_controlled_prepare(
+    execution_id,
+    *,
+    actor: str = "controlled-production-reconciler",
+) -> dict[str, Any]:
+    with engine.connect() as db:
+        row = db.execute(text("""
+          SELECT executor_adapter
+          FROM production_release_executions
+          WHERE id=CAST(:id AS uuid)
+        """), {"id": execution_id}).mappings().one_or_none()
+    if row is None:
+        raise LookupError("Production release execution not found")
+    if str(row["executor_adapter"] or "").strip().upper() != (
+        "VERCEL_CONTROLLED_EXECUTOR"
+    ):
+        raise RuntimeError(
+            "PREPARE reconciliation is only available for Vercel adapter"
+        )
+    return reconcile_vercel_prepare(execution_id, actor=actor)
+
+
 def _production_execution_decision_material(
     row: dict[str, Any],
     *,
