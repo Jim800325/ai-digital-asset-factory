@@ -797,6 +797,174 @@ def deployment_plan_decision(
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
 
+@app.post(
+    "/internal/preview-deployment-authorization-cleanup",
+    include_in_schema=False,
+)
+def internal_preview_deployment_authorization_cleanup(
+    x_deployment_key: str | None = Header(
+        default=None,
+        alias="X-Deployment-Key",
+    ),
+):
+    _require_deployment_key(x_deployment_key)
+
+    vercel_env=(os.getenv("VERCEL_ENV") or "").strip().lower()
+    if (
+        vercel_env!="preview"
+        or settings.deployment_authorization_preview_only is not True
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Preview deployment authorization cleanup is unavailable",
+        )
+
+    try:
+        selected=database_selection()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503,detail=str(exc)) from exc
+
+    if (
+        selected.get("source")!="PREVIEW_DATABASE_URL"
+        or selected.get("preview_isolated") is not True
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Preview cleanup requires isolated PREVIEW_DATABASE_URL",
+        )
+
+    authorize_candidate="91250590-e117-48c8-ac89-e90de4570d50"
+    reject_candidate="020a0ae7-a3ef-4914-bd85-f4d03a6bb5c1"
+    expected_candidates={authorize_candidate,reject_candidate}
+    expected_statuses={"AUTHORIZED_FOR_DEPLOYMENT","DEPLOYMENT_REJECTED"}
+
+    with engine.begin() as db:
+        before=[
+            dict(row)
+            for row in db.execute(text("""
+              SELECT rc.id::text AS candidate_id,
+                     rc.release_status,
+                     rc.deployment_enabled,
+                     rc.archived_at,
+                     dp.id::text AS plan_id,
+                     dp.plan_status,
+                     dp.execution_enabled,
+                     (SELECT COUNT(*)
+                        FROM deployment_authorization_decisions dad
+                       WHERE dad.deployment_plan_id=dp.id) AS decision_count,
+                     (SELECT COUNT(*)
+                        FROM deployment_authorization_blocks dab
+                       WHERE dab.deployment_plan_id=dp.id) AS block_count
+              FROM release_candidates rc
+              JOIN deployment_plans dp
+                ON dp.release_candidate_id=rc.id
+              WHERE rc.id IN (
+                CAST(:authorize_candidate AS uuid),
+                CAST(:reject_candidate AS uuid)
+              )
+              ORDER BY rc.id
+              FOR UPDATE OF rc
+            """),{
+                "authorize_candidate":authorize_candidate,
+                "reject_candidate":reject_candidate,
+            }).mappings().all()
+        ]
+
+        if {row["candidate_id"] for row in before}!=expected_candidates:
+            raise HTTPException(
+                status_code=409,
+                detail="Preview cleanup fixtures are incomplete",
+            )
+        if {row["plan_status"] for row in before}!=expected_statuses:
+            raise HTTPException(
+                status_code=409,
+                detail="Preview cleanup requires both terminal plan states",
+            )
+        if any(row["execution_enabled"] for row in before):
+            raise HTTPException(
+                status_code=409,
+                detail="Preview cleanup found execution_enabled=true",
+            )
+        if any(row["deployment_enabled"] for row in before):
+            raise HTTPException(
+                status_code=409,
+                detail="Preview cleanup found deployment_enabled=true",
+            )
+        if any(int(row["decision_count"])!=1 for row in before):
+            raise HTTPException(
+                status_code=409,
+                detail="Preview cleanup requires exactly one terminal decision per plan",
+            )
+
+        db.execute(text("""
+          UPDATE release_candidates
+          SET archived_at=COALESCE(archived_at,now())
+          WHERE id IN (
+            CAST(:authorize_candidate AS uuid),
+            CAST(:reject_candidate AS uuid)
+          )
+        """),{
+            "authorize_candidate":authorize_candidate,
+            "reject_candidate":reject_candidate,
+        })
+
+        after=[
+            dict(row)
+            for row in db.execute(text("""
+              SELECT rc.id::text AS candidate_id,
+                     rc.release_status,
+                     rc.deployment_enabled,
+                     rc.archived_at,
+                     dp.id::text AS plan_id,
+                     dp.plan_status,
+                     dp.execution_enabled,
+                     (SELECT COUNT(*)
+                        FROM deployment_authorization_decisions dad
+                       WHERE dad.deployment_plan_id=dp.id) AS decision_count,
+                     (SELECT COUNT(*)
+                        FROM deployment_authorization_blocks dab
+                       WHERE dab.deployment_plan_id=dp.id) AS block_count
+              FROM release_candidates rc
+              JOIN deployment_plans dp
+                ON dp.release_candidate_id=rc.id
+              WHERE rc.id IN (
+                CAST(:authorize_candidate AS uuid),
+                CAST(:reject_candidate AS uuid)
+              )
+              ORDER BY rc.id
+            """),{
+                "authorize_candidate":authorize_candidate,
+                "reject_candidate":reject_candidate,
+            }).mappings().all()
+        ]
+
+        if any(row["archived_at"] is None for row in after):
+            raise HTTPException(
+                status_code=409,
+                detail="Preview cleanup failed to archive fixtures",
+            )
+
+    return {
+        "status":"CLEANED_UP",
+        "fixtures":[
+            {
+                "candidate_id":row["candidate_id"],
+                "archived":row["archived_at"] is not None,
+                "release_status":row["release_status"],
+                "deployment_enabled":bool(row["deployment_enabled"]),
+                "plan_id":row["plan_id"],
+                "plan_status":row["plan_status"],
+                "execution_enabled":bool(row["execution_enabled"]),
+                "decision_count":int(row["decision_count"]),
+                "block_count":int(row["block_count"]),
+            }
+            for row in after
+        ],
+        "deployment_executor":"DISABLED",
+        "production_deployment_executed":False,
+    }
+
+
 @app.get("/v1/review-workspace")
 def review_workspace(limit: int = 50):
     try:
