@@ -59,3 +59,19 @@ def test_authorization_routes_are_plan_and_decision_only():
     # Authorization may record readiness, but must not expose an execution action.
     assert '"deployment_executor":"DISABLED"' in main
     assert '"controlled_production_release":"AUTHORIZATION_ONLY"' in main
+
+
+
+def test_preview_readiness_surface_is_zero_model_and_preview_only():
+    main = Path("app/main.py").read_text(encoding="utf-8")
+
+    assert '"/internal/preview-live-acceptance/readiness"' in main
+    assert '"live_model_invoked":False' in main
+    assert '"deployment_executor":"DISABLED"' in main
+    assert '"deployment_enabled":False' in main
+    assert '"execution_enabled":False' in main
+    assert '"production_deployment_executed":False' in main
+    assert '"preview_acceptance_key_present"' in main
+    assert '"aihubmix_api_key_present"' in main
+    assert '"human_release_key_present"' in main
+    assert '"human_deployment_key_present"' in main
