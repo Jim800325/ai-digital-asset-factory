@@ -90,7 +90,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "027_vercel_prepare_live_acceptance.sql", expected
+          assert expected[-1] == "028_vercel_prepare_provider_id_recovery.sql", expected
           print("migrations:", actual)
           PY
 
