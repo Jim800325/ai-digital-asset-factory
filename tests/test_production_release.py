@@ -46,6 +46,8 @@ def test_execution_artifact_path_validation_is_fail_closed():
 
 def test_execution_state_machine_allows_only_declared_edges():
     assert _transition_allowed("SNAPSHOT_CREATED", "PREPARING")
+    assert _transition_allowed("PREPARING", "PREPARE_UNKNOWN")
+    assert _transition_allowed("PREPARE_UNKNOWN", "READY_FOR_PROMOTION")
     assert _transition_allowed("PREPARING", "READY_FOR_PROMOTION")
     assert _transition_allowed("READY_FOR_PROMOTION", "PROMOTION_REQUESTED")
     assert _transition_allowed("PROMOTION_UNKNOWN", "PRODUCTION_ACTIVE")
@@ -79,10 +81,21 @@ def test_mock_adapter_is_deterministic_and_side_effect_free():
         adapter.rollback(snapshot)
 
 
-def test_step1_adapter_registry_refuses_non_mock():
+def test_step4_adapter_registry_is_explicit():
     assert get_production_execution_adapter("mock").kind == "MOCK"
+    assert (
+        get_production_execution_adapter(
+            "VERCEL_CONTROLLED_EXECUTOR",
+            token="test-token",
+            allowed_project_ids=["prj_sacrificial"],
+            allowed_team_ids=["team_sacrificial"],
+            denied_project_ids=[],
+            api_base="https://api.vercel.test",
+        ).kind
+        == "VERCEL_CONTROLLED_EXECUTOR"
+    )
 
-    with pytest.raises(RuntimeError, match="supports MOCK only"):
+    with pytest.raises(RuntimeError, match="Unsupported"):
         get_production_execution_adapter("VERCEL")
 
 
