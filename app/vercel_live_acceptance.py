@@ -159,18 +159,34 @@ def _provider_key()->str:
     return value
 
 
+def _vercel_runtime_oidc_token()->str:
+    vercel_env=(os.environ.get("VERCEL_ENV") or "").strip().lower()
+    if vercel_env!="preview":
+        return ""
+
+    try:
+        from vercel.functions import get_env
+        runtime_env=get_env()
+        value=(getattr(runtime_env,"VERCEL_OIDC_TOKEN","") or "").strip()
+        if value:
+            return value
+    except Exception:
+        pass
+
+    return (os.environ.get("VERCEL_OIDC_TOKEN") or "").strip()
+
+
 def _require_oidc(token:str|None)->str:
     value=(token or "").strip()
     if value:
         return value
 
-    vercel_env=(os.environ.get("VERCEL_ENV") or "").strip().lower()
-    env_value=(os.environ.get("VERCEL_OIDC_TOKEN") or "").strip()
-    if vercel_env=="preview" and env_value:
-        return env_value
+    runtime_value=_vercel_runtime_oidc_token()
+    if runtime_value:
+        return runtime_value
 
     raise LiveAcceptanceError(
-        "Vercel OIDC token is unavailable from request header or Preview env"
+        "Vercel OIDC token is unavailable from request header or Preview runtime"
     )
 
 
