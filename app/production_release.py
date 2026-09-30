@@ -9,7 +9,9 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine
+from app.live_acceptance_registry import live_acceptance_integrity_manifest
 from app.production_execution_adapter import get_production_execution_adapter
+from app.release_integrity_gate import evaluate_release_integrity
 
 
 _TRANSITIONS = {
@@ -306,6 +308,390 @@ def _event(
     })
 
 
+
+def _execution_snapshot_material(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": "production-release-execution-v1",
+        "deployment_plan_id": str(row["deployment_plan_id"]),
+        "deployment_authorization_decision_id": str(
+            row["deployment_authorization_decision_id"]
+        ),
+        "release_candidate_id": str(row["release_candidate_id"]),
+        "review_package_id": str(row["review_package_id"]),
+        "target_provider": row["target_provider"],
+        "target_environment": row["target_environment"],
+        "target_project_id": row["target_project_id"],
+        "target_team_id": row["target_team_id"],
+        "plan_sha256": row["plan_sha256"],
+        "review_package_sha256": row["review_package_sha256"],
+        "source_tree_sha256": row["source_tree_sha256"],
+        "acceptance_provenance_tree_sha256": (
+            row["acceptance_provenance_tree_sha256"]
+        ),
+        "live_acceptance_audit_id": row["live_acceptance_audit_id"],
+        "audit_evidence_sha256": row["audit_evidence_sha256"],
+        "audit_chain_sha256": row["audit_chain_sha256"],
+        "manifest_root_sha256": row["manifest_root_sha256"],
+        "chain_head_sha256": row["chain_head_sha256"],
+        "source_commit": row["source_commit"],
+        "deployment_source_commit": row["deployment_source_commit"],
+        "source_vercel_deployment_id": row["source_vercel_deployment_id"],
+        "execution_bundle_sha256": row["execution_bundle_sha256"],
+        "executor_adapter": row["executor_adapter"],
+        "production_execution_enabled": bool(
+            row["production_execution_enabled"]
+        ),
+        "automatic_execution": bool(row["automatic_execution"]),
+        "automatic_promotion": bool(row["automatic_promotion"]),
+    }
+
+
+def _validate_execution_bundle_snapshot(
+    row: dict[str, Any],
+) -> list[str]:
+    reasons: list[str] = []
+    bundle = row.get("execution_bundle")
+    if not isinstance(bundle, dict):
+        return ["execution_bundle_not_object"]
+
+    if bundle.get("schema_version") != "production-execution-bundle-v1":
+        reasons.append("execution_bundle_schema_invalid")
+    if str(bundle.get("review_package_id") or "") != str(
+        row["review_package_id"]
+    ):
+        reasons.append("execution_bundle_review_package_id_drift")
+    if bundle.get("review_package_sha256") != row["review_package_sha256"]:
+        reasons.append("execution_bundle_review_package_sha256_drift")
+    if bundle.get("source_tree_sha256") != row["source_tree_sha256"]:
+        reasons.append("execution_bundle_source_tree_sha256_drift")
+
+    artifacts = bundle.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        reasons.append("execution_bundle_artifacts_missing")
+        artifacts = []
+
+    seen: set[str] = set()
+    for item in artifacts:
+        if not isinstance(item, dict):
+            reasons.append("execution_bundle_artifact_invalid")
+            continue
+        try:
+            path = _normalize_artifact_path(
+                str(item.get("relative_path") or "")
+            )
+        except RuntimeError:
+            reasons.append("execution_bundle_artifact_path_invalid")
+            continue
+        if path in seen:
+            reasons.append("execution_bundle_artifact_path_duplicate")
+            continue
+        seen.add(path)
+
+        recorded_sha = str(item.get("sha256") or "").lower()
+        try:
+            recorded_size = int(item.get("byte_size"))
+        except (TypeError, ValueError):
+            reasons.append("execution_bundle_artifact_size_invalid")
+            continue
+
+        encoded = item.get("content_base64")
+        if not isinstance(encoded, str):
+            reasons.append("execution_bundle_artifact_bytes_missing")
+            continue
+        try:
+            raw = base64.b64decode(encoded.encode("ascii"), validate=True)
+        except (ValueError, UnicodeEncodeError):
+            reasons.append("execution_bundle_artifact_base64_invalid")
+            continue
+
+        if hashlib.sha256(raw).hexdigest() != recorded_sha:
+            reasons.append("execution_bundle_artifact_sha256_mismatch")
+        if len(raw) != recorded_size:
+            reasons.append("execution_bundle_artifact_byte_size_mismatch")
+
+    if _sha256(bundle) != str(row["execution_bundle_sha256"]).lower():
+        reasons.append("execution_bundle_sha256_mismatch")
+
+    return list(dict.fromkeys(reasons))
+
+
+def _stored_chain_is_verified_ancestor(
+    manifest: dict[str, Any],
+    stored_chain_head_sha256: str | None,
+) -> bool:
+    stored = (stored_chain_head_sha256 or "").strip().lower()
+    if len(stored) != 64:
+        return False
+    if (
+        manifest.get("status") != "VERIFIED"
+        or manifest.get("manifest_root_valid") is not True
+        or manifest.get("chain_valid") is not True
+    ):
+        return False
+
+    current = str(manifest.get("chain_head_sha256") or "").strip().lower()
+    if current == stored:
+        return True
+
+    entries = manifest.get("entries")
+    if not isinstance(entries, dict):
+        return False
+    for item in entries.values():
+        if not isinstance(item, dict):
+            continue
+        if (
+            str(item.get("chain_sha256") or "").strip().lower() == stored
+            and item.get("status") == "VERIFIED"
+        ):
+            return True
+    return False
+
+
+def _execution_integrity_locked(
+    db,
+    execution_row: dict[str, Any],
+    *,
+    actor: str,
+) -> dict[str, Any]:
+    row = dict(execution_row)
+    reasons = _validate_execution_bundle_snapshot(row)
+
+    expected_execution_sha = _sha256(_execution_snapshot_material(row))
+    if expected_execution_sha != str(row["execution_sha256"]).lower():
+        reasons.append("execution_sha256_mismatch")
+
+    if row["executor_adapter"] != "MOCK":
+        reasons.append("executor_adapter_not_mock")
+    if row["production_execution_enabled"]:
+        reasons.append("production_execution_enabled_unexpectedly")
+    if row["automatic_execution"]:
+        reasons.append("automatic_execution_enabled_unexpectedly")
+    if row["automatic_promotion"]:
+        reasons.append("automatic_promotion_enabled_unexpectedly")
+
+    source = _load_authorized_source(db, row["deployment_plan_id"])
+    integrity: dict[str, Any] = {}
+    manifest: dict[str, Any] = {}
+    current_bundle_sha: str | None = None
+
+    if source is None:
+        reasons.append("authorized_source_missing")
+    else:
+        source_row = dict(source)
+        try:
+            _verify_authorized_source(source_row)
+        except RuntimeError:
+            reasons.append("authorized_source_invalid")
+
+        bindings = (
+            (
+                "deployment_authorization_decision_id_drift",
+                str(row["deployment_authorization_decision_id"]),
+                str(source_row["authorization_decision_id"]),
+            ),
+            (
+                "release_candidate_id_drift",
+                str(row["release_candidate_id"]),
+                str(source_row["release_candidate_id"]),
+            ),
+            (
+                "review_package_id_drift",
+                str(row["review_package_id"]),
+                str(source_row["review_package_id"]),
+            ),
+            (
+                "target_provider_drift",
+                row["target_provider"],
+                source_row["target_provider"],
+            ),
+            (
+                "target_environment_drift",
+                row["target_environment"],
+                source_row["target_environment"],
+            ),
+            (
+                "target_project_id_drift",
+                row["target_project_id"],
+                source_row["target_project_id"],
+            ),
+            (
+                "target_team_id_drift",
+                row["target_team_id"],
+                source_row["target_team_id"],
+            ),
+            (
+                "plan_sha256_drift",
+                row["plan_sha256"],
+                source_row["plan_sha256"],
+            ),
+            (
+                "review_package_sha256_drift",
+                row["review_package_sha256"],
+                source_row["review_package_sha256"],
+            ),
+            (
+                "source_tree_sha256_drift",
+                row["source_tree_sha256"],
+                source_row["source_tree_sha256"],
+            ),
+        )
+        for reason, frozen, current in bindings:
+            if frozen != current:
+                reasons.append(reason)
+
+        try:
+            current_bundle = _artifact_bundle(db, source_row)
+            current_bundle_sha = _sha256(current_bundle)
+            if current_bundle_sha != row["execution_bundle_sha256"]:
+                reasons.append("persisted_artifact_bundle_drift")
+        except RuntimeError:
+            reasons.append("persisted_artifact_bundle_invalid")
+
+        integrity = evaluate_release_integrity(
+            source_row["current_source_tree_sha256"],
+            list(source_row["artifact_manifest"] or []),
+        )
+        if integrity.get("allowed") is not True:
+            reasons.extend(
+                "release_integrity_" + item
+                for item in (
+                    integrity.get("blocking_reasons")
+                    or ["not_verified"]
+                )
+            )
+
+        integrity_bindings = (
+            (
+                "acceptance_provenance_tree_sha256_drift",
+                row["acceptance_provenance_tree_sha256"],
+                integrity.get("acceptance_provenance_tree_sha256"),
+            ),
+            (
+                "live_acceptance_audit_id_drift",
+                str(row["live_acceptance_audit_id"]),
+                str(integrity.get("audit_id") or ""),
+            ),
+            (
+                "audit_evidence_sha256_drift",
+                row["audit_evidence_sha256"],
+                integrity.get("audit_evidence_sha256"),
+            ),
+            (
+                "audit_chain_sha256_drift",
+                row["audit_chain_sha256"],
+                integrity.get("audit_chain_sha256"),
+            ),
+            (
+                "source_commit_drift",
+                row["source_commit"],
+                integrity.get("source_commit"),
+            ),
+            (
+                "deployment_source_commit_drift",
+                row["deployment_source_commit"],
+                integrity.get("deployment_source_commit"),
+            ),
+            (
+                "source_vercel_deployment_id_drift",
+                row["source_vercel_deployment_id"],
+                integrity.get("vercel_deployment_id"),
+            ),
+        )
+        for reason, frozen, current in integrity_bindings:
+            if frozen != current:
+                reasons.append(reason)
+
+        manifest = live_acceptance_integrity_manifest()
+        if manifest.get("status") != "VERIFIED":
+            reasons.append("integrity_manifest_not_verified")
+        if manifest.get("manifest_root_valid") is not True:
+            reasons.append("integrity_manifest_root_invalid")
+        if manifest.get("chain_valid") is not True:
+            reasons.append("integrity_manifest_chain_invalid")
+
+    stored_chain_is_ancestor = _stored_chain_is_verified_ancestor(
+        manifest,
+        row.get("chain_head_sha256"),
+    )
+    if not stored_chain_is_ancestor:
+        reasons.append("stored_chain_head_not_verified_ancestor")
+
+    current_chain_head = manifest.get("chain_head_sha256")
+    current_manifest_root = manifest.get("manifest_root_sha256")
+    chain_extended = (
+        stored_chain_is_ancestor
+        and bool(current_chain_head)
+        and current_chain_head != row.get("chain_head_sha256")
+    )
+
+    reasons = list(dict.fromkeys(reasons))
+    check_status = "VERIFIED" if not reasons else "BLOCKED"
+    check_id = db.execute(text("""
+      INSERT INTO production_release_execution_integrity_checks(
+        execution_id,check_status,actor,execution_sha256,
+        blocking_reasons,current_manifest_root_sha256,
+        current_chain_head_sha256,stored_chain_head_is_ancestor,
+        registry_chain_extended,external_side_effects,
+        production_traffic_changed)
+      VALUES(
+        :execution_id,:check_status,:actor,:execution_sha256,
+        CAST(:blocking_reasons AS jsonb),:manifest_root,:chain_head,
+        :stored_chain_is_ancestor,:chain_extended,'DENY',false)
+      RETURNING id
+    """), {
+        "execution_id": row["id"],
+        "check_status": check_status,
+        "actor": actor[:200],
+        "execution_sha256": row["execution_sha256"],
+        "blocking_reasons": json.dumps(reasons, ensure_ascii=False),
+        "manifest_root": current_manifest_root,
+        "chain_head": current_chain_head,
+        "stored_chain_is_ancestor": stored_chain_is_ancestor,
+        "chain_extended": chain_extended,
+    }).scalar_one()
+
+    return {
+        "allowed": not reasons,
+        "integrity_status": check_status,
+        "integrity_check_id": str(check_id),
+        "execution_id": str(row["id"]),
+        "execution_sha256": row["execution_sha256"],
+        "blocking_reasons": reasons,
+        "current_manifest_root_sha256": current_manifest_root,
+        "current_chain_head_sha256": current_chain_head,
+        "stored_chain_head_is_ancestor": stored_chain_is_ancestor,
+        "registry_chain_extended": chain_extended,
+        "current_execution_bundle_sha256": current_bundle_sha,
+        "external_side_effects": "DENY",
+        "production_traffic_changed": False,
+    }
+
+
+def evaluate_execution_integrity(
+    execution_id,
+    *,
+    actor: str = "execution-integrity-gate",
+) -> dict[str, Any]:
+    _require_step1_disabled()
+    clean_actor = (actor or "execution-integrity-gate").strip()
+    if not clean_actor:
+        clean_actor = "execution-integrity-gate"
+
+    with engine.begin() as db:
+        row = db.execute(text("""
+          SELECT *
+          FROM production_release_executions
+          WHERE id=CAST(:id AS uuid)
+          FOR UPDATE
+        """), {"id": execution_id}).mappings().one_or_none()
+        if row is None:
+            raise LookupError("Production release execution not found")
+        return _execution_integrity_locked(
+            db,
+            dict(row),
+            actor=clean_actor,
+        )
+
 def create_production_release_execution(
     plan_id,
     *,
@@ -406,6 +792,17 @@ def prepare_mock_candidate(
     clean_actor = (actor or "mock-production-preparer").strip()
     if not clean_actor:
         clean_actor = "mock-production-preparer"
+
+    gate = evaluate_execution_integrity(
+        execution_id,
+        actor=clean_actor + ":integrity",
+    )
+    if gate["allowed"] is not True:
+        raise RuntimeError(
+            "Execution Integrity Gate blocked: "
+            + ", ".join(gate["blocking_reasons"])
+            + f" [integrity_check_id={gate['integrity_check_id']}]"
+        )
 
     with engine.begin() as db:
         row = db.execute(text("""
@@ -597,8 +994,21 @@ def get_production_release_execution(execution_id) -> dict[str, Any]:
               ORDER BY sequence_no
             """), {"id": row["id"]}).mappings().all()
         ]
+        integrity_checks = [
+            dict(item)
+            for item in db.execute(text("""
+              SELECT id,check_status,actor,execution_sha256,blocking_reasons,
+                     current_manifest_root_sha256,current_chain_head_sha256,
+                     stored_chain_head_is_ancestor,registry_chain_extended,
+                     external_side_effects,production_traffic_changed,checked_at
+              FROM production_release_execution_integrity_checks
+              WHERE execution_id=:id
+              ORDER BY checked_at,id
+            """), {"id": row["id"]}).mappings().all()
+        ]
 
     result = dict(row)
     result["decisions"] = decisions
     result["events"] = events
+    result["integrity_checks"] = integrity_checks
     return result

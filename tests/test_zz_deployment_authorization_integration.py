@@ -293,6 +293,60 @@ def test_deployment_authorization_three_path_acceptance(monkeypatch):
     assert duplicate["id"] == execution["id"]
     assert duplicate["execution_sha256"] == execution["execution_sha256"]
 
+    # Step 2 Execution Integrity Gate:
+    # a mutation of the bound audit evidence blocks before PREPARING,
+    # while a verified append-only registry extension is accepted.
+    extended_manifest = {
+        "status": "VERIFIED",
+        "manifest_root_valid": True,
+        "chain_valid": True,
+        "manifest_root_sha256": "8" * 64,
+        "chain_head_sha256": "7" * 64,
+        "entries": {
+            "stored-head": {
+                "status": "VERIFIED",
+                "chain_sha256": integrity_a["chain_head_sha256"],
+            },
+            "new-head": {
+                "status": "VERIFIED",
+                "chain_sha256": "7" * 64,
+            },
+        },
+    }
+    monkeypatch.setattr(
+        production_release,
+        "live_acceptance_integrity_manifest",
+        lambda: dict(extended_manifest),
+    )
+
+    drifted_execution_integrity = dict(integrity_a)
+    drifted_execution_integrity["audit_evidence_sha256"] = "9" * 64
+    monkeypatch.setattr(
+        production_release,
+        "evaluate_release_integrity",
+        lambda *_args, **_kwargs: dict(drifted_execution_integrity),
+    )
+
+    with pytest.raises(RuntimeError, match="Execution Integrity Gate blocked"):
+        production_release.prepare_mock_candidate(
+            execution["id"],
+            actor="ci-integrity-drift-probe",
+        )
+
+    with engine.connect() as db:
+        after_integrity_block = db.execute(text("""
+          SELECT execution_status
+          FROM production_release_executions
+          WHERE id=CAST(:id AS uuid)
+        """), {"id": execution["id"]}).mappings().one()
+    assert after_integrity_block["execution_status"] == "SNAPSHOT_CREATED"
+
+    monkeypatch.setattr(
+        production_release,
+        "evaluate_release_integrity",
+        lambda *_args, **_kwargs: dict(integrity_a),
+    )
+
     prepared = production_release.prepare_mock_candidate(
         execution["id"],
         actor="ci-mock-production-preparer",
@@ -321,6 +375,20 @@ def test_deployment_authorization_three_path_acceptance(monkeypatch):
     )
     assert execution_detail["execution_status"] == "READY_FOR_PROMOTION"
     assert execution_detail["decisions"] == []
+    checks = execution_detail["integrity_checks"]
+    assert [item["check_status"] for item in checks] == [
+        "BLOCKED",
+        "VERIFIED",
+        "VERIFIED",
+    ]
+    assert "audit_evidence_sha256_drift" in checks[0]["blocking_reasons"]
+    assert all(
+        item["external_side_effects"] == "DENY"
+        and item["production_traffic_changed"] is False
+        for item in checks
+    )
+    assert checks[1]["stored_chain_head_is_ancestor"] is True
+    assert checks[1]["registry_chain_extended"] is True
     event_types = [item["event_type"] for item in execution_detail["events"]]
     assert event_types == [
         "EXECUTION_SNAPSHOT_CREATED",
