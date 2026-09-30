@@ -405,6 +405,101 @@ def test_deployment_authorization_three_path_acceptance(monkeypatch):
         for item in artifact_bundle["artifacts"]
     )
 
+    # Step 3 Third Human Production Execution Gate:
+    # wrong immutable execution SHA fails closed; PROMOTE binds only to the
+    # already persisted MOCK candidate and records no provider/traffic write.
+    with pytest.raises(
+        RuntimeError,
+        match="Production execution SHA-256 does not match",
+    ):
+        production_release.decide_production_execution(
+            execution["id"],
+            decision="PROMOTE",
+            reason="CI wrong SHA must fail",
+            actor="ci-human-production",
+            execution_sha256="0" * 64,
+        )
+
+    promotion_drift = dict(integrity_a)
+    promotion_drift["audit_evidence_sha256"] = "9" * 64
+    monkeypatch.setattr(
+        production_release,
+        "evaluate_release_integrity",
+        lambda *_args, **_kwargs: dict(promotion_drift),
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="Execution Integrity Gate blocked PROMOTE",
+    ):
+        production_release.decide_production_execution(
+            execution["id"],
+            decision="PROMOTE",
+            reason="CI promotion-time drift must fail closed",
+            actor="ci-human-production",
+            execution_sha256=execution["execution_sha256"],
+        )
+
+    blocked_promote = production_release.get_production_release_execution(
+        execution["id"]
+    )
+    assert blocked_promote["execution_status"] == "READY_FOR_PROMOTION"
+    assert blocked_promote["decisions"] == []
+    assert blocked_promote["integrity_checks"][-1]["check_status"] == "BLOCKED"
+    assert "audit_evidence_sha256_drift" in blocked_promote[
+        "integrity_checks"
+    ][-1]["blocking_reasons"]
+
+    monkeypatch.setattr(
+        production_release,
+        "evaluate_release_integrity",
+        lambda *_args, **_kwargs: dict(integrity_a),
+    )
+
+    promoted = production_release.decide_production_execution(
+        execution["id"],
+        decision="PROMOTE",
+        reason="CI human authorizes only the persisted candidate",
+        actor="ci-human-production",
+        execution_sha256=execution["execution_sha256"],
+    )
+    assert promoted["decision"] == "PROMOTE"
+    assert promoted["promotion_authorized"] is True
+    assert promoted["execution_status"] == "READY_FOR_PROMOTION"
+    assert (
+        promoted["candidate_vercel_deployment_id"]
+        == prepared["candidate_vercel_deployment_id"]
+    )
+    assert promoted["candidate_vercel_url"] == prepared["candidate_vercel_url"]
+    assert promoted["target_project_id"] == prepared["target_project_id"]
+    assert promoted["provider_write_performed"] is False
+    assert promoted["production_traffic_changed"] is False
+    assert len(promoted["decision_sha256"]) == 64
+
+    promoted_retry = production_release.decide_production_execution(
+        execution["id"],
+        decision="PROMOTE",
+        reason="CI duplicate human request is idempotent",
+        actor="ci-human-production-retry",
+        execution_sha256=execution["execution_sha256"],
+    )
+    assert promoted_retry["id"] == promoted["id"]
+    assert promoted_retry["idempotent"] is True
+    assert promoted_retry["provider_write_performed"] is False
+    assert promoted_retry["production_traffic_changed"] is False
+
+    after_promote = production_release.get_production_release_execution(
+        execution["id"]
+    )
+    assert after_promote["execution_status"] == "READY_FOR_PROMOTION"
+    assert len(after_promote["decisions"]) == 1
+    assert after_promote["decisions"][0]["decision"] == "PROMOTE"
+    assert (
+        after_promote["decisions"][0]["candidate_vercel_deployment_id"]
+        == prepared["candidate_vercel_deployment_id"]
+    )
+    assert len(after_promote["integrity_checks"]) == 5
+    assert after_promote["integrity_checks"][-1]["check_status"] == "VERIFIED"
+
     with engine.connect() as db:
         unsafe_execution = db.execute(text("""
           SELECT COUNT(*)
@@ -456,3 +551,62 @@ def test_deployment_authorization_three_path_acceptance(monkeypatch):
             plan_b["id"],
             actor="ci-rejected-plan-must-not-execute",
         )
+
+
+    # 4) Independent authorized execution can be terminated by the same
+    # third human gate with ABORT, without requiring or performing a provider write.
+    integrity_c = _verified_integrity("7")
+    release_c, plan_c, _ = _approved_release_fixture(
+        monkeypatch,
+        "abort",
+        integrity_c,
+        proposal_id=proposal_id,
+    )
+    authorized_c = deployment_auth.decide_deployment_authorization(
+        plan_c["id"],
+        decision="AUTHORIZE",
+        reason="CI controlled authorization for human ABORT path",
+        actor="ci-deployment-reviewer",
+        plan_sha256=plan_c["plan_sha256"],
+    )
+    assert authorized_c["plan_status"] == "AUTHORIZED_FOR_DEPLOYMENT"
+
+    execution_c = production_release.create_production_release_execution(
+        plan_c["id"],
+        actor="ci-production-snapshot-abort",
+    )
+    monkeypatch.setattr(
+        production_release,
+        "evaluate_release_integrity",
+        lambda *_args, **_kwargs: dict(integrity_c),
+    )
+    monkeypatch.setattr(
+        production_release,
+        "live_acceptance_integrity_manifest",
+        lambda: dict(extended_manifest),
+    )
+    prepared_c = production_release.prepare_mock_candidate(
+        execution_c["id"],
+        actor="ci-mock-production-preparer-abort",
+    )
+    assert prepared_c["execution_status"] == "READY_FOR_PROMOTION"
+
+    aborted = production_release.decide_production_execution(
+        execution_c["id"],
+        decision="ABORT",
+        reason="CI human aborts before any Production write",
+        actor="ci-human-production",
+        execution_sha256=execution_c["execution_sha256"],
+    )
+    assert aborted["decision"] == "ABORT"
+    assert aborted["promotion_authorized"] is False
+    assert aborted["execution_status"] == "ABORTED"
+    assert aborted["provider_write_performed"] is False
+    assert aborted["production_traffic_changed"] is False
+
+    aborted_detail = production_release.get_production_release_execution(
+        execution_c["id"]
+    )
+    assert aborted_detail["execution_status"] == "ABORTED"
+    assert len(aborted_detail["decisions"]) == 1
+    assert aborted_detail["decisions"][0]["decision"] == "ABORT"

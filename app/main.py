@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
 from rq import Queue
 from sqlalchemy import text
@@ -19,6 +19,10 @@ from app.deployment_authorization import (
     decide_deployment_authorization,
     get_deployment_plan,
     get_deployment_plan_for_candidate,
+)
+from app.production_release import (
+    decide_production_execution,
+    get_production_release_execution,
 )
 from app.config import settings
 from app.db import database_selection, engine
@@ -81,6 +85,17 @@ class DeploymentAuthorizationDecision(BaseModel):
     actor: str = Field(default="human-deployment-api",min_length=1,max_length=200)
     plan_sha256: str = Field(min_length=64,max_length=64)
 
+class ProductionExecutionDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["PROMOTE","ABORT"]
+    reason: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(
+        default="human-production-execution-api",
+        min_length=1,
+        max_length=200,
+    )
+    execution_sha256: str = Field(min_length=64,max_length=64)
+
 def _require_approval_key(provided: str | None) -> None:
     expected=settings.human_approval_key.strip()
     if not expected:
@@ -110,6 +125,39 @@ def _require_deployment_key(provided: str | None) -> None:
         )
     if provided is None or not secrets.compare_digest(provided,expected):
         raise HTTPException(status_code=403,detail="Invalid deployment authorization key")
+
+
+def _production_execution_key_independent() -> bool:
+    expected=settings.human_production_execution_key.strip()
+    if not expected:
+        return False
+    earlier_keys=(
+        settings.human_approval_key.strip(),
+        settings.human_release_key.strip(),
+        settings.human_deployment_key.strip(),
+    )
+    return all(
+        not value or not secrets.compare_digest(expected,value)
+        for value in earlier_keys
+    )
+
+def _require_production_execution_key(provided: str | None) -> None:
+    expected=settings.human_production_execution_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Human Production execution gate is not configured",
+        )
+    if not _production_execution_key_independent():
+        raise HTTPException(
+            status_code=503,
+            detail="Human Production execution key must be independent",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid human Production execution key",
+        )
 
 
 def _require_preview_acceptance_key(provided: str | None) -> str:
@@ -150,6 +198,15 @@ def health():
         "approval_gate":"ENABLED" if settings.human_approval_key.strip() else "DISABLED",
         "release_gate":"ENABLED" if settings.human_release_key.strip() else "DISABLED",
         "deployment_authorization_gate":"ENABLED" if settings.human_deployment_key.strip() else "DISABLED",
+        "production_execution_gate":(
+            "DISABLED"
+            if not settings.human_production_execution_key.strip()
+            else (
+                "ENABLED"
+                if _production_execution_key_independent()
+                else "MISCONFIGURED"
+            )
+        ),
         "preview_acceptance_bridge":"ENABLED" if (
             (os.getenv("VERCEL_ENV") or "").strip().lower()=="preview"
             and settings.preview_acceptance_key.strip()
@@ -793,6 +850,79 @@ def deployment_plan_decision(
                 "status":"DEPLOYMENT_CONSTRAINT_REJECTED",
                 "detail":str(exc.orig) if getattr(exc,"orig",None) else str(exc),
                 "execution_enabled":False,
+            },
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.get("/v1/production-release-executions/{execution_id}")
+def production_release_execution(execution_id: UUID):
+    try:
+        return read_with_retry(
+            "production_release_execution_read",
+            lambda: get_production_release_execution(execution_id),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DatabaseUnavailable:
+        return JSONResponse(
+            status_code=503,
+            content=db_unavailable_payload(
+                operation="production_release_execution_read",
+                approval_sensitive=False,
+            ),
+        )
+
+
+@app.post("/v1/production-release-executions/{execution_id}/decision")
+def production_release_execution_decision(
+    execution_id: UUID,
+    payload: ProductionExecutionDecision,
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_production_execution_key(x_production_execution_key)
+    db_state=database_health()
+    if not db_state["available"]:
+        failure=db_unavailable_payload(
+            operation="production_execution_decision",
+            approval_sensitive=True,
+        )
+        failure["database_state"]=db_state
+        failure["provider_write_performed"]=False
+        failure["production_traffic_changed"]=False
+        return JSONResponse(status_code=503,content=failure)
+    try:
+        return decide_production_execution(
+            execution_id,
+            decision=payload.decision,
+            reason=payload.reason,
+            actor=payload.actor,
+            execution_sha256=payload.execution_sha256,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DBAPIError as exc:
+        if is_database_unavailable(exc):
+            failure=db_unavailable_payload(
+                operation="production_execution_decision",
+                approval_sensitive=True,
+            )
+            failure["provider_write_performed"]=False
+            failure["production_traffic_changed"]=False
+            return JSONResponse(status_code=503,content=failure)
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status":"PRODUCTION_EXECUTION_CONSTRAINT_REJECTED",
+                "detail":str(exc.orig) if getattr(exc,"orig",None) else str(exc),
+                "provider_write_performed":False,
+                "production_traffic_changed":False,
             },
         )
     except RuntimeError as exc:

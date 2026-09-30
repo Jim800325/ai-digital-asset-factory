@@ -9,6 +9,7 @@ from app.production_execution_adapter import (
 )
 from app.production_release import (
     _normalize_artifact_path,
+    _production_execution_decision_material,
     _sha256,
     _stored_chain_is_verified_ancestor,
     _transition_allowed,
@@ -156,3 +157,32 @@ def test_execution_integrity_allows_verified_append_only_chain_extension():
     broken = dict(manifest)
     broken["chain_valid"] = False
     assert not _stored_chain_is_verified_ancestor(broken, stored_head)
+
+
+
+def test_human_production_decision_material_binds_candidate_and_is_side_effect_free():
+    row = {
+        "id": "execution-1",
+        "execution_sha256": "a" * 64,
+        "deployment_plan_id": "plan-1",
+        "plan_sha256": "b" * 64,
+        "candidate_vercel_deployment_id": "mock_dpl_123",
+        "candidate_vercel_url": "https://mock_dpl_123.mock.invalid",
+        "target_project_id": "prj_target",
+        "target_team_id": "team_target",
+    }
+    material = _production_execution_decision_material(
+        row,
+        decision="PROMOTE",
+        reason="approved for controlled promotion",
+        actor="ci-human-production",
+        candidate_verified_event_id="event-1",
+        candidate_provider_result_sha256="c" * 64,
+        integrity_check_id="check-1",
+    )
+
+    assert material["candidate_vercel_deployment_id"] == "mock_dpl_123"
+    assert material["target_project_id"] == "prj_target"
+    assert material["provider_write_performed"] is False
+    assert material["production_traffic_changed"] is False
+    assert _sha256(material) == _sha256(dict(reversed(list(material.items()))))

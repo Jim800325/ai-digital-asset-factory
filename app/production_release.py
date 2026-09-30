@@ -965,6 +965,228 @@ def prepare_mock_candidate(
     return dict(prepared)
 
 
+
+def _production_execution_decision_material(
+    row: dict[str, Any],
+    *,
+    decision: str,
+    reason: str,
+    actor: str,
+    candidate_verified_event_id: str,
+    candidate_provider_result_sha256: str,
+    integrity_check_id: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": "production-execution-decision-v1",
+        "execution_id": str(row["id"]),
+        "execution_sha256": row["execution_sha256"],
+        "deployment_plan_id": str(row["deployment_plan_id"]),
+        "plan_sha256": row["plan_sha256"],
+        "decision": decision,
+        "reason": reason,
+        "actor": actor,
+        "candidate_vercel_deployment_id": (
+            row["candidate_vercel_deployment_id"]
+        ),
+        "candidate_vercel_url": row["candidate_vercel_url"],
+        "target_project_id": row["target_project_id"],
+        "target_team_id": row["target_team_id"],
+        "candidate_verified_event_id": candidate_verified_event_id,
+        "candidate_provider_result_sha256": (
+            candidate_provider_result_sha256
+        ),
+        "integrity_check_id": integrity_check_id,
+        "provider_write_performed": False,
+        "production_traffic_changed": False,
+    }
+
+
+def decide_production_execution(
+    execution_id,
+    *,
+    decision: str,
+    reason: str,
+    actor: str,
+    execution_sha256: str,
+) -> dict[str, Any]:
+    _require_step1_disabled()
+
+    normalized = (decision or "").strip().upper()
+    clean_reason = (reason or "").strip()
+    clean_actor = (
+        (actor or "human-production-execution-api").strip()
+        or "human-production-execution-api"
+    )
+    supplied_sha = (execution_sha256 or "").strip().lower()
+
+    if normalized not in {"PROMOTE", "ABORT"}:
+        raise ValueError("decision must be PROMOTE or ABORT")
+    if len(clean_reason) < 3:
+        raise ValueError("reason must contain at least 3 characters")
+    if len(supplied_sha) != 64:
+        raise ValueError(
+            "execution_sha256 must be a 64-character SHA-256"
+        )
+
+    with engine.begin() as db:
+        row = db.execute(text("""
+          SELECT *
+          FROM production_release_executions
+          WHERE id=CAST(:id AS uuid)
+          FOR UPDATE
+        """), {"id": execution_id}).mappings().one_or_none()
+        if row is None:
+            raise LookupError("Production release execution not found")
+        row = dict(row)
+
+        if supplied_sha != str(row["execution_sha256"]).lower():
+            raise RuntimeError("Production execution SHA-256 does not match")
+
+        existing = db.execute(text("""
+          SELECT *
+          FROM production_release_execution_decisions
+          WHERE execution_id=:id
+          FOR UPDATE
+        """), {"id": row["id"]}).mappings().one_or_none()
+        if existing is not None:
+            if (
+                existing["decision"] != normalized
+                or existing["execution_sha256"] != row["execution_sha256"]
+            ):
+                raise RuntimeError(
+                    "Production execution decision is already terminal"
+                )
+            result = dict(existing)
+            result.update({
+                "idempotent": True,
+                "execution_status": row["execution_status"],
+                "promotion_authorized": normalized == "PROMOTE",
+                "provider_write_performed": False,
+                "production_traffic_changed": False,
+            })
+            return result
+
+        if row["execution_status"] != "READY_FOR_PROMOTION":
+            raise RuntimeError(
+                "Human production execution decision requires READY_FOR_PROMOTION"
+            )
+        if (
+            not row["candidate_vercel_deployment_id"]
+            or not row["candidate_vercel_url"]
+        ):
+            raise RuntimeError(
+                "Human production execution decision requires persisted candidate"
+            )
+
+        verified_event = db.execute(text("""
+          SELECT id,provider_result_sha256
+          FROM production_release_execution_events
+          WHERE execution_id=:id
+            AND event_type='CANDIDATE_VERIFIED'
+          ORDER BY sequence_no DESC
+          LIMIT 1
+        """), {"id": row["id"]}).mappings().one_or_none()
+        if (
+            verified_event is None
+            or not verified_event["provider_result_sha256"]
+            or len(verified_event["provider_result_sha256"]) != 64
+        ):
+            raise RuntimeError(
+                "Human production execution decision requires "
+                "CANDIDATE_VERIFIED evidence"
+            )
+
+        blocked_error: str | None = None
+        if normalized == "PROMOTE":
+            gate = _execution_integrity_locked(
+                db,
+                row,
+                actor=clean_actor + ":pre-promotion-integrity",
+            )
+            integrity_check_id = gate["integrity_check_id"]
+            if gate["allowed"] is not True:
+                blocked_error = (
+                    "Execution Integrity Gate blocked PROMOTE: "
+                    + ", ".join(gate["blocking_reasons"])
+                    + f" [integrity_check_id={gate['integrity_check_id']}]"
+                )
+        else:
+            latest_check = db.execute(text("""
+              SELECT id
+              FROM production_release_execution_integrity_checks
+              WHERE execution_id=:id
+              ORDER BY checked_at DESC,id DESC
+              LIMIT 1
+            """), {"id": row["id"]}).mappings().one_or_none()
+            if latest_check is None:
+                raise RuntimeError(
+                    "ABORT requires prior Execution Integrity Gate evidence"
+                )
+            integrity_check_id = str(latest_check["id"])
+
+        if blocked_error is not None:
+            saved = None
+            next_status = row["execution_status"]
+        else:
+            material = _production_execution_decision_material(
+                row,
+                decision=normalized,
+                reason=clean_reason,
+                actor=clean_actor,
+                candidate_verified_event_id=str(verified_event["id"]),
+                candidate_provider_result_sha256=(
+                    verified_event["provider_result_sha256"]
+                ),
+                integrity_check_id=integrity_check_id,
+            )
+            decision_sha = _sha256(material)
+
+            saved = db.execute(text("""
+          INSERT INTO production_release_execution_decisions(
+            execution_id,decision,reason,actor,execution_sha256,
+            deployment_plan_id,plan_sha256,
+            candidate_vercel_deployment_id,candidate_vercel_url,
+            target_project_id,target_team_id,
+            candidate_verified_event_id,candidate_provider_result_sha256,
+            integrity_check_id,decision_sha256,
+            provider_write_performed,production_traffic_changed)
+          VALUES(
+            :execution_id,:decision,:reason,:actor,:execution_sha256,
+            :deployment_plan_id,:plan_sha256,
+            :candidate_vercel_deployment_id,:candidate_vercel_url,
+            :target_project_id,:target_team_id,
+            CAST(:candidate_verified_event_id AS uuid),
+            :candidate_provider_result_sha256,
+            CAST(:integrity_check_id AS uuid),:decision_sha256,
+            false,false)
+          RETURNING *
+            """), {
+                **material,
+                "decision_sha256": decision_sha,
+            }).mappings().one()
+
+            next_status = row["execution_status"]
+            if normalized == "ABORT":
+                db.execute(text("""
+                  UPDATE production_release_executions
+                  SET execution_status='ABORTED'
+                  WHERE id=:id
+                """), {"id": row["id"]})
+                next_status = "ABORTED"
+
+    if blocked_error is not None:
+        raise RuntimeError(blocked_error)
+
+    result = dict(saved)
+    result.update({
+        "idempotent": False,
+        "execution_status": next_status,
+        "promotion_authorized": normalized == "PROMOTE",
+        "provider_write_performed": False,
+        "production_traffic_changed": False,
+    })
+    return result
+
 def get_production_release_execution(execution_id) -> dict[str, Any]:
     with engine.connect() as db:
         row = db.execute(text("""
@@ -978,7 +1200,14 @@ def get_production_release_execution(execution_id) -> dict[str, Any]:
         decisions = [
             dict(item)
             for item in db.execute(text("""
-              SELECT id,decision,reason,actor,execution_sha256,decided_at
+              SELECT id,decision,reason,actor,execution_sha256,
+                     deployment_plan_id,plan_sha256,
+                     candidate_vercel_deployment_id,candidate_vercel_url,
+                     target_project_id,target_team_id,
+                     candidate_verified_event_id,
+                     candidate_provider_result_sha256,integrity_check_id,
+                     decision_sha256,provider_write_performed,
+                     production_traffic_changed,decided_at
               FROM production_release_execution_decisions
               WHERE execution_id=:id
               ORDER BY decided_at,id
