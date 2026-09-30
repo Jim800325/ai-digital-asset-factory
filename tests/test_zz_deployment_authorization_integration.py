@@ -7,7 +7,13 @@ import app.deployment_authorization as deployment_auth
 import app.production_release as production_release
 import app.release_gate as release_gate
 from app.build_proposals import decide_build_proposal
+from app.config import settings
 from app.db import engine
+from app.production_execution_adapter import (
+    CandidateDeployment,
+    PreparedDeploymentRequest,
+    ProviderWriteOutcomeUnknown,
+)
 from app.release_gate import decide_release_candidate, ensure_release_candidate
 from app.sandbox_execution import create_sandbox_request, execute_sandbox_request
 from app.workers.pipeline import run_pipeline
@@ -610,3 +616,168 @@ def test_deployment_authorization_three_path_acceptance(monkeypatch):
     assert aborted_detail["execution_status"] == "ABORTED"
     assert len(aborted_detail["decisions"]) == 1
     assert aborted_detail["decisions"][0]["decision"] == "ABORT"
+
+
+    # 5) Step 4 Vercel PREPARE: consume exactly one provider-write budget,
+    # persist ambiguous outcome, never replay POST, then converge by GET-only
+    # reconciliation to the exact deterministic candidate.
+    integrity_d = _verified_integrity("8")
+    release_d, plan_d, _ = _approved_release_fixture(
+        monkeypatch,
+        "vercel-prepare",
+        integrity_d,
+        proposal_id=proposal_id,
+    )
+    authorized_d = deployment_auth.decide_deployment_authorization(
+        plan_d["id"],
+        decision="AUTHORIZE",
+        reason="CI sacrificial Vercel PREPARE authorization",
+        actor="ci-deployment-reviewer",
+        plan_sha256=plan_d["plan_sha256"],
+    )
+    assert authorized_d["plan_status"] == "AUTHORIZED_FOR_DEPLOYMENT"
+
+    monkeypatch.setattr(
+        settings,
+        "production_execution_adapter",
+        "VERCEL_CONTROLLED_EXECUTOR",
+    )
+    monkeypatch.setattr(
+        settings,
+        "controlled_production_executor_enabled",
+        True,
+    )
+    monkeypatch.setattr(
+        settings,
+        "production_execution_allowed_project_ids",
+        "prj_ci_preview_only",
+    )
+    monkeypatch.setattr(
+        settings,
+        "production_execution_allowed_team_ids",
+        "team_ci_preview_only",
+    )
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setattr(
+        production_release,
+        "evaluate_release_integrity",
+        lambda *_args, **_kwargs: dict(integrity_d),
+    )
+    monkeypatch.setattr(
+        production_release,
+        "live_acceptance_integrity_manifest",
+        lambda: dict(extended_manifest),
+    )
+
+    execution_d = production_release.create_production_release_execution(
+        plan_d["id"],
+        actor="ci-vercel-production-snapshot",
+    )
+    assert execution_d["executor_adapter"] == "VERCEL_CONTROLLED_EXECUTOR"
+    assert execution_d["execution_status"] == "SNAPSHOT_CREATED"
+
+    class AmbiguousThenReadyAdapter:
+        def __init__(self):
+            self.writes = 0
+            self.reads = 0
+            self.deployment_id = "dpl_ci_deterministic_prepare"
+
+        def build_prepare_request(self, snapshot):
+            return PreparedDeploymentRequest(
+                deployment_id=self.deployment_id,
+                project_id=snapshot["target_project_id"],
+                team_id=snapshot["target_team_id"],
+                body={
+                    "target": "production",
+                    "autoAssignCustomDomains": False,
+                },
+                request_sha256="a" * 64,
+            )
+
+        def send_prepare(self, request):
+            self.writes += 1
+            raise ProviderWriteOutcomeUnknown(
+                "CI injected ambiguous PREPARE timeout",
+                deployment_id=request.deployment_id,
+                error_type="ReadTimeout",
+                evidence_sha256="b" * 64,
+            )
+
+        def read_candidate(self, snapshot, deployment_id):
+            self.reads += 1
+            assert deployment_id == self.deployment_id
+            if self.reads == 1:
+                return None
+            return CandidateDeployment(
+                deployment_id=self.deployment_id,
+                url="https://ci-sacrificial.vercel.app",
+                state="READY",
+                provider_write_performed=False,
+                metadata={
+                    "provider_result_sha256": "c" * 64,
+                    "auto_assign_custom_domains": False,
+                    "alias_assigned": False,
+                    "production_traffic_changed": False,
+                },
+            )
+
+    fake_vercel = AmbiguousThenReadyAdapter()
+    ambiguous = production_release.prepare_vercel_candidate(
+        execution_d["id"],
+        actor="ci-vercel-controlled-preparer",
+        adapter=fake_vercel,
+    )
+    assert ambiguous["execution_status"] == "PREPARE_UNKNOWN"
+    assert ambiguous["prepare_outcome"] == "AMBIGUOUS"
+    assert ambiguous["prepare_write_count"] == 1
+    assert ambiguous["reconciliation_required"] is True
+    assert fake_vercel.writes == 1
+
+    with pytest.raises(RuntimeError, match="one provider write"):
+        production_release.prepare_vercel_candidate(
+            execution_d["id"],
+            actor="ci-vercel-controlled-preparer-retry",
+            adapter=fake_vercel,
+        )
+    assert fake_vercel.writes == 1
+
+    not_found = production_release.reconcile_vercel_prepare(
+        execution_d["id"],
+        actor="ci-vercel-reconcile-not-found",
+        adapter=fake_vercel,
+    )
+    assert not_found["execution_status"] == "PREPARE_UNKNOWN"
+    assert not_found["prepare_outcome"] == "RECONCILED_PENDING"
+    assert not_found["prepare_write_count"] == 1
+    assert not_found["reconciliation_required"] is True
+    assert fake_vercel.writes == 1
+    assert fake_vercel.reads == 1
+
+    reconciled = production_release.reconcile_vercel_prepare(
+        execution_d["id"],
+        actor="ci-vercel-reconcile-ready",
+        adapter=fake_vercel,
+    )
+    assert reconciled["execution_status"] == "READY_FOR_PROMOTION"
+    assert reconciled["prepare_outcome"] == "RECONCILED_READY"
+    assert reconciled["prepare_write_count"] == 1
+    assert (
+        reconciled["candidate_vercel_deployment_id"]
+        == fake_vercel.deployment_id
+    )
+    assert reconciled["candidate_vercel_url"] == (
+        "https://ci-sacrificial.vercel.app"
+    )
+    assert fake_vercel.writes == 1
+    assert fake_vercel.reads == 2
+    assert reconciled["production_vercel_deployment_id"] is None
+    assert reconciled["previous_production_deployment_id"] is None
+
+    with engine.connect() as db:
+        unsafe_vercel_writes = db.execute(text("""
+          SELECT COUNT(*)
+          FROM production_release_executions
+          WHERE executor_adapter='VERCEL_CONTROLLED_EXECUTOR'
+            AND prepare_write_count>1
+        """)).scalar_one()
+    assert unsafe_vercel_writes == 0
