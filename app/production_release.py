@@ -1039,6 +1039,7 @@ def _persist_ready_candidate(
     prepared = db.execute(text("""
       UPDATE production_release_executions
       SET execution_status='READY_FOR_PROMOTION',
+          prepare_provider_deployment_id=:deployment_id,
           candidate_vercel_deployment_id=:deployment_id,
           candidate_vercel_url=:url,
           prepare_provider_state=:provider_state,
@@ -1198,7 +1199,7 @@ def prepare_vercel_candidate(
           UPDATE production_release_executions
           SET execution_status='PREPARING',
               prepare_request_sha256=:request_sha,
-              prepare_provider_deployment_id=:deployment_id,
+              prepare_provider_deployment_id=NULL,
               prepare_provider_state='REQUESTED',
               prepare_outcome='REQUESTED',
               prepare_write_count=1,
@@ -1207,7 +1208,6 @@ def prepare_vercel_candidate(
         """), {
             "id": execution_id,
             "request_sha": request.request_sha256,
-            "deployment_id": request.deployment_id,
         })
         _event(
             db,
@@ -1218,7 +1218,7 @@ def prepare_vercel_candidate(
             next_status="PREPARING",
             details={
                 "adapter": "VERCEL_CONTROLLED_EXECUTOR",
-                "deployment_id": request.deployment_id,
+                "reconciliation_key": request.deployment_id,
                 "prepare_request_sha256": request.request_sha256,
                 "provider_write_budget": 1,
                 "provider_write_attempted": True,
@@ -1325,34 +1325,39 @@ def prepare_vercel_candidate(
               FOR UPDATE
             """), {"id": execution_id}).mappings().one()
             if current["execution_status"] == "PREPARING":
-                db.execute(text("""
+                result = db.execute(text("""
                   UPDATE production_release_executions
-                  SET execution_status='PREPARE_FAILED',
-                      prepare_provider_state='ERROR',
-                      prepare_outcome='REJECTED',
+                  SET execution_status='PREPARE_UNKNOWN',
+                      prepare_provider_state='UNKNOWN',
+                      prepare_outcome='AMBIGUOUS',
                       prepare_last_error_type=:error_type,
                       prepare_last_error_sha256=:error_sha
                   WHERE id=CAST(:id AS uuid)
+                  RETURNING *
                 """), {
                     "id": execution_id,
                     "error_type": type(exc).__name__[:200],
                     "error_sha": error_sha,
-                })
+                }).mappings().one()
                 _event(
                     db,
                     execution_id,
-                    event_type="FAILURE",
+                    event_type="RECONCILIATION_REQUIRED",
                     actor=clean_actor,
                     previous_status="PREPARING",
-                    next_status="PREPARE_FAILED",
+                    next_status="PREPARE_UNKNOWN",
                     details={
                         "adapter": "VERCEL_CONTROLLED_EXECUTOR",
                         "error_type": type(exc).__name__,
                         "provider_write_count": 1,
                         "automatic_replay": False,
+                        "post_write_validation_error": True,
                         "production_traffic_changed": False,
                     },
                 )
+                output = dict(result)
+                output["reconciliation_required"] = True
+                return output
         raise
 
     provider_result_sha = _candidate_result_sha(candidate)
@@ -1368,9 +1373,12 @@ def prepare_vercel_candidate(
             raise RuntimeError(
                 "Execution state changed during Vercel PREPARE"
             )
+        existing_provider_id = str(
+            current.get("prepare_provider_deployment_id") or ""
+        ).strip()
         if (
-            candidate.deployment_id
-            != current["prepare_provider_deployment_id"]
+            existing_provider_id
+            and candidate.deployment_id != existing_provider_id
         ):
             raise RuntimeError(
                 "Vercel PREPARE returned unexpected deployment ID"
@@ -1391,6 +1399,7 @@ def prepare_vercel_candidate(
             result = db.execute(text("""
               UPDATE production_release_executions
               SET execution_status='PREPARE_FAILED',
+                  prepare_provider_deployment_id=:deployment_id,
                   candidate_vercel_deployment_id=:deployment_id,
                   candidate_vercel_url=:url,
                   prepare_provider_state=:state,
@@ -1425,7 +1434,8 @@ def prepare_vercel_candidate(
 
         result = db.execute(text("""
           UPDATE production_release_executions
-          SET candidate_vercel_deployment_id=:deployment_id,
+          SET prepare_provider_deployment_id=:deployment_id,
+              candidate_vercel_deployment_id=:deployment_id,
               candidate_vercel_url=:url,
               prepare_provider_state=:state,
               prepare_outcome='ACCEPTED',
@@ -1510,15 +1520,17 @@ def reconcile_vercel_prepare(
     deployment_id = str(
         snapshot.get("prepare_provider_deployment_id") or ""
     ).strip()
-    if not deployment_id:
-        raise RuntimeError(
-            "Vercel PREPARE reconciliation deployment ID is unavailable"
-        )
 
     provider = adapter or get_production_execution_adapter(
         "VERCEL_CONTROLLED_EXECUTOR"
     )
-    candidate = provider.read_candidate(snapshot, deployment_id)
+    legacy_reconciliation_key = provider.deterministic_deployment_id(
+        str(snapshot.get("execution_sha256") or "")
+    )
+    if not deployment_id or deployment_id == legacy_reconciliation_key:
+        candidate = provider.find_candidate_by_execution(snapshot)
+    else:
+        candidate = provider.read_candidate(snapshot, deployment_id)
 
     with engine.begin() as db:
         current = db.execute(text("""
@@ -1593,6 +1605,7 @@ def reconcile_vercel_prepare(
             result = db.execute(text("""
               UPDATE production_release_executions
               SET execution_status='PREPARE_FAILED',
+                  prepare_provider_deployment_id=:deployment_id,
                   candidate_vercel_deployment_id=:deployment_id,
                   candidate_vercel_url=:url,
                   prepare_provider_state=:state,
@@ -1629,7 +1642,8 @@ def reconcile_vercel_prepare(
 
         result = db.execute(text("""
           UPDATE production_release_executions
-          SET candidate_vercel_deployment_id=:deployment_id,
+          SET prepare_provider_deployment_id=:deployment_id,
+              candidate_vercel_deployment_id=:deployment_id,
               candidate_vercel_url=:url,
               prepare_provider_state=:state,
               prepare_outcome='RECONCILED_PENDING',
