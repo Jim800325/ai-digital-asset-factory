@@ -893,6 +893,9 @@ def internal_preview_live_acceptance_readiness():
     human_deployment_key_present=bool(
         settings.human_deployment_key.strip()
     )
+    vercel_oidc_token_present=bool(
+        (os.getenv("VERCEL_OIDC_TOKEN") or "").strip()
+    )
 
     ready=(
         db_state["available"]
@@ -903,6 +906,7 @@ def internal_preview_live_acceptance_readiness():
         and aihubmix_api_key_present
         and human_release_key_present
         and human_deployment_key_present
+        and vercel_oidc_token_present
     )
 
     return {
@@ -916,6 +920,7 @@ def internal_preview_live_acceptance_readiness():
         "aihubmix_api_key_present":aihubmix_api_key_present,
         "human_release_key_present":human_release_key_present,
         "human_deployment_key_present":human_deployment_key_present,
+        "vercel_oidc_token_present":vercel_oidc_token_present,
         "live_model_invoked":False,
         "deployment_executor":"DISABLED",
         "deployment_enabled":False,
