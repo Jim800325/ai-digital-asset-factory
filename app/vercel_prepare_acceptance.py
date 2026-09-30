@@ -944,11 +944,7 @@ def cleanup_prepare_acceptance(run_id) -> dict[str, Any]:
         if row["release_candidate_id"] is not None:
             db.execute(text("""
               UPDATE release_candidates
-              SET archived_at=COALESCE(archived_at,now()),
-                  archive_reason=COALESCE(
-                    archive_reason,
-                    'Step 4A sacrificial PREPARE acceptance cleanup'
-                  )
+              SET archived_at=COALESCE(archived_at,now())
               WHERE id=:candidate_id
             """), {"candidate_id": row["release_candidate_id"]})
 
