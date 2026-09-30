@@ -200,3 +200,11 @@ alias, database, or branch is modified.
 A Preview-only VERCEL_OIDC_TOKEN was configured. This feature-branch-only
 marker triggers a fresh Preview so the short-lived OIDC credential is injected.
 No Production configuration, alias, database, or branch is modified.
+
+
+## Preview AIHubMix key rotation redeploy
+
+The Preview-only AIHUBMIX_API_KEY was rotated after a provider-side 401 during
+Controlled Live Acceptance. This feature-branch-only marker triggers a fresh
+Preview so the rotated Preview credential is injected. No Production
+configuration, database, alias, or branch is modified.
