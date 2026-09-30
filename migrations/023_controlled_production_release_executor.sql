@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS production_release_execution_decisions (
 
 CREATE TABLE IF NOT EXISTS production_release_execution_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  sequence_no bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
   execution_id uuid NOT NULL
     REFERENCES production_release_executions(id) ON DELETE RESTRICT,
   event_type text NOT NULL CHECK (event_type IN (
@@ -113,7 +114,7 @@ CREATE TABLE IF NOT EXISTS production_release_execution_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_production_release_execution_events
-  ON production_release_execution_events(execution_id,created_at,id);
+  ON production_release_execution_events(execution_id,sequence_no);
 
 CREATE OR REPLACE FUNCTION enforce_production_release_execution_guard()
 RETURNS trigger
