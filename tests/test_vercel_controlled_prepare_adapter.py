@@ -281,3 +281,73 @@ def test_metadata_recovery_is_read_only_and_matches_exact_execution(monkeypatch)
     assert candidate.provider_write_performed is False
     assert candidate.metadata["source"] == "IMMUTABLE_METADATA_RECOVERY_READ"
     assert calls == {"list": 1, "detail": 1, "post": 0}
+
+
+def test_metadata_recovery_accepts_exact_legacy_immutable_fingerprint(monkeypatch):
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    calls = {"list": 0, "detail": 0, "post": 0}
+    snapshot = _snapshot()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            calls["post"] += 1
+            return httpx.Response(500, request=request)
+        if request.url.path == f"/v9/projects/{PROJECT_ID}":
+            return httpx.Response(
+                200,
+                request=request,
+                json={
+                    "id": PROJECT_ID,
+                    "name": "executor-sacrificial",
+                    "accountId": TEAM_ID,
+                },
+            )
+        if request.url.path == "/v6/deployments":
+            calls["list"] += 1
+            return httpx.Response(
+                200,
+                request=request,
+                json={
+                    "deployments": [
+                        {"uid": "dpl_legacy_provider_assigned_123"}
+                    ]
+                },
+            )
+        if request.url.path == (
+            "/v13/deployments/dpl_legacy_provider_assigned_123"
+        ):
+            calls["detail"] += 1
+            return httpx.Response(
+                200,
+                request=request,
+                json={
+                    "id": "dpl_legacy_provider_assigned_123",
+                    "url": "executor-sacrificial-legacy.vercel.app",
+                    "readyState": "READY",
+                    "projectId": PROJECT_ID,
+                    "teamId": TEAM_ID,
+                    "target": "production",
+                    "alias": [],
+                    "aliasAssigned": False,
+                    "autoAssignCustomDomains": False,
+                    "meta": {
+                        "controlledExecutionId": snapshot["id"],
+                        "controlledExecutionSha256": snapshot["execution_sha256"],
+                        "controlledPlanSha256": snapshot["plan_sha256"],
+                        "controlledBundleSha256": snapshot[
+                            "execution_bundle_sha256"
+                        ],
+                        "controlledMode": "SACRIFICIAL_PREPARE_ONLY",
+                    },
+                },
+            )
+        raise AssertionError(str(request.url))
+
+    adapter = _adapter(handler)
+    candidate = adapter.find_candidate_by_execution(snapshot)
+
+    assert candidate is not None
+    assert candidate.deployment_id == "dpl_legacy_provider_assigned_123"
+    assert candidate.state == "READY"
+    assert candidate.provider_write_performed is False
+    assert calls == {"list": 1, "detail": 1, "post": 0}
