@@ -161,9 +161,17 @@ def _provider_key()->str:
 
 def _require_oidc(token:str|None)->str:
     value=(token or "").strip()
-    if not value:
-        raise LiveAcceptanceError("x-vercel-oidc-token request header is unavailable")
-    return value
+    if value:
+        return value
+
+    vercel_env=(os.environ.get("VERCEL_ENV") or "").strip().lower()
+    env_value=(os.environ.get("VERCEL_OIDC_TOKEN") or "").strip()
+    if vercel_env=="preview" and env_value:
+        return env_value
+
+    raise LiveAcceptanceError(
+        "Vercel OIDC token is unavailable from request header or Preview env"
+    )
 
 
 def _headers(token:str,content_type:str="application/json")->dict[str,str]:
