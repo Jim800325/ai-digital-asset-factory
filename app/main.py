@@ -155,6 +155,10 @@ def health():
             and settings.preview_acceptance_key.strip()
         ) else "DISABLED",
         "controlled_production_release":"AUTHORIZATION_ONLY",
+        "controlled_production_executor":"ENABLED" if settings.controlled_production_executor_enabled else "DISABLED",
+        "production_promotion":"ENABLED" if settings.production_promotion_enabled else "DISABLED",
+        "production_rollback":"ENABLED" if settings.production_rollback_enabled else "DISABLED",
+        "production_execution_adapter":settings.production_execution_adapter.strip().upper() or "MOCK",
         "deployment_executor":"DISABLED",
         "release_deployment":"DISABLED",
         "release_review_package":"ENABLED",
