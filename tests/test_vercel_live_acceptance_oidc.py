@@ -23,3 +23,19 @@ def test_require_oidc_remains_fail_closed_outside_preview(monkeypatch):
 
     with pytest.raises(live.LiveAcceptanceError, match="OIDC token is unavailable"):
         live._require_oidc(None)
+
+
+
+def test_vercel_runtime_oidc_token_prefers_sdk_runtime(monkeypatch):
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setenv("VERCEL_OIDC_TOKEN", "fallback-env-token")
+
+    class RuntimeEnv:
+        VERCEL_OIDC_TOKEN = "sdk-runtime-token"
+
+    import vercel.functions
+
+    monkeypatch.setattr(vercel.functions, "get_env", lambda: RuntimeEnv())
+
+    assert live._vercel_runtime_oidc_token() == "sdk-runtime-token"
+    assert live._require_oidc(None) == "sdk-runtime-token"
