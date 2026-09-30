@@ -982,6 +982,22 @@ def internal_preview_live_acceptance_preflight(
     }
 
 
+
+
+def _preview_acceptance_attempt_digest(expected: str) -> str:
+    source_commit=(os.getenv("VERCEL_GIT_COMMIT_SHA") or "").strip().lower()
+    if (
+        len(source_commit)!=40
+        or any(ch not in "0123456789abcdef" for ch in source_commit)
+    ):
+        raise RuntimeError(
+            "Preview acceptance requires a full VERCEL_GIT_COMMIT_SHA"
+        )
+    return hashlib.sha256(
+        (expected+"\n"+source_commit).encode("utf-8")
+    ).hexdigest()
+
+
 @app.post(
     "/internal/preview-live-acceptance",
     include_in_schema=False,
@@ -994,7 +1010,10 @@ def internal_preview_live_acceptance(
     ),
 ):
     expected=_require_preview_acceptance_key(x_preview_acceptance_key)
-    digest=hashlib.sha256(expected.encode("utf-8")).hexdigest()
+    try:
+        digest=_preview_acceptance_attempt_digest(expected)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503,detail=str(exc)) from exc
     try:
         result=run_vercel_live_acceptance(
             "",
