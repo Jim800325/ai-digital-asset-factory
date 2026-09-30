@@ -219,3 +219,9 @@ cleanup                         PASS
 ```
 
 Step 4A passing does not authorize Step 5 provider promotion.
+
+## Preview environment refresh
+
+A documentation-only branch update may be used after Preview environment variables
+change so Vercel creates a fresh Git-integrated Preview with the new variables.
+This does not authorize or invoke the sacrificial PREPARE provider mutation.
