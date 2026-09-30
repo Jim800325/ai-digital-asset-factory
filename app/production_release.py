@@ -1534,7 +1534,14 @@ def reconcile_vercel_prepare(
         )
     )
     if not deployment_id or deployment_id == legacy_reconciliation_key:
-        candidate = provider.find_candidate_by_execution(snapshot)
+        finder = getattr(provider, "find_candidate_by_execution", None)
+        if callable(finder):
+            candidate = finder(snapshot)
+        else:
+            candidate = provider.read_candidate(
+                snapshot,
+                deployment_id or legacy_reconciliation_key,
+            )
     else:
         candidate = provider.read_candidate(snapshot, deployment_id)
 
