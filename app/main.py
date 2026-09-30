@@ -54,6 +54,15 @@ from app.vercel_live_acceptance import (
     live_acceptance_db_diagnostics,
     run_vercel_live_acceptance,
 )
+from app.vercel_prepare_acceptance import (
+    VercelPrepareAcceptanceError,
+    acceptance_readiness as vercel_prepare_acceptance_readiness,
+    authorize_prepare_acceptance,
+    cleanup_prepare_acceptance,
+    get_prepare_acceptance,
+    reconcile_prepare_acceptance,
+    start_prepare_acceptance,
+)
 from app.workers.pipeline import run_pipeline
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
@@ -1132,6 +1141,137 @@ def live_acceptance_audit(audit_id: str):
         return get_live_acceptance_audit(audit_id)
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.get(
+    "/internal/vercel-prepare-acceptance/readiness",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_readiness():
+    return vercel_prepare_acceptance_readiness()
+
+
+@app.get(
+    "/internal/vercel-prepare-acceptance/{run_id}",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_get(
+    run_id: UUID,
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    try:
+        return get_prepare_acceptance(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post(
+    "/internal/vercel-prepare-acceptance/start",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_start(
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    _require_production_execution_key(x_production_execution_key)
+    try:
+        return start_prepare_acceptance()
+    except VercelPrepareAcceptanceError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/internal/vercel-prepare-acceptance/{run_id}/reconcile",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_reconcile(
+    run_id: UUID,
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    _require_production_execution_key(x_production_execution_key)
+    try:
+        return reconcile_prepare_acceptance(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except VercelPrepareAcceptanceError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/internal/vercel-prepare-acceptance/{run_id}/authorize",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_authorize(
+    run_id: UUID,
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    _require_production_execution_key(x_production_execution_key)
+    try:
+        return authorize_prepare_acceptance(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except VercelPrepareAcceptanceError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/internal/vercel-prepare-acceptance/{run_id}/cleanup",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_cleanup(
+    run_id: UUID,
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    _require_production_execution_key(x_production_execution_key)
+    try:
+        return cleanup_prepare_acceptance(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except VercelPrepareAcceptanceError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
 @app.get(
