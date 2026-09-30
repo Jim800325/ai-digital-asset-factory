@@ -1002,6 +1002,662 @@ def prepare_mock_candidate(
 
 
 
+def _candidate_result_sha(candidate: Any) -> str:
+    supplied = str(
+        (candidate.metadata or {}).get("provider_result_sha256") or ""
+    ).strip().lower()
+    if len(supplied) == 64:
+        return supplied
+    return _sha256({
+        "deployment_id": candidate.deployment_id,
+        "url": candidate.url,
+        "state": candidate.state,
+        "metadata": candidate.metadata,
+    })
+
+
+def _persist_ready_candidate(
+    db,
+    *,
+    execution_id,
+    actor: str,
+    candidate: Any,
+    previous_status: str,
+    prepare_outcome: str,
+    reconciled: bool,
+) -> dict[str, Any]:
+    provider_result_sha = _candidate_result_sha(candidate)
+    prepared = db.execute(text("""
+      UPDATE production_release_executions
+      SET execution_status='READY_FOR_PROMOTION',
+          candidate_vercel_deployment_id=:deployment_id,
+          candidate_vercel_url=:url,
+          prepare_provider_state=:provider_state,
+          prepare_outcome=:prepare_outcome,
+          prepare_provider_result_sha256=:provider_result_sha,
+          prepare_reconciled_at=CASE WHEN :reconciled THEN now()
+                                     ELSE prepare_reconciled_at END,
+          prepared_at=COALESCE(prepared_at,now()),
+          production_execution_enabled=false,
+          automatic_execution=false,
+          automatic_promotion=false
+      WHERE id=CAST(:id AS uuid)
+      RETURNING *
+    """), {
+        "id": execution_id,
+        "deployment_id": candidate.deployment_id,
+        "url": candidate.url,
+        "provider_state": candidate.state,
+        "prepare_outcome": prepare_outcome,
+        "provider_result_sha": provider_result_sha,
+        "reconciled": reconciled,
+    }).mappings().one()
+
+    _event(
+        db,
+        execution_id,
+        event_type="CANDIDATE_CREATED",
+        actor=actor,
+        previous_status=previous_status,
+        next_status=previous_status,
+        details={
+            "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+            "deployment_id": candidate.deployment_id,
+            "provider_write_performed": not reconciled,
+            "reconciled": reconciled,
+            "auto_assign_custom_domains": False,
+            "production_traffic_changed": False,
+        },
+        provider_result_sha256=provider_result_sha,
+    )
+    _event(
+        db,
+        execution_id,
+        event_type="CANDIDATE_READY",
+        actor=actor,
+        previous_status=previous_status,
+        next_status="READY_FOR_PROMOTION",
+        details={
+            "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+            "deployment_id": candidate.deployment_id,
+            "state": candidate.state,
+            "reconciled": reconciled,
+            "production_traffic_changed": False,
+        },
+        provider_result_sha256=provider_result_sha,
+    )
+    _event(
+        db,
+        execution_id,
+        event_type="CANDIDATE_VERIFIED",
+        actor=actor,
+        previous_status="READY_FOR_PROMOTION",
+        next_status="READY_FOR_PROMOTION",
+        details={
+            "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+            "target_project_id": prepared["target_project_id"],
+            "target_team_id": prepared["target_team_id"],
+            "auto_assign_custom_domains": False,
+            "alias_assigned": False,
+            "reconciled": reconciled,
+            "production_traffic_changed": False,
+        },
+        provider_result_sha256=provider_result_sha,
+    )
+    return dict(prepared)
+
+
+def prepare_vercel_candidate(
+    execution_id,
+    *,
+    actor: str = "vercel-controlled-preparer",
+    adapter: VercelControlledExecutionAdapter | None = None,
+) -> dict[str, Any]:
+    _require_step1_disabled()
+    clean_actor = (actor or "vercel-controlled-preparer").strip()
+    if not clean_actor:
+        clean_actor = "vercel-controlled-preparer"
+
+    gate = evaluate_execution_integrity(
+        execution_id,
+        actor=clean_actor + ":integrity",
+    )
+    if gate["allowed"] is not True:
+        raise RuntimeError(
+            "Execution Integrity Gate blocked Vercel PREPARE: "
+            + ", ".join(gate["blocking_reasons"])
+            + f" [integrity_check_id={gate['integrity_check_id']}]"
+        )
+
+    with engine.connect() as db:
+        source = db.execute(text("""
+          SELECT *
+          FROM production_release_executions
+          WHERE id=CAST(:id AS uuid)
+        """), {"id": execution_id}).mappings().one_or_none()
+    if source is None:
+        raise LookupError("Production release execution not found")
+    snapshot = dict(source)
+    if snapshot["executor_adapter"] != "VERCEL_CONTROLLED_EXECUTOR":
+        raise RuntimeError(
+            "Vercel PREPARE requires VERCEL_CONTROLLED_EXECUTOR snapshot"
+        )
+    if snapshot["execution_status"] == "READY_FOR_PROMOTION":
+        return snapshot
+    if snapshot["execution_status"] in {"PREPARING", "PREPARE_UNKNOWN"}:
+        raise RuntimeError(
+            "Vercel PREPARE has already consumed its one provider write; "
+            "use reconciliation"
+        )
+    if snapshot["execution_status"] != "SNAPSHOT_CREATED":
+        raise RuntimeError(
+            "Vercel PREPARE requires SNAPSHOT_CREATED execution"
+        )
+    if int(snapshot.get("prepare_write_count") or 0) != 0:
+        raise RuntimeError(
+            "Vercel PREPARE provider write budget is already consumed"
+        )
+
+    provider = adapter or get_production_execution_adapter(
+        "VERCEL_CONTROLLED_EXECUTOR"
+    )
+    if not isinstance(provider, VercelControlledExecutionAdapter) and adapter is None:
+        raise RuntimeError("Vercel controlled adapter is unavailable")
+    request = provider.build_prepare_request(snapshot)
+
+    with engine.begin() as db:
+        locked = db.execute(text("""
+          SELECT *
+          FROM production_release_executions
+          WHERE id=CAST(:id AS uuid)
+          FOR UPDATE
+        """), {"id": execution_id}).mappings().one_or_none()
+        if locked is None:
+            raise LookupError("Production release execution not found")
+        if locked["execution_sha256"] != snapshot["execution_sha256"]:
+            raise RuntimeError("Execution changed before Vercel PREPARE")
+        if locked["execution_status"] != "SNAPSHOT_CREATED":
+            raise RuntimeError(
+                "Execution state changed before Vercel PREPARE"
+            )
+        if int(locked["prepare_write_count"] or 0) != 0:
+            raise RuntimeError(
+                "Vercel PREPARE provider write budget is already consumed"
+            )
+
+        db.execute(text("""
+          UPDATE production_release_executions
+          SET execution_status='PREPARING',
+              prepare_request_sha256=:request_sha,
+              prepare_provider_deployment_id=:deployment_id,
+              prepare_provider_state='REQUESTED',
+              prepare_outcome='REQUESTED',
+              prepare_write_count=1,
+              prepare_attempted_at=now()
+          WHERE id=CAST(:id AS uuid)
+        """), {
+            "id": execution_id,
+            "request_sha": request.request_sha256,
+            "deployment_id": request.deployment_id,
+        })
+        _event(
+            db,
+            execution_id,
+            event_type="PREPARE_REQUESTED",
+            actor=clean_actor,
+            previous_status="SNAPSHOT_CREATED",
+            next_status="PREPARING",
+            details={
+                "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+                "deployment_id": request.deployment_id,
+                "prepare_request_sha256": request.request_sha256,
+                "provider_write_budget": 1,
+                "provider_write_attempted": True,
+                "auto_assign_custom_domains": False,
+                "production_traffic_changed": False,
+            },
+        )
+
+    try:
+        candidate = provider.send_prepare(request)
+    except ProviderWriteOutcomeUnknown as exc:
+        with engine.begin() as db:
+            current = db.execute(text("""
+              SELECT execution_status
+              FROM production_release_executions
+              WHERE id=CAST(:id AS uuid)
+              FOR UPDATE
+            """), {"id": execution_id}).mappings().one()
+            if current["execution_status"] != "PREPARING":
+                raise RuntimeError(
+                    "Execution state changed during ambiguous Vercel PREPARE"
+                )
+            result = db.execute(text("""
+              UPDATE production_release_executions
+              SET execution_status='PREPARE_UNKNOWN',
+                  prepare_provider_state='UNKNOWN',
+                  prepare_outcome='AMBIGUOUS',
+                  prepare_last_error_type=:error_type,
+                  prepare_last_error_sha256=:error_sha
+              WHERE id=CAST(:id AS uuid)
+              RETURNING *
+            """), {
+                "id": execution_id,
+                "error_type": exc.error_type[:200],
+                "error_sha": exc.evidence_sha256,
+            }).mappings().one()
+            _event(
+                db,
+                execution_id,
+                event_type="RECONCILIATION_REQUIRED",
+                actor=clean_actor,
+                previous_status="PREPARING",
+                next_status="PREPARE_UNKNOWN",
+                details={
+                    "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+                    "deployment_id": exc.deployment_id,
+                    "error_type": exc.error_type,
+                    "provider_write_count": 1,
+                    "automatic_replay": False,
+                    "production_traffic_changed": False,
+                },
+            )
+        output = dict(result)
+        output["reconciliation_required"] = True
+        return output
+    except ProviderPrepareRejected as exc:
+        with engine.begin() as db:
+            result = db.execute(text("""
+              UPDATE production_release_executions
+              SET execution_status='PREPARE_FAILED',
+                  prepare_provider_state='REJECTED',
+                  prepare_outcome='REJECTED',
+                  prepare_provider_result_sha256=:result_sha,
+                  prepare_last_error_type=:error_type,
+                  prepare_last_error_sha256=:error_sha
+              WHERE id=CAST(:id AS uuid)
+                AND execution_status='PREPARING'
+              RETURNING *
+            """), {
+                "id": execution_id,
+                "result_sha": exc.evidence_sha256,
+                "error_type": f"HTTP_{exc.status_code}",
+                "error_sha": exc.evidence_sha256,
+            }).mappings().one()
+            _event(
+                db,
+                execution_id,
+                event_type="FAILURE",
+                actor=clean_actor,
+                previous_status="PREPARING",
+                next_status="PREPARE_FAILED",
+                details={
+                    "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+                    "error_type": f"HTTP_{exc.status_code}",
+                    "provider_write_count": 1,
+                    "automatic_replay": False,
+                    "production_traffic_changed": False,
+                },
+                provider_result_sha256=exc.evidence_sha256,
+            )
+        raise RuntimeError(
+            f"Vercel PREPARE rejected with HTTP {exc.status_code}"
+        ) from exc
+    except Exception as exc:
+        error_sha = _sha256({
+            "error_type": type(exc).__name__,
+            "message": str(exc)[:2000],
+        })
+        with engine.begin() as db:
+            current = db.execute(text("""
+              SELECT execution_status
+              FROM production_release_executions
+              WHERE id=CAST(:id AS uuid)
+              FOR UPDATE
+            """), {"id": execution_id}).mappings().one()
+            if current["execution_status"] == "PREPARING":
+                db.execute(text("""
+                  UPDATE production_release_executions
+                  SET execution_status='PREPARE_FAILED',
+                      prepare_provider_state='ERROR',
+                      prepare_outcome='REJECTED',
+                      prepare_last_error_type=:error_type,
+                      prepare_last_error_sha256=:error_sha
+                  WHERE id=CAST(:id AS uuid)
+                """), {
+                    "id": execution_id,
+                    "error_type": type(exc).__name__[:200],
+                    "error_sha": error_sha,
+                })
+                _event(
+                    db,
+                    execution_id,
+                    event_type="FAILURE",
+                    actor=clean_actor,
+                    previous_status="PREPARING",
+                    next_status="PREPARE_FAILED",
+                    details={
+                        "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+                        "error_type": type(exc).__name__,
+                        "provider_write_count": 1,
+                        "automatic_replay": False,
+                        "production_traffic_changed": False,
+                    },
+                )
+        raise
+
+    provider_result_sha = _candidate_result_sha(candidate)
+    state = candidate.state.upper()
+    with engine.begin() as db:
+        current = db.execute(text("""
+          SELECT *
+          FROM production_release_executions
+          WHERE id=CAST(:id AS uuid)
+          FOR UPDATE
+        """), {"id": execution_id}).mappings().one()
+        if current["execution_status"] != "PREPARING":
+            raise RuntimeError(
+                "Execution state changed during Vercel PREPARE"
+            )
+        if (
+            candidate.deployment_id
+            != current["prepare_provider_deployment_id"]
+        ):
+            raise RuntimeError(
+                "Vercel PREPARE returned unexpected deployment ID"
+            )
+
+        if state == "READY":
+            return _persist_ready_candidate(
+                db,
+                execution_id=execution_id,
+                actor=clean_actor,
+                candidate=candidate,
+                previous_status="PREPARING",
+                prepare_outcome="ACCEPTED",
+                reconciled=False,
+            )
+
+        if state in {"ERROR", "CANCELED", "CANCELLED"}:
+            result = db.execute(text("""
+              UPDATE production_release_executions
+              SET execution_status='PREPARE_FAILED',
+                  candidate_vercel_deployment_id=:deployment_id,
+                  candidate_vercel_url=:url,
+                  prepare_provider_state=:state,
+                  prepare_outcome='REJECTED',
+                  prepare_provider_result_sha256=:result_sha
+              WHERE id=CAST(:id AS uuid)
+              RETURNING *
+            """), {
+                "id": execution_id,
+                "deployment_id": candidate.deployment_id,
+                "url": candidate.url,
+                "state": state,
+                "result_sha": provider_result_sha,
+            }).mappings().one()
+            _event(
+                db,
+                execution_id,
+                event_type="FAILURE",
+                actor=clean_actor,
+                previous_status="PREPARING",
+                next_status="PREPARE_FAILED",
+                details={
+                    "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+                    "deployment_id": candidate.deployment_id,
+                    "provider_state": state,
+                    "provider_write_performed": True,
+                    "production_traffic_changed": False,
+                },
+                provider_result_sha256=provider_result_sha,
+            )
+            return dict(result)
+
+        result = db.execute(text("""
+          UPDATE production_release_executions
+          SET candidate_vercel_deployment_id=:deployment_id,
+              candidate_vercel_url=:url,
+              prepare_provider_state=:state,
+              prepare_outcome='ACCEPTED',
+              prepare_provider_result_sha256=:result_sha
+          WHERE id=CAST(:id AS uuid)
+          RETURNING *
+        """), {
+            "id": execution_id,
+            "deployment_id": candidate.deployment_id,
+            "url": candidate.url,
+            "state": state,
+            "result_sha": provider_result_sha,
+        }).mappings().one()
+        _event(
+            db,
+            execution_id,
+            event_type="CANDIDATE_CREATED",
+            actor=clean_actor,
+            previous_status="PREPARING",
+            next_status="PREPARING",
+            details={
+                "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+                "deployment_id": candidate.deployment_id,
+                "provider_state": state,
+                "provider_write_performed": True,
+                "auto_assign_custom_domains": False,
+                "production_traffic_changed": False,
+            },
+            provider_result_sha256=provider_result_sha,
+        )
+        return dict(result)
+
+
+def reconcile_vercel_prepare(
+    execution_id,
+    *,
+    actor: str = "vercel-prepare-reconciler",
+    adapter: VercelControlledExecutionAdapter | None = None,
+) -> dict[str, Any]:
+    _require_step1_disabled()
+    clean_actor = (actor or "vercel-prepare-reconciler").strip()
+    if not clean_actor:
+        clean_actor = "vercel-prepare-reconciler"
+
+    gate = evaluate_execution_integrity(
+        execution_id,
+        actor=clean_actor + ":integrity",
+    )
+    if gate["allowed"] is not True:
+        raise RuntimeError(
+            "Execution Integrity Gate blocked PREPARE reconciliation: "
+            + ", ".join(gate["blocking_reasons"])
+            + f" [integrity_check_id={gate['integrity_check_id']}]"
+        )
+
+    with engine.connect() as db:
+        row = db.execute(text("""
+          SELECT *
+          FROM production_release_executions
+          WHERE id=CAST(:id AS uuid)
+        """), {"id": execution_id}).mappings().one_or_none()
+    if row is None:
+        raise LookupError("Production release execution not found")
+    snapshot = dict(row)
+    if snapshot["executor_adapter"] != "VERCEL_CONTROLLED_EXECUTOR":
+        raise RuntimeError(
+            "Vercel PREPARE reconciliation requires Vercel adapter"
+        )
+    if snapshot["execution_status"] == "READY_FOR_PROMOTION":
+        return snapshot
+    if snapshot["execution_status"] not in {
+        "PREPARING",
+        "PREPARE_UNKNOWN",
+    }:
+        raise RuntimeError(
+            "Vercel PREPARE reconciliation requires pending PREPARE"
+        )
+    if int(snapshot.get("prepare_write_count") or 0) != 1:
+        raise RuntimeError(
+            "Vercel PREPARE reconciliation requires consumed write budget"
+        )
+    deployment_id = str(
+        snapshot.get("prepare_provider_deployment_id") or ""
+    ).strip()
+    if not deployment_id:
+        raise RuntimeError(
+            "Vercel PREPARE reconciliation deployment ID is unavailable"
+        )
+
+    provider = adapter or get_production_execution_adapter(
+        "VERCEL_CONTROLLED_EXECUTOR"
+    )
+    candidate = provider.read_candidate(snapshot, deployment_id)
+
+    with engine.begin() as db:
+        current = db.execute(text("""
+          SELECT *
+          FROM production_release_executions
+          WHERE id=CAST(:id AS uuid)
+          FOR UPDATE
+        """), {"id": execution_id}).mappings().one()
+        previous_status = current["execution_status"]
+        if previous_status not in {"PREPARING", "PREPARE_UNKNOWN"}:
+            raise RuntimeError(
+                "Execution state changed during PREPARE reconciliation"
+            )
+        if int(current["prepare_write_count"] or 0) != 1:
+            raise RuntimeError(
+                "PREPARE reconciliation detected invalid write count"
+            )
+
+        if candidate is None:
+            next_status = (
+                "PREPARE_UNKNOWN"
+                if previous_status == "PREPARING"
+                else previous_status
+            )
+            result = db.execute(text("""
+              UPDATE production_release_executions
+              SET execution_status=:next_status,
+                  prepare_provider_state='NOT_FOUND',
+                  prepare_outcome='RECONCILED_PENDING',
+                  prepare_reconciled_at=now()
+              WHERE id=CAST(:id AS uuid)
+              RETURNING *
+            """), {
+                "id": execution_id,
+                "next_status": next_status,
+            }).mappings().one()
+            _event(
+                db,
+                execution_id,
+                event_type="RECONCILIATION_REQUIRED",
+                actor=clean_actor,
+                previous_status=previous_status,
+                next_status=next_status,
+                details={
+                    "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+                    "deployment_id": deployment_id,
+                    "provider_state": "NOT_FOUND",
+                    "provider_write_count": 1,
+                    "automatic_replay": False,
+                    "reconciliation_read_only": True,
+                    "production_traffic_changed": False,
+                },
+            )
+            output = dict(result)
+            output["reconciliation_required"] = True
+            return output
+
+        state = candidate.state.upper()
+        provider_result_sha = _candidate_result_sha(candidate)
+        if state == "READY":
+            return _persist_ready_candidate(
+                db,
+                execution_id=execution_id,
+                actor=clean_actor,
+                candidate=candidate,
+                previous_status=previous_status,
+                prepare_outcome="RECONCILED_READY",
+                reconciled=True,
+            )
+
+        if state in {"ERROR", "CANCELED", "CANCELLED"}:
+            result = db.execute(text("""
+              UPDATE production_release_executions
+              SET execution_status='PREPARE_FAILED',
+                  candidate_vercel_deployment_id=:deployment_id,
+                  candidate_vercel_url=:url,
+                  prepare_provider_state=:state,
+                  prepare_outcome='RECONCILED_FAILED',
+                  prepare_provider_result_sha256=:result_sha,
+                  prepare_reconciled_at=now()
+              WHERE id=CAST(:id AS uuid)
+              RETURNING *
+            """), {
+                "id": execution_id,
+                "deployment_id": candidate.deployment_id,
+                "url": candidate.url,
+                "state": state,
+                "result_sha": provider_result_sha,
+            }).mappings().one()
+            _event(
+                db,
+                execution_id,
+                event_type="FAILURE",
+                actor=clean_actor,
+                previous_status=previous_status,
+                next_status="PREPARE_FAILED",
+                details={
+                    "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+                    "deployment_id": candidate.deployment_id,
+                    "provider_state": state,
+                    "reconciliation_read_only": True,
+                    "provider_write_count": 1,
+                    "production_traffic_changed": False,
+                },
+                provider_result_sha256=provider_result_sha,
+            )
+            return dict(result)
+
+        result = db.execute(text("""
+          UPDATE production_release_executions
+          SET candidate_vercel_deployment_id=:deployment_id,
+              candidate_vercel_url=:url,
+              prepare_provider_state=:state,
+              prepare_outcome='RECONCILED_PENDING',
+              prepare_provider_result_sha256=:result_sha,
+              prepare_reconciled_at=now()
+          WHERE id=CAST(:id AS uuid)
+          RETURNING *
+        """), {
+            "id": execution_id,
+            "deployment_id": candidate.deployment_id,
+            "url": candidate.url,
+            "state": state,
+            "result_sha": provider_result_sha,
+        }).mappings().one()
+        _event(
+            db,
+            execution_id,
+            event_type="RECONCILIATION_REQUIRED",
+            actor=clean_actor,
+            previous_status=previous_status,
+            next_status=previous_status,
+            details={
+                "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+                "deployment_id": candidate.deployment_id,
+                "provider_state": state,
+                "reconciliation_read_only": True,
+                "provider_write_count": 1,
+                "automatic_replay": False,
+                "production_traffic_changed": False,
+            },
+            provider_result_sha256=provider_result_sha,
+        )
+        output = dict(result)
+        output["reconciliation_required"] = True
+        return output
+
+
 def _production_execution_decision_material(
     row: dict[str, Any],
     *,
