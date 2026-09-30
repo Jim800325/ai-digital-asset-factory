@@ -994,8 +994,21 @@ def get_production_release_execution(execution_id) -> dict[str, Any]:
               ORDER BY sequence_no
             """), {"id": row["id"]}).mappings().all()
         ]
+        integrity_checks = [
+            dict(item)
+            for item in db.execute(text("""
+              SELECT id,check_status,actor,execution_sha256,blocking_reasons,
+                     current_manifest_root_sha256,current_chain_head_sha256,
+                     stored_chain_head_is_ancestor,registry_chain_extended,
+                     external_side_effects,production_traffic_changed,checked_at
+              FROM production_release_execution_integrity_checks
+              WHERE execution_id=:id
+              ORDER BY checked_at,id
+            """), {"id": row["id"]}).mappings().all()
+        ]
 
     result = dict(row)
     result["decisions"] = decisions
     result["events"] = events
+    result["integrity_checks"] = integrity_checks
     return result
