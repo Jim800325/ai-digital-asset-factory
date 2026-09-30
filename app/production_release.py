@@ -1096,19 +1096,20 @@ def decide_production_execution(
                 "CANDIDATE_VERIFIED evidence"
             )
 
+        blocked_error: str | None = None
         if normalized == "PROMOTE":
             gate = _execution_integrity_locked(
                 db,
                 row,
                 actor=clean_actor + ":pre-promotion-integrity",
             )
+            integrity_check_id = gate["integrity_check_id"]
             if gate["allowed"] is not True:
-                raise RuntimeError(
+                blocked_error = (
                     "Execution Integrity Gate blocked PROMOTE: "
                     + ", ".join(gate["blocking_reasons"])
                     + f" [integrity_check_id={gate['integrity_check_id']}]"
                 )
-            integrity_check_id = gate["integrity_check_id"]
         else:
             latest_check = db.execute(text("""
               SELECT id
@@ -1123,20 +1124,24 @@ def decide_production_execution(
                 )
             integrity_check_id = str(latest_check["id"])
 
-        material = _production_execution_decision_material(
-            row,
-            decision=normalized,
-            reason=clean_reason,
-            actor=clean_actor,
-            candidate_verified_event_id=str(verified_event["id"]),
-            candidate_provider_result_sha256=(
-                verified_event["provider_result_sha256"]
-            ),
-            integrity_check_id=integrity_check_id,
-        )
-        decision_sha = _sha256(material)
+        if blocked_error is not None:
+            saved = None
+            next_status = row["execution_status"]
+        else:
+            material = _production_execution_decision_material(
+                row,
+                decision=normalized,
+                reason=clean_reason,
+                actor=clean_actor,
+                candidate_verified_event_id=str(verified_event["id"]),
+                candidate_provider_result_sha256=(
+                    verified_event["provider_result_sha256"]
+                ),
+                integrity_check_id=integrity_check_id,
+            )
+            decision_sha = _sha256(material)
 
-        saved = db.execute(text("""
+            saved = db.execute(text("""
           INSERT INTO production_release_execution_decisions(
             execution_id,decision,reason,actor,execution_sha256,
             deployment_plan_id,plan_sha256,
@@ -1155,19 +1160,22 @@ def decide_production_execution(
             CAST(:integrity_check_id AS uuid),:decision_sha256,
             false,false)
           RETURNING *
-        """), {
-            **material,
-            "decision_sha256": decision_sha,
-        }).mappings().one()
+            """), {
+                **material,
+                "decision_sha256": decision_sha,
+            }).mappings().one()
 
-        next_status = row["execution_status"]
-        if normalized == "ABORT":
-            db.execute(text("""
-              UPDATE production_release_executions
-              SET execution_status='ABORTED'
-              WHERE id=:id
-            """), {"id": row["id"]})
-            next_status = "ABORTED"
+            next_status = row["execution_status"]
+            if normalized == "ABORT":
+                db.execute(text("""
+                  UPDATE production_release_executions
+                  SET execution_status='ABORTED'
+                  WHERE id=:id
+                """), {"id": row["id"]})
+                next_status = "ABORTED"
+
+    if blocked_error is not None:
+        raise RuntimeError(blocked_error)
 
     result = dict(saved)
     result.update({
