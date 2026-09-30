@@ -90,7 +90,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "023_controlled_production_release_executor.sql", expected
+          assert expected[-1] == "024_execution_integrity_gate.sql", expected
           print("migrations:", actual)
           PY
 
