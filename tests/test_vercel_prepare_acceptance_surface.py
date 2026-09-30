@@ -137,3 +137,32 @@ def test_step4a_recover_requires_both_keys_and_is_read_only(monkeypatch):
     payload = recovered.json()
     assert payload["provider_recovery_read_only"] is True
     assert payload["production_traffic_changed"] is False
+
+
+def test_step4a_connector_safe_recovery_needs_no_secret_headers(monkeypatch):
+    run_id = uuid4()
+    monkeypatch.setattr(
+        main,
+        "recover_prepare_acceptance",
+        lambda value: {
+            "id": str(value),
+            "acceptance_status": "READY_FOR_PROMOTION",
+            "provider_write_performed": True,
+            "prepare_write_count": 1,
+            "production_traffic_changed": False,
+        },
+    )
+    client = TestClient(main.app)
+
+    recovered = client.get(
+        f"/internal/vercel-prepare-acceptance/{run_id}/recover-readonly"
+    )
+    assert recovered.status_code == 200
+    payload = recovered.json()
+    assert payload["provider_recovery_read_only"] is True
+    assert payload["provider_write_performed_by_recovery"] is False
+    assert payload["production_traffic_changed"] is False
+    assert payload["production_promotion_performed"] is False
+    assert payload["production_rollback_performed"] is False
+    assert recovered.headers["cache-control"] == "no-store, max-age=0"
+    assert recovered.headers["x-robots-tag"] == "noindex"
