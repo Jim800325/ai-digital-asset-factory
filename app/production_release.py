@@ -271,6 +271,7 @@ def _execution_material(
     row: dict[str, Any],
     *,
     bundle_sha256: str,
+    executor_adapter: str,
 ) -> dict[str, Any]:
     return {
         "schema_version": "production-release-execution-v1",
@@ -299,7 +300,7 @@ def _execution_material(
         "deployment_source_commit": row["deployment_source_commit"],
         "source_vercel_deployment_id": row["source_vercel_deployment_id"],
         "execution_bundle_sha256": bundle_sha256,
-        "executor_adapter": "MOCK",
+        "executor_adapter": executor_adapter,
         "production_execution_enabled": False,
         "automatic_execution": False,
         "automatic_promotion": False,
@@ -487,8 +488,11 @@ def _execution_integrity_locked(
     if expected_execution_sha != str(row["execution_sha256"]).lower():
         reasons.append("execution_sha256_mismatch")
 
-    if row["executor_adapter"] != "MOCK":
-        reasons.append("executor_adapter_not_mock")
+    if row["executor_adapter"] not in {
+        "MOCK",
+        "VERCEL_CONTROLLED_EXECUTOR",
+    }:
+        reasons.append("executor_adapter_unsupported")
     if row["production_execution_enabled"]:
         reasons.append("production_execution_enabled_unexpectedly")
     if row["automatic_execution"]:
@@ -738,7 +742,12 @@ def create_production_release_execution(
 
         bundle = _artifact_bundle(db, row)
         bundle_sha = _sha256(bundle)
-        material = _execution_material(row, bundle_sha256=bundle_sha)
+        executor_adapter = _configured_execution_adapter()
+        material = _execution_material(
+            row,
+            bundle_sha256=bundle_sha,
+            executor_adapter=executor_adapter,
+        )
         execution_sha = _sha256(material)
 
         existing = db.execute(text("""
@@ -774,7 +783,7 @@ def create_production_release_execution(
           VALUES(
             :deployment_plan_id,:authorization_decision_id,
             :release_candidate_id,:review_package_id,'SNAPSHOT_CREATED',
-            'MOCK',:target_provider,:target_environment,
+            :executor_adapter,:target_provider,:target_environment,
             :target_project_id,:target_team_id,:plan_sha256,
             :review_package_sha256,:source_tree_sha256,
             :acceptance_provenance_tree_sha256,:live_acceptance_audit_id,
@@ -800,7 +809,7 @@ def create_production_release_execution(
             previous_status=None,
             next_status="SNAPSHOT_CREATED",
             details={
-                "executor_adapter": "MOCK",
+                "executor_adapter": executor_adapter,
                 "artifact_count": len(bundle["artifacts"]),
                 "external_side_effects": "DENY",
                 "production_traffic_changed": False,
