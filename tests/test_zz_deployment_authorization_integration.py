@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import text
 
 import app.deployment_authorization as deployment_auth
+import app.production_release as production_release
 import app.release_gate as release_gate
 from app.build_proposals import decide_build_proposal
 from app.db import engine
@@ -271,6 +272,81 @@ def test_deployment_authorization_three_path_acceptance(monkeypatch):
         """), {"id": release_a["release_candidate_id"]}).mappings().one()
     assert candidate_a["deployment_enabled"] is False
 
+    # Controlled Production Release Executor Step 1:
+    # authorized immutable plan -> exact execution snapshot -> MOCK prepare only.
+    execution = production_release.create_production_release_execution(
+        plan_a["id"],
+        actor="ci-production-snapshot",
+    )
+    assert execution["execution_status"] == "SNAPSHOT_CREATED"
+    assert execution["executor_adapter"] == "MOCK"
+    assert execution["production_execution_enabled"] is False
+    assert execution["automatic_execution"] is False
+    assert execution["automatic_promotion"] is False
+    assert len(execution["execution_bundle_sha256"]) == 64
+    assert len(execution["execution_sha256"]) == 64
+
+    duplicate = production_release.create_production_release_execution(
+        plan_a["id"],
+        actor="ci-production-snapshot-retry",
+    )
+    assert duplicate["id"] == execution["id"]
+    assert duplicate["execution_sha256"] == execution["execution_sha256"]
+
+    prepared = production_release.prepare_mock_candidate(
+        execution["id"],
+        actor="ci-mock-production-preparer",
+    )
+    assert prepared["execution_status"] == "READY_FOR_PROMOTION"
+    assert prepared["candidate_vercel_deployment_id"].startswith("mock_dpl_")
+    assert prepared["candidate_vercel_url"].endswith(".mock.invalid")
+    assert prepared["production_execution_enabled"] is False
+    assert prepared["automatic_execution"] is False
+    assert prepared["automatic_promotion"] is False
+    assert prepared["previous_production_deployment_id"] is None
+    assert prepared["production_vercel_deployment_id"] is None
+
+    prepared_duplicate = production_release.prepare_mock_candidate(
+        execution["id"],
+        actor="ci-mock-production-preparer-retry",
+    )
+    assert prepared_duplicate["id"] == execution["id"]
+    assert (
+        prepared_duplicate["candidate_vercel_deployment_id"]
+        == prepared["candidate_vercel_deployment_id"]
+    )
+
+    execution_detail = production_release.get_production_release_execution(
+        execution["id"]
+    )
+    assert execution_detail["execution_status"] == "READY_FOR_PROMOTION"
+    assert execution_detail["decisions"] == []
+    event_types = [item["event_type"] for item in execution_detail["events"]]
+    assert event_types == [
+        "EXECUTION_SNAPSHOT_CREATED",
+        "PREPARE_REQUESTED",
+        "CANDIDATE_CREATED",
+        "CANDIDATE_READY",
+        "CANDIDATE_VERIFIED",
+    ]
+    artifact_bundle = execution_detail["execution_bundle"]
+    assert artifact_bundle["schema_version"] == "production-execution-bundle-v1"
+    assert artifact_bundle["artifacts"]
+    assert all(
+        item["content_base64"]
+        for item in artifact_bundle["artifacts"]
+    )
+
+    with engine.connect() as db:
+        unsafe_execution = db.execute(text("""
+          SELECT COUNT(*)
+          FROM production_release_executions
+          WHERE production_execution_enabled=true
+             OR automatic_execution=true
+             OR automatic_promotion=true
+        """)).scalar_one()
+    assert unsafe_execution == 0
+
     # 3) Independent REJECT path because terminal authorization is immutable.
     integrity_b = _verified_integrity("6")
     release_b, plan_b, _ = _approved_release_fixture(
@@ -306,3 +382,9 @@ def test_deployment_authorization_three_path_acceptance(monkeypatch):
           WHERE id=CAST(:id AS uuid)
         """), {"id": release_b["release_candidate_id"]}).mappings().one()
     assert candidate_b["deployment_enabled"] is False
+
+    with pytest.raises(LookupError, match="Authorized Deployment Plan not found"):
+        production_release.create_production_release_execution(
+            plan_b["id"],
+            actor="ci-rejected-plan-must-not-execute",
+        )
