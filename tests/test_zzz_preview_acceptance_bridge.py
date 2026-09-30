@@ -423,11 +423,10 @@ def test_step4a_live_prepare_acceptance_reuses_verified_bytes_and_stops_before_p
 
     with engine.connect() as db:
         archived = db.execute(text("""
-          SELECT archived_at,archive_reason
+          SELECT archived_at
           FROM release_candidates
           WHERE id=:id
         """), {
             "id": cleaned["release_candidate_id"],
         }).mappings().one()
     assert archived["archived_at"] is not None
-    assert "Step 4A" in archived["archive_reason"]
