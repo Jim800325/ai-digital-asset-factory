@@ -21,8 +21,11 @@ from app.deployment_authorization import (
     get_deployment_plan_for_candidate,
 )
 from app.production_release import (
+    create_production_release_execution,
     decide_production_execution,
     get_production_release_execution,
+    prepare_controlled_candidate,
+    reconcile_controlled_prepare,
 )
 from app.config import settings
 from app.db import database_selection, engine
@@ -95,6 +98,14 @@ class ProductionExecutionDecision(BaseModel):
         max_length=200,
     )
     execution_sha256: str = Field(min_length=64,max_length=64)
+
+class ProductionExecutionAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(
+        default="human-production-execution-api",
+        min_length=1,
+        max_length=200,
+    )
 
 def _require_approval_key(provided: str | None) -> None:
     expected=settings.human_approval_key.strip()
@@ -216,6 +227,22 @@ def health():
         "production_promotion":"ENABLED" if settings.production_promotion_enabled else "DISABLED",
         "production_rollback":"ENABLED" if settings.production_rollback_enabled else "DISABLED",
         "production_execution_adapter":settings.production_execution_adapter.strip().upper() or "MOCK",
+        "vercel_controlled_prepare":{
+            "preview_only":settings.production_execution_preview_only,
+            "token_present":bool(settings.vercel_controlled_executor_token.strip()),
+            "allowed_project_count":len(
+                settings.production_execution_allowed_project_id_list
+            ),
+            "allowed_team_count":len(
+                settings.production_execution_allowed_team_id_list
+            ),
+            "real_project_denylisted":(
+                "prj_orLCRCIm7aVfImH8ihB3gponFOEl"
+                in settings.production_execution_denied_project_id_list
+            ),
+            "promotion_enabled":False,
+            "rollback_enabled":False,
+        },
         "deployment_executor":"DISABLED",
         "release_deployment":"DISABLED",
         "release_review_package":"ENABLED",
@@ -856,6 +883,130 @@ def deployment_plan_decision(
         raise HTTPException(status_code=409,detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.post("/v1/deployment-plans/{plan_id}/execution")
+def create_controlled_production_execution(
+    plan_id: UUID,
+    payload: ProductionExecutionAction,
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_production_execution_key(x_production_execution_key)
+    db_state=database_health()
+    if not db_state["available"]:
+        failure=db_unavailable_payload(
+            operation="production_execution_snapshot_create",
+            approval_sensitive=True,
+        )
+        failure["database_state"]=db_state
+        failure["provider_write_performed"]=False
+        failure["production_traffic_changed"]=False
+        return JSONResponse(status_code=503,content=failure)
+    try:
+        return create_production_release_execution(
+            plan_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DBAPIError as exc:
+        if is_database_unavailable(exc):
+            failure=db_unavailable_payload(
+                operation="production_execution_snapshot_create",
+                approval_sensitive=True,
+            )
+            failure["provider_write_performed"]=False
+            failure["production_traffic_changed"]=False
+            return JSONResponse(status_code=503,content=failure)
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/production-release-executions/{execution_id}/prepare")
+def prepare_controlled_production_execution(
+    execution_id: UUID,
+    payload: ProductionExecutionAction,
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_production_execution_key(x_production_execution_key)
+    db_state=database_health()
+    if not db_state["available"]:
+        failure=db_unavailable_payload(
+            operation="production_execution_prepare",
+            approval_sensitive=True,
+        )
+        failure["database_state"]=db_state
+        failure["production_traffic_changed"]=False
+        return JSONResponse(status_code=503,content=failure)
+    try:
+        return prepare_controlled_candidate(
+            execution_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DBAPIError as exc:
+        if is_database_unavailable(exc):
+            failure=db_unavailable_payload(
+                operation="production_execution_prepare",
+                approval_sensitive=True,
+            )
+            failure["production_traffic_changed"]=False
+            return JSONResponse(status_code=503,content=failure)
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/production-release-executions/{execution_id}/reconcile")
+def reconcile_controlled_production_execution(
+    execution_id: UUID,
+    payload: ProductionExecutionAction,
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_production_execution_key(x_production_execution_key)
+    db_state=database_health()
+    if not db_state["available"]:
+        failure=db_unavailable_payload(
+            operation="production_execution_reconcile",
+            approval_sensitive=True,
+        )
+        failure["database_state"]=db_state
+        failure["provider_write_performed"]=False
+        failure["production_traffic_changed"]=False
+        return JSONResponse(status_code=503,content=failure)
+    try:
+        result=reconcile_controlled_prepare(
+            execution_id,
+            actor=payload.actor,
+        )
+        result["provider_write_performed"]=False
+        result["production_traffic_changed"]=False
+        return result
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DBAPIError as exc:
+        if is_database_unavailable(exc):
+            failure=db_unavailable_payload(
+                operation="production_execution_reconcile",
+                approval_sensitive=True,
+            )
+            failure["provider_write_performed"]=False
+            failure["production_traffic_changed"]=False
+            return JSONResponse(status_code=503,content=failure)
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
 @app.get("/v1/production-release-executions/{execution_id}")
