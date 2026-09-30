@@ -185,3 +185,11 @@ The Preview-only PREVIEW_DATABASE_URL was replaced with the pooled connection
 string for the dedicated Neon child branch preview-deployment-auth. A new
 feature-branch Preview deployment is triggered so that isolated connection is
 injected. Production main, Production Neon, and Production alias remain frozen.
+
+
+## Preview secret scope redeploy
+
+PREVIEW_ACCEPTANCE_KEY and Preview AIHUBMIX_API_KEY were confirmed in Vercel
+Preview scope. This feature-branch-only marker triggers a fresh Preview so the
+updated Preview-only secret bindings are injected. No Production configuration,
+alias, database, or branch is modified.
