@@ -26,6 +26,7 @@ from app.production_release import (
     get_production_release_execution,
     prepare_vercel_candidate,
     reconcile_vercel_prepare,
+    recover_vercel_prepare_id_mismatch,
 )
 from app.release_gate import decide_release_candidate, ensure_release_candidate
 
@@ -854,6 +855,84 @@ def reconcile_prepare_acceptance(run_id) -> dict[str, Any]:
         status = "PREPARE_UNKNOWN"
     else:
         status = "FAILED"
+    return _sync_execution(run_id, execution, status=status)
+
+
+def recover_prepare_acceptance(run_id) -> dict[str, Any]:
+    _preview_runtime()
+    row = _run_row(run_id)
+    if row["acceptance_status"] in {
+        "READY_FOR_PROMOTION",
+        "PROMOTE_AUTHORIZED",
+        "CLEANED_UP",
+    }:
+        return row
+    if row["acceptance_status"] not in {
+        "EXECUTION_CREATED",
+        "PREPARE_UNKNOWN",
+        "PREPARE_PENDING",
+    }:
+        raise VercelPrepareAcceptanceError(
+            "Acceptance run is not eligible for PREPARE ID recovery"
+        )
+
+    project_id, team_id = _single_target()
+    if (
+        row["sacrificial_project_id"] != project_id
+        or row["sacrificial_team_id"] != team_id
+    ):
+        raise VercelPrepareAcceptanceError(
+            "Configured sacrificial target changed after acceptance started"
+        )
+    if row["execution_id"] is None:
+        raise VercelPrepareAcceptanceError(
+            "Acceptance run has no bound execution"
+        )
+
+    adapter = _configured_adapter()
+    current_execution = get_production_release_execution(row["execution_id"])
+    if current_execution["execution_status"] in {
+        "PREPARING",
+        "PREPARE_UNKNOWN",
+    }:
+        execution = reconcile_vercel_prepare(
+            row["execution_id"],
+            actor="vercel-prepare-live-acceptance-recover-reconcile",
+            adapter=adapter,
+        )
+    elif current_execution["execution_status"] == "PREPARE_FAILED":
+        execution = recover_vercel_prepare_id_mismatch(
+            row["execution_id"],
+            actor="vercel-prepare-live-acceptance-id-recovery",
+            adapter=adapter,
+        )
+    elif current_execution["execution_status"] == "READY_FOR_PROMOTION":
+        execution = current_execution
+    else:
+        raise VercelPrepareAcceptanceError(
+            "Execution is not eligible for PREPARE recovery"
+        )
+
+    if execution.get("recovery_required") is True:
+        result = dict(row)
+        result["recovery_required"] = True
+        result["provider_write_performed"] = True
+        result["production_traffic_changed"] = False
+        result["prepare_write_count"] = int(
+            execution.get("prepare_write_count") or 0
+        )
+        return result
+
+    if execution["execution_status"] == "READY_FOR_PROMOTION":
+        status = "READY_FOR_PROMOTION"
+    elif execution["execution_status"] in {"PREPARE_UNKNOWN", "PREPARING"}:
+        status = "PREPARE_UNKNOWN"
+    elif execution["execution_status"] == "PREPARE_FAILED":
+        status = "FAILED"
+    else:
+        raise VercelPrepareAcceptanceError(
+            "Recovered execution reached an unexpected state"
+        )
     return _sync_execution(run_id, execution, status=status)
 
 
