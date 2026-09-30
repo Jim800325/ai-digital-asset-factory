@@ -177,3 +177,11 @@ A feature-branch-only redeploy marker was added after PREVIEW_DATABASE_URL was
 corrected. This commit changes no runtime logic. It exists only to create a new
 Preview deployment that receives the updated Preview-only environment
 variables. Production remains unchanged.
+
+
+## Isolated Neon child branch redeploy
+
+The Preview-only PREVIEW_DATABASE_URL was replaced with the pooled connection
+string for the dedicated Neon child branch preview-deployment-auth. A new
+feature-branch Preview deployment is triggered so that isolated connection is
+injected. Production main, Production Neon, and Production alias remain frozen.
