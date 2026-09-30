@@ -39,6 +39,10 @@ _TRANSITIONS = {
     "ROLLED_BACK": set(),
 }
 
+_LEGACY_VERCEL_DEPLOYMENT_ID_MISMATCH_SHA256 = (
+    "c68382c941fad4db26ecd4307fbe97fbab738f05648cdba4e280e1138a75a57d"
+)
+
 
 def _canonical_bytes(value: Any) -> bytes:
     return json.dumps(
@@ -1670,6 +1674,217 @@ def reconcile_vercel_prepare(
                 "deployment_id": candidate.deployment_id,
                 "provider_state": state,
                 "reconciliation_read_only": True,
+                "provider_write_count": 1,
+                "automatic_replay": False,
+                "production_traffic_changed": False,
+            },
+            provider_result_sha256=provider_result_sha,
+        )
+        output = dict(result)
+        output["reconciliation_required"] = True
+        return output
+
+
+def recover_vercel_prepare_id_mismatch(
+    execution_id,
+    *,
+    actor: str = "vercel-prepare-id-recovery",
+    adapter: VercelControlledExecutionAdapter | None = None,
+) -> dict[str, Any]:
+    """Read-only provider recovery for the Step 4A legacy ID-semantics bug.
+
+    The original provider POST already consumed the exactly-once write budget.
+    This function performs only Vercel GET requests and may repair local
+    database bindings when immutable execution metadata identifies exactly one
+    sacrificial deployment.
+    """
+    _require_step1_disabled()
+    clean_actor = (actor or "vercel-prepare-id-recovery").strip()
+    if not clean_actor:
+        clean_actor = "vercel-prepare-id-recovery"
+
+    gate = evaluate_execution_integrity(
+        execution_id,
+        actor=clean_actor + ":integrity",
+    )
+    if gate["allowed"] is not True:
+        raise RuntimeError(
+            "Execution Integrity Gate blocked PREPARE recovery: "
+            + ", ".join(gate["blocking_reasons"])
+            + f" [integrity_check_id={gate['integrity_check_id']}]"
+        )
+
+    with engine.connect() as db:
+        row = db.execute(text("""
+          SELECT *
+          FROM production_release_executions
+          WHERE id=CAST(:id AS uuid)
+        """), {"id": execution_id}).mappings().one_or_none()
+    if row is None:
+        raise LookupError("Production release execution not found")
+    snapshot = dict(row)
+
+    if snapshot["executor_adapter"] != "VERCEL_CONTROLLED_EXECUTOR":
+        raise RuntimeError("Legacy PREPARE recovery requires Vercel adapter")
+    if snapshot["execution_status"] == "READY_FOR_PROMOTION":
+        return snapshot
+    if snapshot["execution_status"] != "PREPARE_FAILED":
+        raise RuntimeError(
+            "Legacy PREPARE recovery requires PREPARE_FAILED execution"
+        )
+    if int(snapshot.get("prepare_write_count") or 0) != 1:
+        raise RuntimeError(
+            "Legacy PREPARE recovery requires consumed write budget"
+        )
+    if (
+        snapshot.get("prepare_provider_state") != "ERROR"
+        or snapshot.get("prepare_outcome") != "REJECTED"
+        or snapshot.get("prepare_last_error_type") != "RuntimeError"
+        or snapshot.get("prepare_last_error_sha256")
+        != _LEGACY_VERCEL_DEPLOYMENT_ID_MISMATCH_SHA256
+    ):
+        raise RuntimeError(
+            "Execution is not the known Vercel deployment-ID mismatch case"
+        )
+    if snapshot.get("candidate_vercel_deployment_id") is not None:
+        raise RuntimeError(
+            "Legacy PREPARE recovery refuses an already-bound candidate"
+        )
+    if (
+        snapshot.get("production_vercel_deployment_id") is not None
+        or snapshot.get("previous_production_deployment_id") is not None
+    ):
+        raise RuntimeError(
+            "Legacy PREPARE recovery refuses Production pointer evidence"
+        )
+
+    provider = adapter or get_production_execution_adapter(
+        "VERCEL_CONTROLLED_EXECUTOR"
+    )
+    candidate = provider.find_candidate_by_execution(snapshot)
+    if candidate is None:
+        output = dict(snapshot)
+        output["recovery_required"] = True
+        output["provider_write_performed"] = False
+        output["production_traffic_changed"] = False
+        return output
+
+    state = candidate.state.upper()
+    provider_result_sha = _candidate_result_sha(candidate)
+    with engine.begin() as db:
+        current = db.execute(text("""
+          SELECT *
+          FROM production_release_executions
+          WHERE id=CAST(:id AS uuid)
+          FOR UPDATE
+        """), {"id": execution_id}).mappings().one()
+        if (
+            current["execution_status"] != "PREPARE_FAILED"
+            or int(current.get("prepare_write_count") or 0) != 1
+            or current.get("prepare_last_error_sha256")
+            != _LEGACY_VERCEL_DEPLOYMENT_ID_MISMATCH_SHA256
+        ):
+            raise RuntimeError(
+                "Execution changed before legacy PREPARE recovery"
+            )
+
+        if state == "READY":
+            recovered = _persist_ready_candidate(
+                db,
+                execution_id=execution_id,
+                actor=clean_actor,
+                candidate=candidate,
+                previous_status="PREPARE_FAILED",
+                prepare_outcome="RECONCILED_READY",
+                reconciled=True,
+            )
+            _event(
+                db,
+                execution_id,
+                event_type="PREPARE_ID_RECOVERED",
+                actor=clean_actor,
+                previous_status="PREPARE_FAILED",
+                next_status="READY_FOR_PROMOTION",
+                details={
+                    "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+                    "deployment_id": candidate.deployment_id,
+                    "recovery_read_only": True,
+                    "provider_write_count": 1,
+                    "production_traffic_changed": False,
+                },
+                provider_result_sha256=provider_result_sha,
+            )
+            return recovered
+
+        if state in {"ERROR", "CANCELED", "CANCELLED"}:
+            result = db.execute(text("""
+              UPDATE production_release_executions
+              SET prepare_provider_deployment_id=:deployment_id,
+                  candidate_vercel_deployment_id=:deployment_id,
+                  candidate_vercel_url=:url,
+                  prepare_provider_state=:state,
+                  prepare_outcome='RECONCILED_FAILED',
+                  prepare_provider_result_sha256=:result_sha,
+                  prepare_reconciled_at=now()
+              WHERE id=CAST(:id AS uuid)
+              RETURNING *
+            """), {
+                "id": execution_id,
+                "deployment_id": candidate.deployment_id,
+                "url": candidate.url,
+                "state": state,
+                "result_sha": provider_result_sha,
+            }).mappings().one()
+            _event(
+                db,
+                execution_id,
+                event_type="FAILURE",
+                actor=clean_actor,
+                previous_status="PREPARE_FAILED",
+                next_status="PREPARE_FAILED",
+                details={
+                    "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+                    "deployment_id": candidate.deployment_id,
+                    "provider_state": state,
+                    "recovery_read_only": True,
+                    "provider_write_count": 1,
+                    "production_traffic_changed": False,
+                },
+                provider_result_sha256=provider_result_sha,
+            )
+            return dict(result)
+
+        result = db.execute(text("""
+          UPDATE production_release_executions
+          SET execution_status='PREPARE_UNKNOWN',
+              prepare_provider_deployment_id=:deployment_id,
+              candidate_vercel_deployment_id=:deployment_id,
+              candidate_vercel_url=:url,
+              prepare_provider_state=:state,
+              prepare_outcome='RECONCILED_PENDING',
+              prepare_provider_result_sha256=:result_sha,
+              prepare_reconciled_at=now()
+          WHERE id=CAST(:id AS uuid)
+          RETURNING *
+        """), {
+            "id": execution_id,
+            "deployment_id": candidate.deployment_id,
+            "url": candidate.url,
+            "state": state,
+            "result_sha": provider_result_sha,
+        }).mappings().one()
+        _event(
+            db,
+            execution_id,
+            event_type="RECONCILIATION_REQUIRED",
+            actor=clean_actor,
+            previous_status="PREPARE_FAILED",
+            next_status="PREPARE_UNKNOWN",
+            details={
+                "adapter": "VERCEL_CONTROLLED_EXECUTOR",
+                "deployment_id": candidate.deployment_id,
+                "provider_state": state,
+                "recovery_read_only": True,
                 "provider_write_count": 1,
                 "automatic_replay": False,
                 "production_traffic_changed": False,
