@@ -266,6 +266,12 @@ class VercelControlledExecutionAdapter:
             )
         return project_id, team_id
 
+    def validate_target(
+        self,
+        execution_snapshot: dict[str, Any],
+    ) -> tuple[str, str]:
+        return self._target(execution_snapshot)
+
     def _require_token(self) -> str:
         if not self.token:
             raise RuntimeError(
