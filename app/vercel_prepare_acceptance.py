@@ -288,9 +288,9 @@ def acceptance_readiness() -> dict[str, Any]:
         if (
             migrations.get("status") != "CURRENT"
             or migrations.get("latest_version")
-            != "027_vercel_prepare_live_acceptance.sql"
+            != "028_vercel_prepare_provider_id_recovery.sql"
         ):
-            reasons.append("migration_027_not_current")
+            reasons.append("migration_028_not_current")
     except Exception as exc:
         migrations = {"status": "ERROR", "detail": str(exc)}
         reasons.append("migration_status_unavailable")
