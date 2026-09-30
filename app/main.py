@@ -1221,6 +1221,39 @@ def internal_vercel_prepare_acceptance_reconcile(
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
+@app.get(
+    "/internal/vercel-prepare-acceptance/{run_id}/recover-readonly",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_recover_readonly(
+    run_id: UUID,
+    response: Response,
+):
+    """Preview-only, idempotent recovery for an already-consumed PREPARE write.
+
+    This route intentionally accepts no caller-supplied provider target or
+    provider credential and performs no provider mutation. The underlying
+    recovery is limited to the narrowly fingerprinted Step 4A provider-ID
+    mismatch case and uses Vercel GET requests only.
+    """
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["X-Robots-Tag"] = "noindex"
+    try:
+        result = recover_prepare_acceptance(run_id)
+        result["provider_recovery_read_only"] = True
+        result["provider_write_performed_by_recovery"] = False
+        result["production_traffic_changed"] = False
+        result["production_promotion_performed"] = False
+        result["production_rollback_performed"] = False
+        return result
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except VercelPrepareAcceptanceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post(
     "/internal/vercel-prepare-acceptance/{run_id}/recover",
     include_in_schema=False,
