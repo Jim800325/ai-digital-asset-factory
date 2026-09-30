@@ -103,3 +103,37 @@ def test_step4a_reconcile_and_authorize_require_execution_key(monkeypatch):
         headers={"X-Preview-Acceptance-Key": "preview-key"},
     )
     assert authorize.status_code == 403
+
+
+def test_step4a_recover_requires_both_keys_and_is_read_only(monkeypatch):
+    _keys(monkeypatch)
+    run_id = uuid4()
+    monkeypatch.setattr(
+        main,
+        "recover_prepare_acceptance",
+        lambda value: {
+            "id": str(value),
+            "acceptance_status": "READY_FOR_PROMOTION",
+            "provider_write_performed": True,
+            "production_traffic_changed": False,
+        },
+    )
+    client = TestClient(main.app)
+
+    missing_execution = client.post(
+        f"/internal/vercel-prepare-acceptance/{run_id}/recover",
+        headers={"X-Preview-Acceptance-Key": "preview-key"},
+    )
+    assert missing_execution.status_code == 403
+
+    recovered = client.post(
+        f"/internal/vercel-prepare-acceptance/{run_id}/recover",
+        headers={
+            "X-Preview-Acceptance-Key": "preview-key",
+            "X-Production-Execution-Key": "production-execution-key",
+        },
+    )
+    assert recovered.status_code == 200
+    payload = recovered.json()
+    assert payload["provider_recovery_read_only"] is True
+    assert payload["production_traffic_changed"] is False
