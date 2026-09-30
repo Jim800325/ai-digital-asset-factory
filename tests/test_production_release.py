@@ -1,3 +1,6 @@
+import base64
+import hashlib
+
 import pytest
 
 from app.production_execution_adapter import (
@@ -7,7 +10,9 @@ from app.production_execution_adapter import (
 from app.production_release import (
     _normalize_artifact_path,
     _sha256,
+    _stored_chain_is_verified_ancestor,
     _transition_allowed,
+    _validate_execution_bundle_snapshot,
 )
 
 
@@ -78,3 +83,76 @@ def test_step1_adapter_registry_refuses_non_mock():
 
     with pytest.raises(RuntimeError, match="supports MOCK only"):
         get_production_execution_adapter("VERCEL")
+
+
+
+def test_execution_integrity_bundle_revalidates_exact_bytes():
+    raw = b"immutable artifact bytes"
+    artifact_sha = hashlib.sha256(raw).hexdigest()
+    bundle = {
+        "schema_version": "production-execution-bundle-v1",
+        "review_package_id": "review-1",
+        "review_package_sha256": "b" * 64,
+        "source_tree_sha256": "c" * 64,
+        "artifacts": [
+            {
+                "relative_path": "dist/app.txt",
+                "sha256": artifact_sha,
+                "byte_size": len(raw),
+                "media_type": "text/plain",
+                "content_base64": base64.b64encode(raw).decode("ascii"),
+            }
+        ],
+    }
+    row = {
+        "review_package_id": "review-1",
+        "review_package_sha256": "b" * 64,
+        "source_tree_sha256": "c" * 64,
+        "execution_bundle": bundle,
+        "execution_bundle_sha256": _sha256(bundle),
+    }
+
+    assert _validate_execution_bundle_snapshot(row) == []
+
+    tampered_bundle = dict(bundle)
+    tampered_artifact = dict(bundle["artifacts"][0])
+    tampered_artifact["content_base64"] = base64.b64encode(
+        b"mutated bytes"
+    ).decode("ascii")
+    tampered_bundle["artifacts"] = [tampered_artifact]
+    tampered_row = dict(row)
+    tampered_row["execution_bundle"] = tampered_bundle
+
+    reasons = _validate_execution_bundle_snapshot(tampered_row)
+    assert "execution_bundle_artifact_sha256_mismatch" in reasons
+    assert "execution_bundle_artifact_byte_size_mismatch" in reasons
+    assert "execution_bundle_sha256_mismatch" in reasons
+
+
+def test_execution_integrity_allows_verified_append_only_chain_extension():
+    stored_head = "a" * 64
+    current_head = "b" * 64
+    manifest = {
+        "status": "VERIFIED",
+        "manifest_root_valid": True,
+        "chain_valid": True,
+        "chain_head_sha256": current_head,
+        "entries": {
+            "audit-old": {
+                "status": "VERIFIED",
+                "chain_sha256": stored_head,
+            },
+            "audit-new": {
+                "status": "VERIFIED",
+                "chain_sha256": current_head,
+            },
+        },
+    }
+
+    assert _stored_chain_is_verified_ancestor(manifest, stored_head)
+    assert _stored_chain_is_verified_ancestor(manifest, current_head)
+    assert not _stored_chain_is_verified_ancestor(manifest, "c" * 64)
+
+    broken = dict(manifest)
+    broken["chain_valid"] = False
+    assert not _stored_chain_is_verified_ancestor(broken, stored_head)
