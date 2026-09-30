@@ -1538,9 +1538,16 @@ def reconcile_vercel_prepare(
         if callable(finder):
             candidate = finder(snapshot)
         else:
+            fallback_deployment_id = deployment_id
+            if not fallback_deployment_id:
+                builder = getattr(provider, "build_prepare_request", None)
+                if callable(builder):
+                    fallback_deployment_id = str(
+                        builder(snapshot).deployment_id or ""
+                    ).strip()
             candidate = provider.read_candidate(
                 snapshot,
-                deployment_id or legacy_reconciliation_key,
+                fallback_deployment_id or legacy_reconciliation_key,
             )
     else:
         candidate = provider.read_candidate(snapshot, deployment_id)
