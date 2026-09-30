@@ -590,11 +590,11 @@ def get_production_release_execution(execution_id) -> dict[str, Any]:
         events = [
             dict(item)
             for item in db.execute(text("""
-              SELECT id,event_type,previous_status,next_status,actor,
+              SELECT id,sequence_no,event_type,previous_status,next_status,actor,
                      provider_result_sha256,details,created_at
               FROM production_release_execution_events
               WHERE execution_id=:id
-              ORDER BY created_at,id
+              ORDER BY sequence_no
             """), {"id": row["id"]}).mappings().all()
         ]
 
