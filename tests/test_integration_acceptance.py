@@ -32,7 +32,7 @@ def test_full_v02_integration_acceptance():
             ).all()
         ]
     assert versions == migration_files()
-    assert versions[-1] == "024_execution_integrity_gate.sql"
+    assert versions[-1] == "025_human_production_execution_gate.sql"
 
     assert Redis.from_url(settings.redis_url).ping() is True
 
