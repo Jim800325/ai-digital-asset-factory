@@ -43,6 +43,7 @@ from app.live_acceptance_registry import (
 )
 from app.vercel_live_acceptance import (
     LiveAcceptanceError,
+    _vercel_runtime_oidc_token,
     live_acceptance_db_diagnostics,
     run_vercel_live_acceptance,
 )
