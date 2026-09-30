@@ -13,7 +13,7 @@ def test_preview_acceptance_attempt_digest_is_commit_scoped(monkeypatch):
     digest=main._preview_acceptance_attempt_digest(expected)
 
     assert digest==hashlib.sha256(
-        (expected+"\\n"+commit).encode("utf-8")
+        (expected+"\n"+commit).encode("utf-8")
     ).hexdigest()
 
 
