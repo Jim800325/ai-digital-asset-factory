@@ -39,6 +39,12 @@ from app.db_reliability import (
 from app.release_gate import decide_release_candidate, ensure_release_candidate
 from app.release_integrity_gate import list_release_integrity_blocks
 from app.release_review import ensure_release_review_package
+from app.side_business_registry import (
+    list_side_business_build_queue,
+    list_side_business_providers,
+    list_side_business_registry_runs,
+    run_side_business_registry_cycle,
+)
 from app.review_ui import STATIC_DIR, router as review_ui_router
 from app.review_workspace import get_review_workspace, list_review_workspace
 from app.migrate import migrate, migration_files, migration_status
@@ -214,6 +220,7 @@ def health():
     payload={
         "status":"ok" if db_state["available"] else "degraded",
         "mode":"OBSERVE",
+        "side_business_registry":"ENABLED" if settings.side_business_registry_enabled else "DISABLED",
         "database":db_state,
         "migrations":migrations,
         "approval_gate":"ENABLED" if settings.human_approval_key.strip() else "DISABLED",
@@ -284,6 +291,30 @@ def create_run():
     q=Queue("asset-factory",connection=Redis.from_url(settings.redis_url))
     job=q.enqueue(run_pipeline,job_timeout=900)
     return {"job_id":job.id,"status":"queued"}
+
+@app.get("/v1/side-business/providers")
+def side_business_providers(limit: int = 100, readiness: str | None = None):
+    try:
+        return list_side_business_providers(limit=limit,readiness=readiness)
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+@app.get("/v1/side-business/build-queue")
+def side_business_build_queue(limit: int = 100):
+    return list_side_business_build_queue(limit=limit)
+
+@app.get("/v1/side-business/runs")
+def side_business_registry_runs(limit: int = 30):
+    return list_side_business_registry_runs(limit=limit)
+
+@app.post("/v1/side-business/refresh", status_code=202)
+def refresh_side_business_registry(
+    x_approval_key: str | None = Header(default=None,alias="X-Approval-Key"),
+):
+    _require_approval_key(x_approval_key)
+    q=Queue("asset-factory",connection=Redis.from_url(settings.redis_url))
+    job=q.enqueue(run_side_business_registry_cycle,job_timeout=900)
+    return {"job_id":job.id,"status":"queued","task":"side-business-registry"}
 
 @app.get("/v1/runs")
 def runs(limit: int = 30):
