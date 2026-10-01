@@ -41,6 +41,8 @@ jobs:
       DATABASE_URL: postgresql+psycopg://assetfactory:assetfactory@localhost:5432/assetfactory
       REDIS_URL: redis://localhost:6379/0
       GITHUB_DISCOVERY_ENABLED: "false"
+      SIDE_BUSINESS_REGISTRY_ENABLED: "false"
+      SIDE_BUSINESS_DISCOVERY_ENABLED: "false"
       SEED_URLS: ""
       HUMAN_APPROVAL_KEY: ci-approval-key
       HUMAN_RELEASE_KEY: ci-release-key
@@ -90,7 +92,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "028_vercel_prepare_provider_id_recovery.sql", expected
+          assert expected[-1] == "029_side_business_provider_registry.sql", expected
           print("migrations:", actual)
           PY
 
