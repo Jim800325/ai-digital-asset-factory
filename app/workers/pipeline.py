@@ -12,6 +12,7 @@ from app.db import engine
 from app.ingest import ingest_discovery_item
 from app.providers.github import discover_github
 from app.research import refresh_candidate_reports
+from app.side_business_registry import run_side_business_registry_cycle
 from app.validation import refresh_candidate_validations
 from app.url_safety import is_public_http_url, safe_url_syntax
 
@@ -74,6 +75,21 @@ def run_pipeline(acceptance_items: list[dict] | None = None):
         acceptance_mode=acceptance_items is not None
         urls=[] if acceptance_mode else list(settings.seeds)
         github_items=[]
+        registry_result={"status":"SKIPPED"}
+
+        if not acceptance_mode and settings.side_business_registry_enabled:
+            try:
+                registry_result=run_side_business_registry_cycle()
+                print(
+                    "side-business registry: "
+                    f"{registry_result.get('status')} "
+                    f"refreshed={registry_result.get('refreshed',0)} "
+                    f"build_ready={registry_result.get('build_ready',0)}",
+                    flush=True,
+                )
+            except Exception as exc:
+                registry_result={"status":"FAILED","error":str(exc)[:1000]}
+                print(f"side-business registry skipped: {exc}", flush=True)
 
         if not acceptance_mode and settings.github_discovery_enabled:
             try:
@@ -176,6 +192,7 @@ def run_pipeline(acceptance_items: list[dict] | None = None):
             "research_reports":counters["reports"],
             "research_validations":counters["validations"],
             "build_proposals":proposals_generated,
+            "side_business_registry":registry_result,
         }
     except Exception as exc:
         if run_id:
