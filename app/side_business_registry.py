@@ -840,3 +840,55 @@ def build_ready_provider_fingerprint(repo_full_name: str) -> str:
     return hashlib.sha256(
         ("side-business-provider:" + repo_full_name.lower()).encode("utf-8")
     ).hexdigest()
+
+
+def build_ready_provider_discovery_items(limit: int = 20) -> list[dict]:
+    with engine.connect() as db:
+        rows = db.execute(
+            text("""
+              SELECT p.repo_full_name,p.repo_url,p.provider_role,p.description,
+                     p.license_policy,p.license_notes,p.commercial_model,p.commercial_fit,
+                     p.stars,p.forks,p.open_issues,p.score,p.readiness
+              FROM side_business_build_queue q
+              JOIN side_business_providers p ON p.id=q.provider_id
+              WHERE q.queue_status='QUEUED'
+                AND p.active=true
+                AND p.readiness='BUILD_READY'
+              ORDER BY q.provider_score DESC,p.stars DESC
+              LIMIT :limit
+            """),
+            {"limit": max(1, min(int(limit), 100))},
+        ).mappings().all()
+
+    items = []
+    for row in rows:
+        role_title = row["provider_role"].replace("_", " ").title()
+        title = f"{role_title} side-business automation provider"
+        material = " ".join(
+            filter(
+                None,
+                [
+                    row["description"],
+                    f"Repository: {row['repo_full_name']}.",
+                    f"Commercial model: {row['commercial_model']}.",
+                    f"Commercial fit: {row['commercial_fit']}.",
+                    f"License policy: {row['license_policy']}.",
+                    row["license_notes"],
+                    f"GitHub stars: {row['stars']}; forks: {row['forks']}; open issues: {row['open_issues']}.",
+                    f"Provider score: {float(row['score']):.2f}.",
+                    "Use as a reusable automation tool or workflow building block. "
+                    "Commercial validation still requires independent evidence before product BUILD_READY.",
+                ],
+            )
+        )
+        items.append(
+            {
+                "source_type": "GITHUB_SIDE_BUSINESS_PROVIDER",
+                "url": row["repo_url"],
+                "title": title,
+                "text": material[:30000],
+                "external_id": row["repo_full_name"],
+                "fingerprint": build_ready_provider_fingerprint(row["repo_full_name"]),
+            }
+        )
+    return items
