@@ -32,7 +32,7 @@ def test_full_v02_integration_acceptance():
             ).all()
         ]
     assert versions == migration_files()
-    assert versions[-1] == "028_vercel_prepare_provider_id_recovery.sql"
+    assert versions[-1] == "029_side_business_provider_registry.sql"
 
     assert Redis.from_url(settings.redis_url).ping() is True
 
