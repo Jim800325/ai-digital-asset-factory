@@ -32,7 +32,7 @@ def test_full_v02_integration_acceptance():
             ).all()
         ]
     assert versions == migration_files()
-    assert versions[-1] == "033_shrimp_animation_provider.sql"
+    assert versions[-1] == "034_shrimp_animation_resource_registry.sql"
 
     assert Redis.from_url(settings.redis_url).ping() is True
 

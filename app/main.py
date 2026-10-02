@@ -83,7 +83,9 @@ from app.vercel_prepare_acceptance import (
 )
 from app.workers.pipeline import run_pipeline
 from app.providers.animation.registry import register_shrimp_animation_provider
+from app.providers.animation.asset_registry import list_animation_registry
 from app.providers.animation.shrimp.provider import get_shrimp_animation_job
+from app.providers.animation.shrimp.resource_planning import list_resource_plans
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
@@ -351,6 +353,21 @@ def shrimp_animation_job(job_id: UUID):
         return get_shrimp_animation_job(job_id)
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+@app.get("/v1/shrimp-animation/jobs/{job_id}/resource-plans")
+def shrimp_animation_resource_plans(
+    job_id: UUID,
+    include_stale: bool = False,
+):
+    try:
+        get_shrimp_animation_job(job_id)
+        return list_resource_plans(job_id,include_stale=include_stale)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+@app.get("/v1/animation/registry")
+def animation_registry():
+    return list_animation_registry()
 
 @app.post("/v1/production-provider-jobs", status_code=201)
 def create_production_provider_job(

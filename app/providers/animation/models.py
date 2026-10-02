@@ -190,3 +190,106 @@ class SceneManifest(ShrimpModel):
     resolution: Resolution = Field(default_factory=Resolution)
     script_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     scenes: list[RenderScene] = Field(min_length=2, max_length=12)
+
+
+class ReusableAssetRef(ShrimpModel):
+    asset_key: str
+    asset_kind: str
+    storage_uri: str
+    media_type: str
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    license_id: str
+    provenance: str
+    usage_rights: Literal["APPROVED", "REVIEW_REQUIRED", "BLOCKED"]
+
+
+class AssetRequirement(ShrimpModel):
+    requirement_key: str
+    asset_kind: Literal["CHARACTER", "BACKGROUND"]
+    logical_id: str
+    variant: str | None = None
+    status: Literal[
+        "REUSE_READY",
+        "GENERATION_REQUIRED",
+        "RIGHTS_REVIEW",
+        "BLOCKED",
+    ]
+    reusable_asset: ReusableAssetRef | None = None
+
+
+class CapabilityRequirement(ShrimpModel):
+    capability_kind: Literal["ACTION", "CAMERA"]
+    capability_key: str
+    renderer_primitive: str | None = None
+    status: Literal["SUPPORTED", "BLOCKED"]
+
+
+class AssetPlan(ShrimpModel):
+    schema_version: Literal["asset-plan-v0.1"] = "asset-plan-v0.1"
+    planner_version: Literal["asset-planner-v0.1-deterministic"] = (
+        "asset-planner-v0.1-deterministic"
+    )
+    episode_id: str
+    scene_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    registry_snapshot_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    requirements: list[AssetRequirement]
+    capabilities: list[CapabilityRequirement]
+    reuse_ready_count: int = Field(ge=0)
+    generation_required_count: int = Field(ge=0)
+    review_required_count: int = Field(ge=0)
+    blocked_count: int = Field(ge=0)
+    ready_for_asset_execution: bool
+
+
+class VoiceRequest(ShrimpModel):
+    request_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    voice_asset_id: str
+    scene_id: str
+    line_id: str
+    speaker: str
+    text: str
+    text_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    voice_profile_id: str
+    language: str
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=1)
+    adapter_hint: str
+    source_type: Literal[
+        "SYNTHETIC",
+        "SELF_RECORDED",
+        "LICENSED",
+        "CLONED_WITH_CONSENT",
+        "UNKNOWN",
+    ]
+    provenance: str | None = None
+    usage_rights: Literal["APPROVED", "REVIEW_REQUIRED", "BLOCKED"]
+    status: Literal[
+        "READY_FOR_SYNTHESIS",
+        "PROFILE_REQUIRED",
+        "RIGHTS_REVIEW",
+        "ADAPTER_REQUIRED",
+        "BLOCKED",
+    ]
+
+    @model_validator(mode="after")
+    def _valid_voice_window(self):
+        if self.end_ms <= self.start_ms:
+            raise ValueError("voice request end_ms must be greater than start_ms")
+        return self
+
+
+class VoicePlan(ShrimpModel):
+    schema_version: Literal["voice-plan-v0.1"] = "voice-plan-v0.1"
+    planner_version: Literal["voice-planner-v0.1-deterministic"] = (
+        "voice-planner-v0.1-deterministic"
+    )
+    episode_id: str
+    scene_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    registry_snapshot_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    requests: list[VoiceRequest]
+    ready_count: int = Field(ge=0)
+    profile_required_count: int = Field(ge=0)
+    review_required_count: int = Field(ge=0)
+    adapter_required_count: int = Field(ge=0)
+    blocked_count: int = Field(ge=0)
+    ready_for_synthesis: bool

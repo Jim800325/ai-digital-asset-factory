@@ -33,6 +33,38 @@ See `docs/SHRIMP_ANIMATION_PROVIDER_STEP1.md`.
 
 Asset generation, TTS, Remotion rendering, FFmpeg packaging, and QC execution remain later steps.
 
+## Step 2 implementation
+
+Step 2 adds the reusable production-input layer without claiming that ASSETS or VOICES have been generated.
+
+Implemented:
+
+- reusable asset registry with SHA-256, provenance, license and usage-rights metadata;
+- character registry with base assets, variants, anchors and voice-profile binding;
+- background registry;
+- deterministic action registry;
+- deterministic camera registry;
+- voice-profile rights registry;
+- deterministic Asset Planner;
+- deterministic Voice Planner Contract;
+- immutable, versioned ASSET / VOICE resource plans;
+- registry-snapshot SHA-256;
+- resource-plan invalidation on upstream Content Brief changes.
+
+Important state rule:
+
+```text
+resource plan created
+!=
+ASSETS stage completed
+!=
+VOICES stage completed
+```
+
+The generic `ASSETS` and `VOICES` stages remain `PENDING` or `STALE` until the later ComfyUI / TTS adapters actually produce verified artifacts.
+
+See `docs/SHRIMP_ANIMATION_PROVIDER_STEP2.md`.
+
 ## Pipeline
 
 ```text

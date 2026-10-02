@@ -1,3 +1,4 @@
+from app.providers.animation.asset_registry import ensure_builtin_animation_primitives
 from app.production_provider_contract import (
     ProviderStageSpec,
     ProductionProviderSpec,
@@ -17,6 +18,10 @@ SHRIMP_ANIMATION_SPEC = ProductionProviderSpec(
         "deterministic_script_planning",
         "deterministic_scene_planning",
         "reusable_assets",
+        "reusable_asset_registry",
+        "deterministic_asset_planning",
+        "voice_profile_rights_registry",
+        "deterministic_voice_planning",
         "tts",
         "remotion_render",
         "ffmpeg_package",
@@ -42,4 +47,6 @@ SHRIMP_ANIMATION_SPEC = ProductionProviderSpec(
 
 
 def register_shrimp_animation_provider() -> dict:
-    return register_provider_definition(SHRIMP_ANIMATION_SPEC)
+    result = register_provider_definition(SHRIMP_ANIMATION_SPEC)
+    ensure_builtin_animation_primitives()
+    return result
