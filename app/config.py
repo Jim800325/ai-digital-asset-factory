@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     side_business_composition_max_per_run: int = 24
     side_business_composition_ready_score: float = 72.0
     side_business_composition_emit_limit: int = 12
+    production_provider_contract_enabled: bool = True
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""
