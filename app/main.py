@@ -42,6 +42,12 @@ from app.provider_composition import (
     list_provider_compositions,
     run_provider_composition_cycle,
 )
+from app.production_provider_contract import (
+    create_provider_job,
+    get_provider_job,
+    list_provider_definitions,
+    list_provider_jobs,
+)
 from app.release_integrity_gate import list_release_integrity_blocks
 from app.release_review import ensure_release_review_package
 from app.side_business_registry import (
@@ -127,6 +133,12 @@ class ProductionExecutionAction(BaseModel):
         min_length=1,
         max_length=200,
     )
+
+class ProductionProviderJobCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_key: str = Field(min_length=2,max_length=64)
+    proposal_id: UUID
+    requested_by: str = Field(default="provider-api",min_length=1,max_length=200)
 
 def _require_approval_key(provided: str | None) -> None:
     expected=settings.human_approval_key.strip()
@@ -296,6 +308,52 @@ def create_run():
     q=Queue("asset-factory",connection=Redis.from_url(settings.redis_url))
     job=q.enqueue(run_pipeline,job_timeout=900)
     return {"job_id":job.id,"status":"queued"}
+
+@app.get("/v1/production-providers")
+def production_providers(limit: int = 100, asset_class: str | None = None):
+    try:
+        return list_provider_definitions(limit=limit,asset_class=asset_class)
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+@app.get("/v1/production-provider-jobs")
+def production_provider_jobs(
+    limit: int = 100,
+    status: str | None = None,
+    provider_key: str | None = None,
+):
+    try:
+        return list_provider_jobs(
+            limit=limit,
+            status=status,
+            provider_key=provider_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+@app.get("/v1/production-provider-jobs/{job_id}")
+def production_provider_job(job_id: UUID):
+    try:
+        return get_provider_job(job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+@app.post("/v1/production-provider-jobs", status_code=201)
+def create_production_provider_job(
+    request: ProductionProviderJobCreate,
+    x_approval_key: str | None = Header(default=None,alias="X-Approval-Key"),
+):
+    _require_approval_key(x_approval_key)
+    try:
+        return create_provider_job(
+            request.provider_key,
+            request.proposal_id,
+            requested_by=request.requested_by,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except (RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 @app.get("/v1/side-business/providers")
 def side_business_providers(limit: int = 100, readiness: str | None = None):

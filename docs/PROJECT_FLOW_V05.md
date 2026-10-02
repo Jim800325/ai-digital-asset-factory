@@ -341,13 +341,21 @@ Finish the existing Vercel sacrificial PREPARE recovery using provider GET-only 
 - evidence-backed side-business hypotheses;
 - stale/recompute behavior.
 
-### Step C — Production provider contract
+### Step C — Production Provider Contract v0.1
 
-- provider registry interface;
-- generic job state model;
-- manifest base classes;
-- stage retry/invalidation semantics;
-- provider resource/cost accounting.
+Implemented as the common execution contract between Human Build Approval and provider-specific digital-asset production:
+
+- provider definition registry and immutable per-job contract snapshots;
+- generic provider job/stage state model;
+- structured versioned manifest envelopes with SHA-256 identity;
+- topological dependency graph and transitive downstream invalidation;
+- bounded retry state machine;
+- Product BUILD_READY/source-fingerprint reconciliation before stage execution;
+- append-only resource and estimated-cost accounting;
+- provider audit event stream;
+- hard database guards keeping external side effects, Production execution, and publishing disabled.
+
+See `docs/PRODUCTION_PROVIDER_CONTRACT_V01.md`.
 
 ### Step D — Shrimp Animation Provider v0.1
 
