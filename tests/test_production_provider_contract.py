@@ -247,8 +247,13 @@ def test_production_provider_contract_end_to_end_and_fail_closed():
                     text("""
                       UPDATE production_provider_manifests
                       SET content=CAST('{"tampered":true}' AS jsonb)
-                      WHERE job_id=CAST(:job_id AS uuid)
-                      LIMIT 1
+                      WHERE id=(
+                        SELECT id
+                        FROM production_provider_manifests
+                        WHERE job_id=CAST(:job_id AS uuid)
+                        ORDER BY created_at
+                        LIMIT 1
+                      )
                     """),
                     {"job_id": job_id},
                 )
