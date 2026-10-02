@@ -123,3 +123,25 @@ DROP TRIGGER IF EXISTS trg_stale_shrimp_render_with_composition
 CREATE TRIGGER trg_stale_shrimp_render_with_composition
 AFTER UPDATE OF composition_status ON shrimp_animation_compositions
 FOR EACH ROW EXECUTE FUNCTION stale_shrimp_render_when_composition_stales();
+
+CREATE OR REPLACE FUNCTION clear_shrimp_job_render_hash_when_render_stales()
+RETURNS trigger AS $$
+BEGIN
+  IF OLD.render_status='CURRENT'
+     AND NEW.render_status='STALE'
+  THEN
+    UPDATE shrimp_animation_jobs
+    SET render_artifact_sha256=NULL,
+        updated_at=now()
+    WHERE provider_job_id=NEW.provider_job_id
+      AND render_artifact_sha256=OLD.artifact_sha256;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_clear_shrimp_job_render_hash
+  ON shrimp_animation_renders;
+CREATE TRIGGER trg_clear_shrimp_job_render_hash
+AFTER UPDATE OF render_status ON shrimp_animation_renders
+FOR EACH ROW EXECUTE FUNCTION clear_shrimp_job_render_hash_when_render_stales();
