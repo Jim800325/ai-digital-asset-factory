@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     shrimp_qc_max_freeze_ratio: float = 0.50
     shrimp_qc_max_dialogue_silence_ratio: float = 0.80
     shrimp_qc_analysis_timeout_seconds: float = 180.0
+    shrimp_package_enabled: bool = False
+    shrimp_package_output_root: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""
