@@ -945,13 +945,17 @@ def complete_provider_stage(job_id, stage_key: str, *, actor: str = "worker") ->
               UPDATE production_provider_jobs
               SET job_status=:status,current_stage=NULL,
                   completed_at=CASE
-                    WHEN :status IN ('QC_PASSED','COMPLETED') THEN now()
+                    WHEN :all_succeeded THEN now()
                     ELSE NULL
                   END,
                   updated_at=now(),error=NULL
               WHERE id=:id
             """),
-            {"id": job["id"], "status": job_status},
+            {
+                "id": job["id"],
+                "status": job_status,
+                "all_succeeded": all_succeeded,
+            },
         )
         _event(
             db,
@@ -961,7 +965,7 @@ def complete_provider_stage(job_id, stage_key: str, *, actor: str = "worker") ->
             actor=actor,
             payload={"job_status": job_status},
         )
-        if job_status in {"QC_PASSED", "COMPLETED"}:
+        if all_succeeded and job_status in {"QC_PASSED", "COMPLETED"}:
             _event(
                 db,
                 job["id"],
