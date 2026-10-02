@@ -38,6 +38,10 @@ SHRIMP_ANIMATION_SPEC = ProductionProviderSpec(
         "dialogue_silence_gate",
         "subtitle_timeline_integrity",
         "qc_provenance",
+        "episode_artifact_bundle",
+        "deterministic_zip_packaging",
+        "animation_release_review_package",
+        "human_review_markdown",
         "tts",
         "remotion_render",
         "ffmpeg_package",
@@ -58,6 +62,7 @@ SHRIMP_ANIMATION_SPEC = ProductionProviderSpec(
         ),
         ProviderStageSpec("RENDER", "PACKAGE", ("ANIMATION",), 2),
         ProviderStageSpec("QC", "QC", ("RENDER",), 2),
+        ProviderStageSpec("PACKAGE", "PACKAGE", ("QC",), 2),
     ),
 )
 
