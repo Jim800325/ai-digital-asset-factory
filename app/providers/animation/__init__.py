@@ -1,0 +1,1 @@
+"""Production animation provider package."""
