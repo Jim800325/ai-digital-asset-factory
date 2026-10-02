@@ -582,9 +582,10 @@ def decide_shrimp_release(
         )
     if normalized == "REJECT" and not workspace["can_reject"]:
         raise PermissionError("Human review rejection gate is not available")
-    get_episode_bundle_file(job_id)
-    get_review_document_file(job_id)
-    get_episode_player_file(job_id)
+    if normalized == "APPROVE":
+        get_episode_bundle_file(job_id)
+        get_review_document_file(job_id)
+        get_episode_player_file(job_id)
 
     with engine.begin() as db:
         row = db.execute(
