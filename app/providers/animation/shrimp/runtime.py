@@ -5,6 +5,10 @@ from app.providers.animation.artifact_verification import LocalFileArtifactResol
 from app.providers.animation.shrimp.adapters.comfyui import ComfyUIAssetAdapter
 from app.providers.animation.shrimp.adapters.gptsovits import GPTSoVITSAdapter
 from app.providers.animation.shrimp.adapters.remotion import RemotionRendererAdapter
+from app.providers.animation.shrimp.adapters.remotion_render import (
+    ControlledRemotionRenderAdapter,
+)
+from app.providers.animation.shrimp.render_execution import execute_render_stage
 
 
 def _csv(value: str) -> list[str]:
