@@ -177,6 +177,8 @@ def stale_resource_plans(job_id, *, reason: str = "upstream changed") -> int:
                   voice_plan_sha256=NULL,
                   assets_manifest_sha256=NULL,
                   voices_manifest_sha256=NULL,
+                  animation_manifest_sha256=NULL,
+                  remotion_props_sha256=NULL,
                   updated_at=now()
               WHERE provider_job_id=CAST(:job_id AS uuid)
             """),
@@ -189,6 +191,16 @@ def stale_resource_plans(job_id, *, reason: str = "upstream changed") -> int:
                   superseded_at=COALESCE(superseded_at,now())
               WHERE provider_job_id=CAST(:job_id AS uuid)
                 AND is_current=true
+            """),
+            {"job_id": job_id},
+        )
+        db.execute(
+            text("""
+              UPDATE shrimp_animation_compositions
+              SET composition_status='STALE',
+                  superseded_at=COALESCE(superseded_at,now())
+              WHERE provider_job_id=CAST(:job_id AS uuid)
+                AND composition_status='CURRENT'
             """),
             {"job_id": job_id},
         )

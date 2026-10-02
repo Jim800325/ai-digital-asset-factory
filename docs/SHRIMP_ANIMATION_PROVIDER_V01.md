@@ -94,6 +94,34 @@ CI uses explicit fake adapters only. Mock/fixture artifacts are never presented 
 
 See `docs/SHRIMP_ANIMATION_PROVIDER_STEP3.md`.
 
+## Step 4 implementation
+
+Step 4 composes the verified scene, image and voice inputs into one deterministic animation timeline.
+
+Implemented:
+
+- deterministic frame conversion from millisecond scene timing;
+- scene-contiguous global frame ranges;
+- verified background and character artifact binding;
+- verified dialogue WAV binding;
+- subtitle timing aligned to dialogue/audio duration;
+- deterministic camera cue composition;
+- immutable Animation Timeline Manifest;
+- Remotion composition adapter with canonical input props;
+- renderer project source SHA-256 and props SHA-256;
+- immutable composition records;
+- ANIMATION stage completion only after timeline and Remotion props verification.
+
+The Remotion adapter in Step 4 prepares the composition contract and render command, but does not render the final video. Actual MP4 rendering remains the RENDER stage.
+
+Default:
+
+```text
+SHRIMP_ANIMATION_ADAPTER=DISABLED
+```
+
+See `docs/SHRIMP_ANIMATION_PROVIDER_STEP4.md`.
+
 ## Pipeline
 
 ```text

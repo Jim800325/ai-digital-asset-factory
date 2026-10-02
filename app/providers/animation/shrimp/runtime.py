@@ -4,6 +4,7 @@ from app.config import settings
 from app.providers.animation.artifact_verification import LocalFileArtifactResolver
 from app.providers.animation.shrimp.adapters.comfyui import ComfyUIAssetAdapter
 from app.providers.animation.shrimp.adapters.gptsovits import GPTSoVITSAdapter
+from app.providers.animation.shrimp.adapters.remotion import RemotionRendererAdapter
 
 
 def _csv(value: str) -> list[str]:
@@ -45,4 +46,19 @@ def build_voice_adapter() -> GPTSoVITSAdapter:
         allowed_hosts=_csv(settings.shrimp_internal_adapter_allowed_hosts),
         timeout_seconds=settings.shrimp_adapter_timeout_seconds,
         tts_path=settings.shrimp_gptsovits_tts_path,
+    )
+
+
+def build_animation_adapter() -> RemotionRendererAdapter:
+    if settings.shrimp_animation_adapter.upper() != "REMOTION":
+        raise RuntimeError(
+            "Shrimp animation adapter is disabled; set "
+            "SHRIMP_ANIMATION_ADAPTER=REMOTION on an internal worker"
+        )
+    return RemotionRendererAdapter(
+        project_dir=settings.shrimp_remotion_project_dir,
+        props_output_root=settings.shrimp_remotion_props_output_root,
+        entrypoint=settings.shrimp_remotion_entrypoint,
+        composition_id=settings.shrimp_remotion_composition_id,
+        remotion_cli=settings.shrimp_remotion_cli,
     )

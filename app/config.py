@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     shrimp_generated_voice_license_id: str = ""
     shrimp_generated_voice_provenance: str = ""
     shrimp_adapter_timeout_seconds: float = 120.0
+    shrimp_animation_adapter: str = "DISABLED"
+    shrimp_remotion_project_dir: str = "renderer/remotion"
+    shrimp_remotion_entrypoint: str = "src/index.tsx"
+    shrimp_remotion_composition_id: str = "ShrimpAnimation"
+    shrimp_remotion_props_output_root: str = ""
+    shrimp_remotion_cli: str = "remotion"
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""

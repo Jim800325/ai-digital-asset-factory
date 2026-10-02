@@ -197,6 +197,8 @@ def update_shrimp_content_brief(
                   voice_plan_sha256=NULL,
                   assets_manifest_sha256=NULL,
                   voices_manifest_sha256=NULL,
+                  animation_manifest_sha256=NULL,
+                  remotion_props_sha256=NULL,
                   updated_at=now()
               WHERE provider_job_id=CAST(:job_id AS uuid)
             """),
@@ -346,7 +348,8 @@ def get_shrimp_animation_job(job_id) -> dict:
                      deterministic_seed,brief_sha256,story_sha256,
                      script_sha256,scene_sha256,asset_plan_sha256,
                      voice_plan_sha256,assets_manifest_sha256,
-                     voices_manifest_sha256,created_at,updated_at
+                     voices_manifest_sha256,animation_manifest_sha256,
+                     remotion_props_sha256,created_at,updated_at
               FROM shrimp_animation_jobs
               WHERE provider_job_id=CAST(:job_id AS uuid)
             """),
