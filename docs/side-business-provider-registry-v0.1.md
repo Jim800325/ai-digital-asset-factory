@@ -136,6 +136,12 @@ Manual refresh requires X-Approval-Key. Normal refresh happens automatically ins
 - SIDE_BUSINESS_BUILD_READY_SCORE=75
 - GITHUB_TOKEN is strongly recommended for authenticated GitHub API limits.
 
-## v0.2 follow-up
+## v0.2 composition layer
 
-The next layer should be a Provider Composition Planner. It should select compatible BUILD_READY providers by role, generate candidate stacks such as Discovery + Collection + Intelligence + Distribution, and create evidence-backed side-business hypotheses. Those hypotheses should still enter the existing cross-source validation pipeline rather than bypassing it.
+Provider Composition Planner v0.2 is implemented as the next layer after the BUILD_READY queue.
+
+It selects compatible BUILD_READY providers by role, evaluates license compatibility, persists operating-cost estimates and deterministic stack identities, and emits ACTIVE compositions as technical/commercial evidence back into the existing opportunity pipeline.
+
+See `docs/provider-composition-planner-v0.2.md`.
+
+The composition layer does not bypass cross-source validation and does not authorize builds or production execution.

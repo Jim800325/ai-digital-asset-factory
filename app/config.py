@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     side_business_results_per_query: int = 8
     side_business_max_candidates_per_run: int = 40
     side_business_build_ready_score: float = 75.0
+    side_business_composition_enabled: bool = True
+    side_business_composition_candidates_per_slot: int = 3
+    side_business_composition_max_per_run: int = 24
+    side_business_composition_ready_score: float = 72.0
+    side_business_composition_emit_limit: int = 12
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""

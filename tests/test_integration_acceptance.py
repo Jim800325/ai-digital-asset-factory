@@ -32,7 +32,7 @@ def test_full_v02_integration_acceptance():
             ).all()
         ]
     assert versions == migration_files()
-    assert versions[-1] == "029_side_business_provider_registry.sql"
+    assert versions[-1] == "031_provider_composition_evidence_lifecycle.sql"
 
     assert Redis.from_url(settings.redis_url).ping() is True
 

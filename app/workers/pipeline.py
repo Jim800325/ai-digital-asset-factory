@@ -11,6 +11,10 @@ from app.config import settings
 from app.db import engine
 from app.ingest import ingest_discovery_item
 from app.providers.github import discover_github
+from app.provider_composition import (
+    composition_discovery_items,
+    run_provider_composition_cycle,
+)
 from app.research import refresh_candidate_reports
 from app.side_business_registry import (
     build_ready_provider_discovery_items,
@@ -80,6 +84,8 @@ def run_pipeline(acceptance_items: list[dict] | None = None):
         github_items=[]
         registry_items=[]
         registry_result={"status":"SKIPPED"}
+        composition_items=[]
+        composition_result={"status":"SKIPPED"}
 
         if not acceptance_mode and settings.side_business_registry_enabled:
             try:
@@ -95,6 +101,22 @@ def run_pipeline(acceptance_items: list[dict] | None = None):
             except Exception as exc:
                 registry_result={"status":"FAILED","error":str(exc)[:1000]}
                 print(f"side-business registry skipped: {exc}", flush=True)
+
+        if not acceptance_mode and settings.side_business_composition_enabled:
+            try:
+                composition_result=run_provider_composition_cycle()
+                composition_items=composition_discovery_items()
+                print(
+                    "provider composition planner: "
+                    f"{composition_result.get('status')} "
+                    f"generated={composition_result.get('compositions_generated',0)} "
+                    f"active={composition_result.get('active_compositions',0)} "
+                    f"emitted={len(composition_items)}",
+                    flush=True,
+                )
+            except Exception as exc:
+                composition_result={"status":"FAILED","error":str(exc)[:1000]}
+                print(f"provider composition planner skipped: {exc}", flush=True)
 
         if not acceptance_mode and settings.github_discovery_enabled:
             try:
@@ -140,7 +162,7 @@ def run_pipeline(acceptance_items: list[dict] | None = None):
         provider_items=(
             acceptance_items
             if acceptance_mode
-            else github_items + registry_items
+            else github_items + registry_items + composition_items
         )
         for item in provider_items:
             try:
@@ -202,6 +224,7 @@ def run_pipeline(acceptance_items: list[dict] | None = None):
             "research_validations":counters["validations"],
             "build_proposals":proposals_generated,
             "side_business_registry":registry_result,
+            "provider_composition_planner":composition_result,
         }
     except Exception as exc:
         if run_id:
