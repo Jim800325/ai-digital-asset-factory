@@ -82,6 +82,13 @@ jobs:
       - name: Install pinned Remotion renderer
         run: npm install --prefix renderer/remotion --no-audit --no-fund
 
+      - name: Install FFmpeg and ffprobe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+
       - name: Compile Python
         run: python -m compileall -q app tests
 
