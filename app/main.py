@@ -37,6 +37,11 @@ from app.db_reliability import (
     read_with_retry,
 )
 from app.release_gate import decide_release_candidate, ensure_release_candidate
+from app.provider_composition import (
+    list_provider_composition_runs,
+    list_provider_compositions,
+    run_provider_composition_cycle,
+)
 from app.release_integrity_gate import list_release_integrity_blocks
 from app.release_review import ensure_release_review_package
 from app.side_business_registry import (
@@ -302,6 +307,26 @@ def side_business_providers(limit: int = 100, readiness: str | None = None):
 @app.get("/v1/side-business/build-queue")
 def side_business_build_queue(limit: int = 100):
     return list_side_business_build_queue(limit=limit)
+
+@app.get("/v1/side-business/compositions")
+def side_business_compositions(limit: int = 100, status: str | None = None):
+    try:
+        return list_provider_compositions(limit=limit,status=status)
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+@app.get("/v1/side-business/composition-runs")
+def side_business_composition_runs(limit: int = 30):
+    return list_provider_composition_runs(limit=limit)
+
+@app.post("/v1/side-business/compositions/refresh", status_code=202)
+def refresh_side_business_compositions(
+    x_approval_key: str | None = Header(default=None,alias="X-Approval-Key"),
+):
+    _require_approval_key(x_approval_key)
+    q=Queue("asset-factory",connection=Redis.from_url(settings.redis_url))
+    job=q.enqueue(run_provider_composition_cycle,job_timeout=900)
+    return {"job_id":job.id,"status":"queued","task":"provider-composition-planner"}
 
 @app.get("/v1/side-business/runs")
 def side_business_registry_runs(limit: int = 30):
