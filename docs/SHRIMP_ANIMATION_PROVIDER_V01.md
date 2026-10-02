@@ -16,6 +16,23 @@ execution_mode: SANDBOX_FIRST
 external_publish: HUMAN_GATED
 ```
 
+## Implementation status
+
+Step 1 is implemented on top of Production Provider Contract v0.1:
+
+- provider registration;
+- Migration 033 provider-job metadata;
+- strict ContentBrief / Story / Script / Scene schemas;
+- deterministic Story Planner;
+- deterministic Script Planner;
+- deterministic Scene Planner;
+- immutable manifest persistence through the generic provider contract;
+- transitive downstream invalidation when the Content Brief changes.
+
+See `docs/SHRIMP_ANIMATION_PROVIDER_STEP1.md`.
+
+Asset generation, TTS, Remotion rendering, FFmpeg packaging, and QC execution remain later steps.
+
 ## Pipeline
 
 ```text

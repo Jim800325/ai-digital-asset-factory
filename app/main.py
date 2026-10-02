@@ -82,12 +82,16 @@ from app.vercel_prepare_acceptance import (
     start_prepare_acceptance,
 )
 from app.workers.pipeline import run_pipeline
+from app.providers.animation.registry import register_shrimp_animation_provider
+from app.providers.animation.shrimp.provider import get_shrimp_animation_job
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
 @app.on_event("startup")
 def _apply_startup_migrations():
     migrate()
+    if settings.shrimp_animation_provider_enabled:
+        register_shrimp_animation_provider()
 
 app.mount("/review-assets", StaticFiles(directory=STATIC_DIR), name="review-assets")
 app.include_router(review_ui_router)
@@ -335,6 +339,13 @@ def production_provider_jobs(
 def production_provider_job(job_id: UUID):
     try:
         return get_provider_job(job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+@app.get("/v1/shrimp-animation/jobs/{job_id}")
+def shrimp_animation_job(job_id: UUID):
+    try:
+        return get_shrimp_animation_job(job_id)
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
 
