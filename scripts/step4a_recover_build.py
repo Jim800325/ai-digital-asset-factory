@@ -6,7 +6,7 @@ import sys
 from uuid import UUID
 
 from app.config import settings
-from app.migrate import migration_status
+from app.migrate import migration_files, migration_status
 from app.vercel_prepare_acceptance import recover_prepare_acceptance
 
 
@@ -85,12 +85,13 @@ def main() -> None:
         _fail("Vercel controlled executor token is unavailable")
 
     migrations = migration_status()
+    expected_migrations = migration_files()
     if (
-        migrations.get("status") != "CURRENT"
-        or migrations.get("latest_version")
-        != "028_vercel_prepare_provider_id_recovery.sql"
+        "028_vercel_prepare_provider_id_recovery.sql"
+        not in expected_migrations
+        or migrations.get("status") != "CURRENT"
     ):
-        _fail("migration 028 is not current")
+        _fail("migration 028 is missing or current migrations are not applied")
 
     result = recover_prepare_acceptance(RUN_ID)
     safe = _safe_result(result)
