@@ -1,12 +1,14 @@
 from uuid import UUID
 
 from app.classifier import classify
+from app.ingest import ingest_discovery_item
 from sqlalchemy import text
 
 from app.db import engine
 from app.provider_composition import (
     COMPOSITION_TEMPLATES,
     composition_discovery_items,
+    composition_evidence_fingerprint,
     composition_key,
     evaluate_composition,
     license_compatibility,
@@ -221,6 +223,38 @@ def test_composition_cycle_persists_emits_and_stales_reversibly():
         assert all(len(item["fingerprint"]) == 64 for item in planner_items)
         assert all("independent market evidence" in item["text"] for item in planner_items)
 
+        ingested = ingest_discovery_item(planner_items[0])
+        assert ingested is not None
+        assert ingested["accepted"] is True
+        opportunity_id = ingested["opportunity_id"]
+        evidence_fingerprint = composition_evidence_fingerprint(
+            planner_items[0]["external_id"]
+        )
+
+        with engine.connect() as db:
+            evidence_before = db.execute(
+                text("""
+                  SELECT COUNT(*)
+                  FROM evidence
+                  WHERE fingerprint=:fingerprint
+                """),
+                {"fingerprint": evidence_fingerprint},
+            ).scalar_one()
+            assert evidence_before == 1
+
+            opportunity_before = db.execute(
+                text("""
+                  SELECT independent_source_count,evidence_count,
+                         evidence_gate_passed,status
+                  FROM digital_asset_opportunities
+                  WHERE id=CAST(:id AS uuid)
+                """),
+                {"id": opportunity_id},
+            ).mappings().one()
+            assert opportunity_before["independent_source_count"] == 1
+            assert opportunity_before["evidence_count"] == 1
+            assert opportunity_before["evidence_gate_passed"] is False
+
         with engine.connect() as db:
             active = db.execute(
                 text("""
@@ -268,6 +302,31 @@ def test_composition_cycle_persists_emits_and_stales_reversibly():
         assert second["compositions_generated"] == 0
         assert second["active_compositions"] == 0
         assert second["stale_compositions"] >= len(active)
+        assert second["evidence_retracted"] >= 1
+
+        with engine.connect() as db:
+            evidence_after = db.execute(
+                text("""
+                  SELECT COUNT(*)
+                  FROM evidence
+                  WHERE fingerprint=:fingerprint
+                """),
+                {"fingerprint": evidence_fingerprint},
+            ).scalar_one()
+            assert evidence_after == 0
+
+            opportunity_after = db.execute(
+                text("""
+                  SELECT independent_source_count,evidence_count,
+                         evidence_gate_passed,status
+                  FROM digital_asset_opportunities
+                  WHERE id=CAST(:id AS uuid)
+                """),
+                {"id": opportunity_id},
+            ).mappings().one()
+            assert opportunity_after["independent_source_count"] == 0
+            assert opportunity_after["evidence_count"] == 0
+            assert opportunity_after["evidence_gate_passed"] is False
 
         emitted_after = composition_discovery_items(limit=20)
         assert not any("planner-test/" in item["text"] for item in emitted_after)
@@ -295,6 +354,24 @@ def test_composition_cycle_persists_emits_and_stales_reversibly():
                   WHERE repo_full_name LIKE 'planner-test/%'
                 """)
             )
+            if "opportunity_id" in locals():
+                db.execute(
+                    text("""
+                      DELETE FROM digital_asset_opportunities
+                      WHERE id=CAST(:id AS uuid)
+                    """),
+                    {"id": opportunity_id},
+                )
+                db.execute(
+                    text("""
+                      DELETE FROM documents
+                      WHERE url LIKE
+                        'https://github.com/Jim800325/ai-digital-asset-factory?composition=%'
+                        AND NOT EXISTS (
+                          SELECT 1 FROM evidence WHERE document_id=documents.id
+                        )
+                    """)
+                )
             if run_ids:
                 db.execute(
                     text("""

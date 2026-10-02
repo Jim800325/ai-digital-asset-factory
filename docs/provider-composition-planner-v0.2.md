@@ -55,11 +55,12 @@ v0.2 uses a transparent role heuristic instead of pretending to know live infras
 
 ## Persistence
 
-Migration 030 adds:
+Migrations 030-031 add:
 
 - `side_business_composition_runs`
 - `side_business_compositions`
 - `side_business_composition_members`
+- evidence-retraction accounting on `side_business_composition_runs`
 
 Composition identity is SHA-256(template ID + sorted slot/repository membership). Re-running updates the same stack. Previously valid stacks that can no longer be reproduced become `STALE`.
 

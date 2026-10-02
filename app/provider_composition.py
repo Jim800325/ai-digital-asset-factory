@@ -9,6 +9,8 @@ from sqlalchemy import text
 from app.config import settings
 from app.db import engine
 
+COMPOSITION_LOCK_KEY = 42690316030
+
 
 COMPOSITION_TEMPLATES = [
     {
@@ -91,6 +93,12 @@ def _canonical_json(value) -> str:
         separators=(",", ":"),
         default=str,
     )
+
+
+def composition_evidence_fingerprint(key: str) -> str:
+    return hashlib.sha256(
+        ("side-business-composition:" + str(key)).encode("utf-8")
+    ).hexdigest()
 
 
 def composition_key(template_id: str, members: list[dict]) -> str:
@@ -326,7 +334,74 @@ def _load_build_ready_providers(limit: int = 250) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def run_provider_composition_cycle() -> dict:
+def _retract_stale_composition_evidence(composition_keys: list[str]) -> int:
+    if not composition_keys:
+        return 0
+
+    from app.aggregator import aggregate_opportunity
+    from app.research import mark_research_report_stale
+    from app.validation import mark_validation_not_ready
+
+    fingerprints = [
+        composition_evidence_fingerprint(key)
+        for key in composition_keys
+    ]
+    with engine.begin() as db:
+        opportunity_ids = [
+            row
+            for row in db.execute(
+                text("""
+                  SELECT DISTINCT oe.opportunity_id
+                  FROM evidence e
+                  JOIN opportunity_evidence oe ON oe.evidence_id=e.id
+                  WHERE e.fingerprint=ANY(:fingerprints)
+                """),
+                {"fingerprints": fingerprints},
+            ).scalars().all()
+        ]
+        evidence_ids = [
+            row
+            for row in db.execute(
+                text("""
+                  SELECT id
+                  FROM evidence
+                  WHERE fingerprint=ANY(:fingerprints)
+                """),
+                {"fingerprints": fingerprints},
+            ).scalars().all()
+        ]
+        if evidence_ids:
+            db.execute(
+                text("""
+                  DELETE FROM opportunity_evidence
+                  WHERE evidence_id=ANY(:evidence_ids)
+                """),
+                {"evidence_ids": evidence_ids},
+            )
+            db.execute(
+                text("""
+                  DELETE FROM evidence
+                  WHERE id=ANY(:evidence_ids)
+                """),
+                {"evidence_ids": evidence_ids},
+            )
+
+    for opportunity_id in opportunity_ids:
+        try:
+            result = aggregate_opportunity(opportunity_id)
+            if not result["evidence_gate_passed"]:
+                mark_research_report_stale(result["opportunity_id"])
+                mark_validation_not_ready(result["opportunity_id"])
+        except Exception as exc:
+            print(
+                f"composition evidence retraction reconciliation skipped: "
+                f"{opportunity_id}: {exc}",
+                flush=True,
+            )
+    return len(evidence_ids)
+
+
+def _run_provider_composition_cycle_locked() -> dict:
     with engine.begin() as db:
         run_id = db.execute(
             text(
@@ -350,6 +425,7 @@ def run_provider_composition_cycle() -> dict:
         "blocked_compositions": 0,
         "stale_compositions": 0,
         "hypotheses_emitted": 0,
+        "evidence_retracted": 0,
     }
 
     if not errors:
@@ -445,24 +521,27 @@ def run_provider_composition_cycle() -> dict:
                 else:
                     counters["blocked_compositions"] += 1
 
-            counters["stale_compositions"] = int(
-                db.execute(
+            stale_keys = [
+                str(key)
+                for key in db.execute(
                     text("""
-                      WITH changed AS (
-                        UPDATE side_business_compositions
-                        SET composition_status='STALE',updated_at=now()
-                        WHERE composition_status<>'STALE'
-                          AND (
-                            last_generated_run_id IS NULL
-                            OR last_generated_run_id<>:run_id
-                          )
-                        RETURNING id
-                      )
-                      SELECT COUNT(*) FROM changed
+                      UPDATE side_business_compositions
+                      SET composition_status='STALE',updated_at=now()
+                      WHERE composition_status<>'STALE'
+                        AND (
+                          last_generated_run_id IS NULL
+                          OR last_generated_run_id<>:run_id
+                        )
+                      RETURNING composition_key
                     """),
                     {"run_id": run_id},
-                ).scalar_one()
-            )
+                ).scalars().all()
+            ]
+            counters["stale_compositions"] = len(stale_keys)
+
+        counters["evidence_retracted"] = _retract_stale_composition_evidence(
+            stale_keys
+        )
 
     if errors:
         status = "FAILED"
@@ -483,6 +562,7 @@ def run_provider_composition_cycle() -> dict:
                   blocked_compositions=:blocked_compositions,
                   stale_compositions=:stale_compositions,
                   hypotheses_emitted=:hypotheses_emitted,
+                  evidence_retracted=:evidence_retracted,
                   errors=:errors,
                   error_summary=:error_summary,
                   finished_at=now()
@@ -503,6 +583,50 @@ def run_provider_composition_cycle() -> dict:
         **counters,
         "errors": len(errors),
     }
+
+
+def run_provider_composition_cycle() -> dict:
+    with engine.connect() as lock_db:
+        acquired = bool(
+            lock_db.execute(
+                text("SELECT pg_try_advisory_lock(:key)"),
+                {"key": COMPOSITION_LOCK_KEY},
+            ).scalar_one()
+        )
+        lock_db.commit()
+        if not acquired:
+            with engine.begin() as db:
+                run_id = db.execute(
+                    text("""
+                      INSERT INTO side_business_composition_runs(
+                        status,error_summary,finished_at)
+                      VALUES(
+                        'SKIPPED','provider composition cycle already running',now())
+                      RETURNING id
+                    """)
+                ).scalar_one()
+            return {
+                "run_id": str(run_id),
+                "status": "SKIPPED",
+                "providers_considered": 0,
+                "compositions_generated": 0,
+                "active_compositions": 0,
+                "watch_compositions": 0,
+                "blocked_compositions": 0,
+                "stale_compositions": 0,
+                "hypotheses_emitted": 0,
+                "evidence_retracted": 0,
+                "errors": 0,
+                "reason": "ALREADY_RUNNING",
+            }
+        try:
+            return _run_provider_composition_cycle_locked()
+        finally:
+            lock_db.execute(
+                text("SELECT pg_advisory_unlock(:key)"),
+                {"key": COMPOSITION_LOCK_KEY},
+            )
+            lock_db.commit()
 
 
 def list_provider_compositions(
@@ -539,7 +663,8 @@ def list_provider_composition_runs(limit: int = 30) -> list[dict]:
             text("""
               SELECT id,status,providers_considered,compositions_generated,
                      active_compositions,watch_compositions,blocked_compositions,
-                     stale_compositions,hypotheses_emitted,errors,error_summary,
+                     stale_compositions,hypotheses_emitted,evidence_retracted,
+                     errors,error_summary,
                      started_at,finished_at
               FROM side_business_composition_runs
               ORDER BY started_at DESC
@@ -616,9 +741,7 @@ def composition_discovery_items(limit: int | None = None) -> list[dict]:
                 "title": row["opportunity_title"],
                 "text": material[:30000],
                 "external_id": key,
-                "fingerprint": hashlib.sha256(
-                    ("side-business-composition:" + key).encode("utf-8")
-                ).hexdigest(),
+                "fingerprint": composition_evidence_fingerprint(key),
             }
         )
     return items
