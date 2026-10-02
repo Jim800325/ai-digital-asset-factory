@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     shrimp_qc_analysis_timeout_seconds: float = 180.0
     shrimp_package_enabled: bool = False
     shrimp_package_output_root: str = ""
+    shrimp_human_review_key: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""
