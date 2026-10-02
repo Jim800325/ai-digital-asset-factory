@@ -90,7 +90,10 @@ app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 @app.on_event("startup")
 def _apply_startup_migrations():
     migrate()
-    if settings.shrimp_animation_provider_enabled:
+    if (
+        settings.production_provider_contract_enabled
+        and settings.shrimp_animation_provider_enabled
+    ):
         register_shrimp_animation_provider()
 
 app.mount("/review-assets", StaticFiles(directory=STATIC_DIR), name="review-assets")
