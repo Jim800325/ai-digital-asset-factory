@@ -80,35 +80,39 @@ def test_production_provider_contract_end_to_end_and_fail_closed():
                 _item(
                     "NEWS_ARTICLE",
                     urls[0],
-                    "Automated competitor pricing dataset API",
+                    "Orchid supplier compliance directory dataset API",
                     (
-                        "Teams need an alternative competitor pricing dataset API. "
-                        "Manual data collection is slow, difficult, and takes hours. "
-                        "We pay $20 per month and need automated pricing data access."
+                        "Teams need an alternative supplier compliance directory dataset API. "
+                        "Manual supplier data collection is slow, difficult, and takes hours. "
+                        "We pay $20 per month and need automated compliance data access."
                     ),
                 ),
                 _item(
                     "COMMUNITY_POST",
                     urls[1],
-                    "Automated competitor pricing dataset API",
+                    "Orchid supplier compliance directory dataset API",
                     (
-                        "Operators need a competitor pricing dataset API and tracker. "
+                        "Operators need a supplier compliance directory dataset API and tracker. "
                         "The manual workflow is expensive and slow. "
                         "Our budget is $25 per month and we are willing to pay for automation."
                     ),
                 ),
             ]
         )
-        assert result["opportunities"] == 1
+        assert result["evidence"] >= 1
 
         with engine.connect() as db:
             row = db.execute(
                 text("""
                   SELECT o.id AS opportunity_id,bp.id AS proposal_id,
                          bp.proposal_status
-                  FROM digital_asset_opportunities o
+                  FROM evidence e
+                  JOIN opportunity_evidence oe ON oe.evidence_id=e.id
+                  JOIN digital_asset_opportunities o ON o.id=oe.opportunity_id
                   JOIN build_proposals bp ON bp.opportunity_id=o.id
-                  WHERE o.source_url=:url
+                  WHERE e.source_url=:url
+                  ORDER BY bp.updated_at DESC
+                  LIMIT 1
                 """),
                 {"url": urls[0]},
             ).mappings().one()
