@@ -89,6 +89,12 @@ class ProductionExecutionAdapter(Protocol):
     ) -> CandidateDeployment | None:
         ...
 
+    def find_candidate_by_execution(
+        self,
+        execution_snapshot: dict[str, Any],
+    ) -> CandidateDeployment | None:
+        ...
+
     def promote(
         self,
         execution_snapshot: dict[str, Any],
@@ -272,6 +278,20 @@ class VercelControlledExecutionAdapter:
     ) -> tuple[str, str]:
         return self._target(execution_snapshot)
 
+    def probe_target(
+        self,
+        execution_snapshot: dict[str, Any],
+    ) -> dict[str, str]:
+        project_id, team_id = self._target(execution_snapshot)
+        project_name = self._project_name(project_id, team_id)
+        return {
+            "project_id": project_id,
+            "team_id": team_id,
+            "project_name": project_name,
+            "provider_write_performed": False,
+            "production_traffic_changed": False,
+        }
+
     def _require_token(self) -> str:
         if not self.token:
             raise RuntimeError(
@@ -413,7 +433,6 @@ class VercelControlledExecutionAdapter:
         body = {
             "name": project_name,
             "project": project_id,
-            "deploymentId": deployment_id,
             "files": self._request_files(execution_snapshot),
             "target": "production",
             "autoAssignCustomDomains": False,
@@ -431,6 +450,7 @@ class VercelControlledExecutionAdapter:
                     execution_snapshot.get("execution_bundle_sha256") or ""
                 ),
                 "controlledMode": "SACRIFICIAL_PREPARE_ONLY",
+                "controlledReconciliationKey": deployment_id,
             },
         }
         return PreparedDeploymentRequest(
@@ -448,13 +468,20 @@ class VercelControlledExecutionAdapter:
         self,
         payload: dict[str, Any],
         *,
-        expected_deployment_id: str,
+        expected_deployment_id: str | None,
         expected_project_id: str,
         expected_team_id: str,
         provider_write_performed: bool,
     ) -> CandidateDeployment:
-        deployment_id = str(payload.get("id") or "").strip()
-        if deployment_id != expected_deployment_id:
+        deployment_id = str(
+            payload.get("id") or payload.get("uid") or ""
+        ).strip()
+        if not deployment_id.startswith("dpl_"):
+            raise RuntimeError("Vercel returned an invalid deployment ID")
+        if (
+            expected_deployment_id is not None
+            and deployment_id != expected_deployment_id
+        ):
             raise RuntimeError(
                 "Vercel returned an unexpected deployment ID"
             )
@@ -475,11 +502,18 @@ class VercelControlledExecutionAdapter:
         if team_id != expected_team_id:
             raise RuntimeError("Vercel deployment team mismatch")
 
+        target = str(payload.get("target") or "production").strip().lower()
+        if target != "production":
+            raise RuntimeError(
+                "Controlled Vercel PREPARE returned a non-production target"
+            )
+
         aliases = payload.get("alias")
         if not isinstance(aliases, list):
             aliases = []
         alias_assigned = payload.get("aliasAssigned") is True
-        if aliases or alias_assigned:
+        auto_assign_custom_domains = payload.get("autoAssignCustomDomains")
+        if aliases or alias_assigned or auto_assign_custom_domains is True:
             raise RuntimeError(
                 "Controlled Vercel PREPARE unexpectedly assigned an alias/domain"
             )
@@ -562,7 +596,7 @@ class VercelControlledExecutionAdapter:
         payload = response.json()
         candidate = self._candidate_from_payload(
             payload,
-            expected_deployment_id=request.deployment_id,
+            expected_deployment_id=None,
             expected_project_id=request.project_id,
             expected_team_id=request.team_id,
             provider_write_performed=True,
@@ -592,12 +626,10 @@ class VercelControlledExecutionAdapter:
         deployment_id: str,
     ) -> CandidateDeployment | None:
         project_id, team_id = self._target(execution_snapshot)
-        expected = self.deterministic_deployment_id(
-            str(execution_snapshot.get("execution_sha256") or "")
-        )
-        if deployment_id != expected:
+        deployment_id = (deployment_id or "").strip()
+        if not deployment_id.startswith("dpl_"):
             raise RuntimeError(
-                "Reconciliation deployment ID does not match immutable execution"
+                "Reconciliation requires an actual Vercel deployment ID"
             )
 
         client, owned = self._client()
@@ -645,6 +677,144 @@ class VercelControlledExecutionAdapter:
                 "source": "RECONCILIATION_READ",
             },
         )
+
+    def find_candidate_by_execution(
+        self,
+        execution_snapshot: dict[str, Any],
+    ) -> CandidateDeployment | None:
+        project_id, team_id = self._target(execution_snapshot)
+        execution_id = str(execution_snapshot.get("id") or "").strip()
+        execution_sha = str(
+            execution_snapshot.get("execution_sha256") or ""
+        ).strip().lower()
+        if not execution_id or len(execution_sha) != 64:
+            raise RuntimeError(
+                "Vercel PREPARE recovery requires immutable execution identity"
+            )
+        reconciliation_key = self.deterministic_deployment_id(execution_sha)
+
+        params: dict[str, Any] = {
+            "teamId": team_id,
+            "projectId": project_id,
+            "target": "production",
+            "limit": 20,
+        }
+        attempted_at = execution_snapshot.get("prepare_attempted_at")
+        timestamp = getattr(attempted_at, "timestamp", None)
+        if callable(timestamp):
+            params["since"] = max(
+                0,
+                int(timestamp() * 1000) - (5 * 60 * 1000),
+            )
+
+        client, owned = self._client()
+        try:
+            response = client.get(
+                f"{self.api_base}/v6/deployments",
+                params=params,
+                headers=self._headers(),
+            )
+            if not response.is_success:
+                raise RuntimeError(
+                    "Vercel PREPARE recovery list failed: "
+                    f"HTTP {response.status_code}"
+                )
+            deployments = response.json().get("deployments")
+            if not isinstance(deployments, list):
+                raise RuntimeError(
+                    "Vercel PREPARE recovery returned invalid deployment list"
+                )
+
+            matches: list[CandidateDeployment] = []
+            for item in deployments:
+                if not isinstance(item, dict):
+                    continue
+                deployment_id = str(
+                    item.get("id") or item.get("uid") or ""
+                ).strip()
+                if not deployment_id.startswith("dpl_"):
+                    continue
+                detail = client.get(
+                    f"{self.api_base}/v13/deployments/{deployment_id}",
+                    params={
+                        "teamId": team_id,
+                        "withGitRepoInfo": "true",
+                    },
+                    headers=self._headers(),
+                )
+                if not detail.is_success:
+                    continue
+                payload = detail.json()
+                meta = payload.get("meta")
+                if not isinstance(meta, dict):
+                    continue
+                if str(meta.get("controlledExecutionId") or "") != execution_id:
+                    continue
+                if (
+                    str(meta.get("controlledExecutionSha256") or "").lower()
+                    != execution_sha
+                ):
+                    continue
+                plan_sha = str(
+                    execution_snapshot.get("plan_sha256") or ""
+                ).strip().lower()
+                bundle_sha = str(
+                    execution_snapshot.get("execution_bundle_sha256") or ""
+                ).strip().lower()
+                metadata_key = str(
+                    meta.get("controlledReconciliationKey") or ""
+                ).strip()
+                if metadata_key:
+                    if metadata_key != reconciliation_key:
+                        continue
+                else:
+                    # Legacy Step 4A writes predate the reconciliation key.
+                    # Recover them only when the full immutable metadata
+                    # fingerprint from that old request matches exactly.
+                    if (
+                        str(meta.get("controlledPlanSha256") or "").lower()
+                        != plan_sha
+                        or str(
+                            meta.get("controlledBundleSha256") or ""
+                        ).lower()
+                        != bundle_sha
+                        or str(meta.get("controlledMode") or "")
+                        != "SACRIFICIAL_PREPARE_ONLY"
+                    ):
+                        continue
+
+                evidence_sha = self._response_evidence(
+                    status_code=detail.status_code,
+                    text=detail.text,
+                )
+                candidate = self._candidate_from_payload(
+                    payload,
+                    expected_deployment_id=deployment_id,
+                    expected_project_id=project_id,
+                    expected_team_id=team_id,
+                    provider_write_performed=False,
+                )
+                matches.append(CandidateDeployment(
+                    deployment_id=candidate.deployment_id,
+                    url=candidate.url,
+                    state=candidate.state,
+                    provider_write_performed=False,
+                    metadata={
+                        **candidate.metadata,
+                        "provider_result_sha256": evidence_sha,
+                        "source": "IMMUTABLE_METADATA_RECOVERY_READ",
+                        "reconciliation_key": reconciliation_key,
+                    },
+                ))
+        finally:
+            if owned:
+                client.close()
+
+        if len(matches) > 1:
+            raise RuntimeError(
+                "Vercel PREPARE recovery matched multiple deployments"
+            )
+        return matches[0] if matches else None
 
     def promote(
         self,

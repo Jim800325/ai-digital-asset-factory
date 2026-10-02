@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     github_token: str = ""
     github_discovery_enabled: bool = True
     github_results_per_query: int = 10
+    side_business_registry_enabled: bool = True
+    side_business_discovery_enabled: bool = True
+    side_business_results_per_query: int = 8
+    side_business_max_candidates_per_run: int = 40
+    side_business_build_ready_score: float = 75.0
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""

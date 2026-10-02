@@ -41,6 +41,8 @@ jobs:
       DATABASE_URL: postgresql+psycopg://assetfactory:assetfactory@localhost:5432/assetfactory
       REDIS_URL: redis://localhost:6379/0
       GITHUB_DISCOVERY_ENABLED: "false"
+      SIDE_BUSINESS_REGISTRY_ENABLED: "false"
+      SIDE_BUSINESS_DISCOVERY_ENABLED: "false"
       SEED_URLS: ""
       HUMAN_APPROVAL_KEY: ci-approval-key
       HUMAN_RELEASE_KEY: ci-release-key
@@ -90,7 +92,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "026_vercel_controlled_prepare.sql", expected
+          assert expected[-1] == "029_side_business_provider_registry.sql", expected
           print("migrations:", actual)
           PY
 
@@ -241,6 +243,16 @@ jobs:
                     )
               """)).scalar_one()
 
+              unsafe_step4a_acceptance = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM vercel_prepare_acceptance_runs
+                  WHERE production_traffic_changed=true
+                     OR production_promotion_performed=true
+                     OR production_rollback_performed=true
+                     OR sacrificial_project_id=real_project_id
+                     OR COALESCE(prepare_write_count,0)>1
+              """)).scalar_one()
+
           assert base["status"] == "CANDIDATE", base
           assert base["evidence_gate_passed"] is True, base
           assert base["build_readiness"] == "BUILD_READY", base
@@ -283,6 +295,7 @@ jobs:
           assert unsafe_external_effects == 0, unsafe_external_effects
           assert unsafe_production_execution == 0, unsafe_production_execution
           assert unsafe_vercel_prepare == 0, unsafe_vercel_prepare
+          assert unsafe_step4a_acceptance == 0, unsafe_step4a_acceptance
 
           print("base:", dict(base))
           print("ordinary_sandbox:", dict(ordinary))

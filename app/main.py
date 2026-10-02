@@ -4,7 +4,7 @@ import secrets
 from typing import Literal
 from uuid import UUID
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -39,6 +39,12 @@ from app.db_reliability import (
 from app.release_gate import decide_release_candidate, ensure_release_candidate
 from app.release_integrity_gate import list_release_integrity_blocks
 from app.release_review import ensure_release_review_package
+from app.side_business_registry import (
+    list_side_business_build_queue,
+    list_side_business_providers,
+    list_side_business_registry_runs,
+    run_side_business_registry_cycle,
+)
 from app.review_ui import STATIC_DIR, router as review_ui_router
 from app.review_workspace import get_review_workspace, list_review_workspace
 from app.migrate import migrate, migration_files, migration_status
@@ -53,6 +59,16 @@ from app.vercel_live_acceptance import (
     _vercel_runtime_oidc_token,
     live_acceptance_db_diagnostics,
     run_vercel_live_acceptance,
+)
+from app.vercel_prepare_acceptance import (
+    VercelPrepareAcceptanceError,
+    acceptance_readiness as vercel_prepare_acceptance_readiness,
+    authorize_prepare_acceptance,
+    cleanup_prepare_acceptance,
+    get_prepare_acceptance,
+    reconcile_prepare_acceptance,
+    recover_prepare_acceptance,
+    start_prepare_acceptance,
 )
 from app.workers.pipeline import run_pipeline
 
@@ -204,6 +220,7 @@ def health():
     payload={
         "status":"ok" if db_state["available"] else "degraded",
         "mode":"OBSERVE",
+        "side_business_registry":"ENABLED" if settings.side_business_registry_enabled else "DISABLED",
         "database":db_state,
         "migrations":migrations,
         "approval_gate":"ENABLED" if settings.human_approval_key.strip() else "DISABLED",
@@ -274,6 +291,30 @@ def create_run():
     q=Queue("asset-factory",connection=Redis.from_url(settings.redis_url))
     job=q.enqueue(run_pipeline,job_timeout=900)
     return {"job_id":job.id,"status":"queued"}
+
+@app.get("/v1/side-business/providers")
+def side_business_providers(limit: int = 100, readiness: str | None = None):
+    try:
+        return list_side_business_providers(limit=limit,readiness=readiness)
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+@app.get("/v1/side-business/build-queue")
+def side_business_build_queue(limit: int = 100):
+    return list_side_business_build_queue(limit=limit)
+
+@app.get("/v1/side-business/runs")
+def side_business_registry_runs(limit: int = 30):
+    return list_side_business_registry_runs(limit=limit)
+
+@app.post("/v1/side-business/refresh", status_code=202)
+def refresh_side_business_registry(
+    x_approval_key: str | None = Header(default=None,alias="X-Approval-Key"),
+):
+    _require_approval_key(x_approval_key)
+    q=Queue("asset-factory",connection=Redis.from_url(settings.redis_url))
+    job=q.enqueue(run_side_business_registry_cycle,job_timeout=900)
+    return {"job_id":job.id,"status":"queued","task":"side-business-registry"}
 
 @app.get("/v1/runs")
 def runs(limit: int = 30):
@@ -1132,6 +1173,200 @@ def live_acceptance_audit(audit_id: str):
         return get_live_acceptance_audit(audit_id)
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.get(
+    "/internal/vercel-prepare-acceptance/readiness",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_readiness():
+    return vercel_prepare_acceptance_readiness()
+
+
+@app.get(
+    "/internal/vercel-prepare-acceptance/{run_id}",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_get(
+    run_id: UUID,
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    try:
+        return get_prepare_acceptance(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post(
+    "/internal/vercel-prepare-acceptance/start",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_start(
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    _require_production_execution_key(x_production_execution_key)
+    try:
+        return start_prepare_acceptance()
+    except VercelPrepareAcceptanceError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/internal/vercel-prepare-acceptance/{run_id}/reconcile",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_reconcile(
+    run_id: UUID,
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    _require_production_execution_key(x_production_execution_key)
+    try:
+        return reconcile_prepare_acceptance(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except VercelPrepareAcceptanceError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get(
+    "/internal/vercel-prepare-acceptance/{run_id}/recover-readonly",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_recover_readonly(
+    run_id: UUID,
+    response: Response,
+):
+    """Preview-only, idempotent recovery for an already-consumed PREPARE write.
+
+    This route intentionally accepts no caller-supplied provider target or
+    provider credential and performs no provider mutation. The underlying
+    recovery is limited to the narrowly fingerprinted Step 4A provider-ID
+    mismatch case and uses Vercel GET requests only.
+    """
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["X-Robots-Tag"] = "noindex"
+    try:
+        result = recover_prepare_acceptance(run_id)
+        result["provider_recovery_read_only"] = True
+        result["provider_write_performed_by_recovery"] = False
+        result["production_traffic_changed"] = False
+        result["production_promotion_performed"] = False
+        result["production_rollback_performed"] = False
+        return result
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except VercelPrepareAcceptanceError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post(
+    "/internal/vercel-prepare-acceptance/{run_id}/recover",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_recover(
+    run_id: UUID,
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    _require_production_execution_key(x_production_execution_key)
+    try:
+        result = recover_prepare_acceptance(run_id)
+        result["provider_recovery_read_only"] = True
+        result["production_traffic_changed"] = False
+        return result
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except VercelPrepareAcceptanceError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/internal/vercel-prepare-acceptance/{run_id}/authorize",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_authorize(
+    run_id: UUID,
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    _require_production_execution_key(x_production_execution_key)
+    try:
+        return authorize_prepare_acceptance(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except VercelPrepareAcceptanceError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/internal/vercel-prepare-acceptance/{run_id}/cleanup",
+    include_in_schema=False,
+)
+def internal_vercel_prepare_acceptance_cleanup(
+    run_id: UUID,
+    x_preview_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Preview-Acceptance-Key",
+    ),
+    x_production_execution_key: str | None = Header(
+        default=None,
+        alias="X-Production-Execution-Key",
+    ),
+):
+    _require_preview_acceptance_key(x_preview_acceptance_key)
+    _require_production_execution_key(x_production_execution_key)
+    try:
+        return cleanup_prepare_acceptance(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except VercelPrepareAcceptanceError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
 @app.get(

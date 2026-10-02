@@ -99,10 +99,15 @@ def test_prepare_request_is_production_configured_but_skips_domains(monkeypatch)
     assert request.body["target"] == "production"
     assert request.body["autoAssignCustomDomains"] is False
     assert request.body["project"] == PROJECT_ID
+    assert "deploymentId" not in request.body
     assert request.body["name"] == "executor-sacrificial"
     assert request.body["files"][0]["file"] == "api/status.json"
     assert request.body["files"][0]["encoding"] == "base64"
     assert request.body["meta"]["controlledMode"] == "SACRIFICIAL_PREPARE_ONLY"
+    assert (
+        request.body["meta"]["controlledReconciliationKey"]
+        == request.deployment_id
+    )
     assert len(seen) == 1
 
 
@@ -158,17 +163,20 @@ def test_prepare_success_requires_no_alias_assignment(monkeypatch):
         body = json.loads(request.content.decode("utf-8"))
         assert body["target"] == "production"
         assert body["autoAssignCustomDomains"] is False
+        assert "deploymentId" not in body
         return httpx.Response(
             200,
             request=request,
             json={
-                "id": body["deploymentId"],
+                "id": "dpl_provider_assigned_123",
                 "url": "executor-sacrificial-abc.vercel.app",
                 "readyState": "READY",
                 "projectId": PROJECT_ID,
                 "teamId": TEAM_ID,
+                "target": "production",
                 "alias": [],
                 "aliasAssigned": False,
+                "autoAssignCustomDomains": False,
             },
         )
 
@@ -177,6 +185,7 @@ def test_prepare_success_requires_no_alias_assignment(monkeypatch):
     candidate = adapter.send_prepare(prepared)
 
     assert candidate.state == "READY"
+    assert candidate.deployment_id == "dpl_provider_assigned_123"
     assert candidate.provider_write_performed is True
     assert candidate.metadata["auto_assign_custom_domains"] is False
     assert candidate.metadata["production_traffic_changed"] is False
@@ -202,3 +211,143 @@ def test_reconciliation_is_read_only_and_404_does_not_replay(monkeypatch):
 
     assert result is None
     assert calls == {"get": 1, "post": 0}
+
+
+def test_metadata_recovery_is_read_only_and_matches_exact_execution(monkeypatch):
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    calls = {"list": 0, "detail": 0, "post": 0}
+    snapshot = _snapshot()
+    reconciliation_key = VercelControlledExecutionAdapter.deterministic_deployment_id(
+        snapshot["execution_sha256"]
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            calls["post"] += 1
+            return httpx.Response(500, request=request)
+        if request.url.path == f"/v9/projects/{PROJECT_ID}":
+            return httpx.Response(
+                200,
+                request=request,
+                json={
+                    "id": PROJECT_ID,
+                    "name": "executor-sacrificial",
+                    "accountId": TEAM_ID,
+                },
+            )
+        if request.url.path == "/v6/deployments":
+            calls["list"] += 1
+            assert request.url.params["projectId"] == PROJECT_ID
+            assert request.url.params["target"] == "production"
+            return httpx.Response(
+                200,
+                request=request,
+                json={
+                    "deployments": [
+                        {"uid": "dpl_provider_assigned_123"}
+                    ]
+                },
+            )
+        if request.url.path == "/v13/deployments/dpl_provider_assigned_123":
+            calls["detail"] += 1
+            return httpx.Response(
+                200,
+                request=request,
+                json={
+                    "id": "dpl_provider_assigned_123",
+                    "url": "executor-sacrificial-abc.vercel.app",
+                    "readyState": "READY",
+                    "projectId": PROJECT_ID,
+                    "teamId": TEAM_ID,
+                    "target": "production",
+                    "alias": [],
+                    "aliasAssigned": False,
+                    "autoAssignCustomDomains": False,
+                    "meta": {
+                        "controlledExecutionId": snapshot["id"],
+                        "controlledExecutionSha256": snapshot["execution_sha256"],
+                        "controlledReconciliationKey": reconciliation_key,
+                    },
+                },
+            )
+        raise AssertionError(str(request.url))
+
+    adapter = _adapter(handler)
+    candidate = adapter.find_candidate_by_execution(snapshot)
+
+    assert candidate is not None
+    assert candidate.deployment_id == "dpl_provider_assigned_123"
+    assert candidate.state == "READY"
+    assert candidate.provider_write_performed is False
+    assert candidate.metadata["source"] == "IMMUTABLE_METADATA_RECOVERY_READ"
+    assert calls == {"list": 1, "detail": 1, "post": 0}
+
+
+def test_metadata_recovery_accepts_exact_legacy_immutable_fingerprint(monkeypatch):
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    calls = {"list": 0, "detail": 0, "post": 0}
+    snapshot = _snapshot()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            calls["post"] += 1
+            return httpx.Response(500, request=request)
+        if request.url.path == f"/v9/projects/{PROJECT_ID}":
+            return httpx.Response(
+                200,
+                request=request,
+                json={
+                    "id": PROJECT_ID,
+                    "name": "executor-sacrificial",
+                    "accountId": TEAM_ID,
+                },
+            )
+        if request.url.path == "/v6/deployments":
+            calls["list"] += 1
+            return httpx.Response(
+                200,
+                request=request,
+                json={
+                    "deployments": [
+                        {"uid": "dpl_legacy_provider_assigned_123"}
+                    ]
+                },
+            )
+        if request.url.path == (
+            "/v13/deployments/dpl_legacy_provider_assigned_123"
+        ):
+            calls["detail"] += 1
+            return httpx.Response(
+                200,
+                request=request,
+                json={
+                    "id": "dpl_legacy_provider_assigned_123",
+                    "url": "executor-sacrificial-legacy.vercel.app",
+                    "readyState": "READY",
+                    "projectId": PROJECT_ID,
+                    "teamId": TEAM_ID,
+                    "target": "production",
+                    "alias": [],
+                    "aliasAssigned": False,
+                    "autoAssignCustomDomains": False,
+                    "meta": {
+                        "controlledExecutionId": snapshot["id"],
+                        "controlledExecutionSha256": snapshot["execution_sha256"],
+                        "controlledPlanSha256": snapshot["plan_sha256"],
+                        "controlledBundleSha256": snapshot[
+                            "execution_bundle_sha256"
+                        ],
+                        "controlledMode": "SACRIFICIAL_PREPARE_ONLY",
+                    },
+                },
+            )
+        raise AssertionError(str(request.url))
+
+    adapter = _adapter(handler)
+    candidate = adapter.find_candidate_by_execution(snapshot)
+
+    assert candidate is not None
+    assert candidate.deployment_id == "dpl_legacy_provider_assigned_123"
+    assert candidate.state == "READY"
+    assert candidate.provider_write_performed is False
+    assert calls == {"list": 1, "detail": 1, "post": 0}
