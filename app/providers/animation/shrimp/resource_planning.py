@@ -187,13 +187,19 @@ def stale_resource_plans(job_id, *, reason: str = "upstream changed") -> int:
                     job_id,event_type,actor,payload)
                   VALUES(
                     CAST(:job_id AS uuid),'RESOURCE_PLANS_STALE',
-                    'shrimp-resource-planner',
-                    jsonb_build_object('reason',:reason,'count',:count))
+                    'shrimp-resource-planner',CAST(:payload AS jsonb))
                 """),
                 {
                     "job_id": job_id,
-                    "reason": reason[:1000],
-                    "count": changed,
+                    "payload": json.dumps(
+                        {
+                            "reason": reason[:1000],
+                            "count": changed,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
                 },
             )
     return changed
