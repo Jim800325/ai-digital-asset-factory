@@ -62,3 +62,19 @@ def build_animation_adapter() -> RemotionRendererAdapter:
         composition_id=settings.shrimp_remotion_composition_id,
         remotion_cli=settings.shrimp_remotion_cli,
     )
+
+
+def build_render_adapter() -> ControlledRemotionRenderAdapter:
+    if settings.shrimp_render_adapter.upper() != "REMOTION":
+        raise RuntimeError(
+            "Shrimp render adapter is disabled; set "
+            "SHRIMP_RENDER_ADAPTER=REMOTION on an internal worker"
+        )
+    return ControlledRemotionRenderAdapter(
+        project_dir=settings.shrimp_remotion_project_dir,
+        props_allowed_root=settings.shrimp_remotion_props_output_root,
+        output_root=settings.shrimp_remotion_render_output_root,
+        entrypoint=settings.shrimp_remotion_entrypoint,
+        remotion_cli=settings.shrimp_remotion_cli,
+        timeout_seconds=settings.shrimp_remotion_render_timeout_seconds,
+    )
