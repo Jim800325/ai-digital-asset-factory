@@ -26,6 +26,86 @@ VOICE_SOURCE_TYPES = {
     "UNKNOWN",
 }
 
+BUILTIN_ACTIONS = (
+    ("idle", "idle", {}),
+    ("talk", "talk", {}),
+    ("walk_left", "walk_left", {}),
+    ("walk_right", "walk_right", {}),
+    ("enter", "enter", {"direction": "string"}),
+    ("exit", "exit", {"direction": "string"}),
+    ("jump", "jump", {}),
+    ("shake", "shake", {}),
+    ("nod", "nod", {}),
+    ("bow", "bow", {}),
+    ("turn", "turn", {}),
+    ("scale_pulse", "scale_pulse", {}),
+    ("hit_reaction", "hit_reaction", {}),
+    ("surprised", "surprised", {}),
+    ("angry", "angry", {}),
+    ("laugh", "laugh", {}),
+)
+BUILTIN_CAMERAS = (
+    ("static", "static", {}),
+    ("pan", "pan", {"from": "number", "to": "number"}),
+    ("zoom", "zoom", {"from_scale": "number", "to_scale": "number"}),
+    ("push_in", "push_in", {"from_scale": "number", "to_scale": "number"}),
+    ("pull_out", "pull_out", {"from_scale": "number", "to_scale": "number"}),
+    ("shake", "shake", {}),
+    ("focus_left", "focus_left", {}),
+    ("focus_right", "focus_right", {}),
+)
+
+
+def ensure_builtin_animation_primitives() -> dict:
+    with engine.begin() as db:
+        for key, primitive, schema in BUILTIN_ACTIONS:
+            db.execute(
+                text("""
+                  INSERT INTO animation_action_registry(
+                    action_key,renderer_primitive,parameter_schema,
+                    deterministic,active,updated_at)
+                  VALUES(
+                    :key,:primitive,CAST(:schema AS jsonb),true,true,now())
+                  ON CONFLICT(action_key) DO UPDATE SET
+                    renderer_primitive=excluded.renderer_primitive,
+                    parameter_schema=excluded.parameter_schema,
+                    deterministic=true,
+                    active=true,
+                    updated_at=now()
+                """),
+                {
+                    "key": key,
+                    "primitive": primitive,
+                    "schema": _canonical_json(schema),
+                },
+            )
+        for key, primitive, schema in BUILTIN_CAMERAS:
+            db.execute(
+                text("""
+                  INSERT INTO animation_camera_registry(
+                    camera_key,renderer_primitive,parameter_schema,
+                    deterministic,active,updated_at)
+                  VALUES(
+                    :key,:primitive,CAST(:schema AS jsonb),true,true,now())
+                  ON CONFLICT(camera_key) DO UPDATE SET
+                    renderer_primitive=excluded.renderer_primitive,
+                    parameter_schema=excluded.parameter_schema,
+                    deterministic=true,
+                    active=true,
+                    updated_at=now()
+                """),
+                {
+                    "key": key,
+                    "primitive": primitive,
+                    "schema": _canonical_json(schema),
+                },
+            )
+    return {
+        "actions": len(BUILTIN_ACTIONS),
+        "cameras": len(BUILTIN_CAMERAS),
+    }
+
+
 
 def _canonical_json(value: Any) -> str:
     return json.dumps(
@@ -105,20 +185,29 @@ def register_reusable_asset(
     return dict(row)
 
 
-def _asset_id(db, asset_key: str | None):
+def _asset_id(
+    db,
+    asset_key: str | None,
+    *,
+    expected_kind: str | None = None,
+):
     if not asset_key:
         return None
-    asset_id = db.execute(
+    row = db.execute(
         text("""
-          SELECT id
+          SELECT id,asset_kind
           FROM animation_reusable_assets
           WHERE asset_key=:asset_key AND active=true
         """),
         {"asset_key": asset_key},
-    ).scalar_one_or_none()
-    if asset_id is None:
+    ).mappings().one_or_none()
+    if row is None:
         raise LookupError(f"Reusable asset not found: {asset_key}")
-    return asset_id
+    if expected_kind and row["asset_kind"] != expected_kind:
+        raise ValueError(
+            f"Asset {asset_key} is {row['asset_kind']}, expected {expected_kind}"
+        )
+    return row["id"]
 
 
 def register_voice_profile(
@@ -185,7 +274,11 @@ def register_character(
     metadata: dict | None = None,
 ) -> dict:
     with engine.begin() as db:
-        base_asset_id = _asset_id(db, base_asset_key)
+        base_asset_id = _asset_id(
+            db,
+            base_asset_key,
+            expected_kind="CHARACTER_BASE",
+        )
         if voice_profile_id:
             exists = db.execute(
                 text("""
@@ -238,7 +331,11 @@ def register_character_variant(
     asset_key: str,
 ) -> dict:
     with engine.begin() as db:
-        asset_id = _asset_id(db, asset_key)
+        asset_id = _asset_id(
+            db,
+            asset_key,
+            expected_kind="CHARACTER_VARIANT",
+        )
         character = db.execute(
             text("""
               SELECT 1 FROM animation_character_registry
@@ -275,7 +372,11 @@ def register_background(
     metadata: dict | None = None,
 ) -> dict:
     with engine.begin() as db:
-        asset_id = _asset_id(db, asset_key)
+        asset_id = _asset_id(
+            db,
+            asset_key,
+            expected_kind="BACKGROUND",
+        )
         row = db.execute(
             text("""
               INSERT INTO animation_background_registry(
@@ -320,6 +421,7 @@ def load_asset_registry_snapshot(
     action_keys: list[str],
     camera_keys: list[str],
 ) -> dict:
+    ensure_builtin_animation_primitives()
     with engine.connect() as db:
         characters = []
         for character_id in sorted(set(character_ids)):
@@ -481,6 +583,7 @@ def load_voice_registry_snapshot(
 
 
 def list_animation_registry() -> dict:
+    ensure_builtin_animation_primitives()
     with engine.connect() as db:
         assets = [
             dict(row)
