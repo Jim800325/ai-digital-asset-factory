@@ -72,9 +72,9 @@ def main() -> None:
     if settings.production_rollback_enabled:
         _fail("production rollback must remain disabled")
 
-    allowed_projects = settings.production_execution_allowed_project_id_list()
-    allowed_teams = settings.production_execution_allowed_team_id_list()
-    denied_projects = settings.production_execution_denied_project_id_list()
+    allowed_projects = settings.production_execution_allowed_project_id_list
+    allowed_teams = settings.production_execution_allowed_team_id_list
+    denied_projects = settings.production_execution_denied_project_id_list
     if allowed_projects != [EXPECTED_PROJECT_ID]:
         _fail("sacrificial project allowlist is not the exact expected project")
     if allowed_teams != [EXPECTED_TEAM_ID]:
