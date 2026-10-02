@@ -87,6 +87,9 @@ from app.providers.animation.asset_registry import list_animation_registry
 from app.providers.animation.shrimp.provider import get_shrimp_animation_job
 from app.providers.animation.shrimp.resource_planning import list_resource_plans
 from app.providers.animation.shrimp.execution import list_shrimp_artifacts
+from app.providers.animation.shrimp.animation_execution import (
+    list_animation_compositions,
+)
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
@@ -376,6 +379,20 @@ def shrimp_animation_artifacts(
         return list_shrimp_artifacts(
             job_id,
             include_superseded=include_superseded,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+@app.get("/v1/shrimp-animation/jobs/{job_id}/compositions")
+def shrimp_animation_compositions(
+    job_id: UUID,
+    include_stale: bool = False,
+):
+    try:
+        get_shrimp_animation_job(job_id)
+        return list_animation_compositions(
+            job_id,
+            include_stale=include_stale,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc

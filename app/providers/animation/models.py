@@ -365,3 +365,134 @@ class VoiceArtifactManifest(ShrimpModel):
         if self.total_duration_ms != total:
             raise ValueError("Voice manifest total_duration_ms mismatch")
         return self
+
+
+class TimelineMediaRef(ShrimpModel):
+    logical_key: str
+    storage_uri: str
+    media_type: str
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class TimelineCameraCue(ShrimpModel):
+    type: Literal[
+        "static", "pan", "zoom", "push_in", "pull_out",
+        "shake", "focus_left", "focus_right",
+    ]
+    start_frame: int = Field(ge=0)
+    end_frame: int = Field(gt=0)
+    from_scale: float = Field(ge=0.25, le=4.0)
+    to_scale: float = Field(ge=0.25, le=4.0)
+
+    @model_validator(mode="after")
+    def _frame_order(self):
+        if self.end_frame <= self.start_frame:
+            raise ValueError("camera end_frame must be greater than start_frame")
+        return self
+
+
+class TimelineCharacterCue(ShrimpModel):
+    character_id: str
+    asset: TimelineMediaRef
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
+    action: str
+    start_frame: int = Field(ge=0)
+    end_frame: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _frame_order(self):
+        if self.end_frame <= self.start_frame:
+            raise ValueError("character end_frame must be greater than start_frame")
+        return self
+
+
+class TimelineAudioCue(ShrimpModel):
+    voice_asset_id: str
+    line_id: str
+    speaker: str
+    media: TimelineMediaRef
+    start_frame: int = Field(ge=0)
+    end_frame: int = Field(gt=0)
+    measured_duration_ms: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _frame_order(self):
+        if self.end_frame <= self.start_frame:
+            raise ValueError("audio end_frame must be greater than start_frame")
+        return self
+
+
+class SubtitleCue(ShrimpModel):
+    line_id: str
+    speaker: str
+    text: str
+    start_frame: int = Field(ge=0)
+    end_frame: int = Field(gt=0)
+    safe_area_bottom: float = Field(default=0.08, ge=0.0, le=0.4)
+    max_width: float = Field(default=0.84, gt=0.1, le=1.0)
+
+    @model_validator(mode="after")
+    def _frame_order(self):
+        if self.end_frame <= self.start_frame:
+            raise ValueError("subtitle end_frame must be greater than start_frame")
+        return self
+
+
+class AnimationSceneTimeline(ShrimpModel):
+    scene_id: str
+    start_frame: int = Field(ge=0)
+    end_frame: int = Field(gt=0)
+    duration_frames: int = Field(gt=0)
+    background: TimelineMediaRef
+    transition: Literal["cut", "fade", "crossfade", "slide", "flash"]
+    camera: list[TimelineCameraCue] = Field(min_length=1)
+    characters: list[TimelineCharacterCue] = Field(min_length=1)
+    audio: list[TimelineAudioCue] = Field(min_length=1)
+    subtitles: list[SubtitleCue] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _scene_frame_consistency(self):
+        if self.end_frame - self.start_frame != self.duration_frames:
+            raise ValueError("scene duration_frames mismatch")
+        for group in (self.camera, self.characters, self.audio, self.subtitles):
+            for cue in group:
+                if cue.start_frame < 0 or cue.end_frame > self.duration_frames:
+                    raise ValueError("scene cue falls outside scene duration")
+        return self
+
+
+class AnimationTimelineManifest(ShrimpModel):
+    schema_version: Literal["animation-timeline-v0.1"] = "animation-timeline-v0.1"
+    planner_version: Literal["animation-planner-v0.1-deterministic"] = (
+        "animation-planner-v0.1-deterministic"
+    )
+    episode_id: str
+    fps: int = Field(ge=12, le=120)
+    resolution: Resolution
+    scene_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    asset_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    voice_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    total_duration_frames: int = Field(gt=0)
+    scenes: list[AnimationSceneTimeline] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _timeline_consistency(self):
+        cursor = 0
+        for scene in self.scenes:
+            if scene.start_frame != cursor:
+                raise ValueError("animation scenes must be contiguous")
+            cursor = scene.end_frame
+        if cursor != self.total_duration_frames:
+            raise ValueError("total_duration_frames mismatch")
+        return self
+
+
+class RemotionCompositionPayload(ShrimpModel):
+    composition_id: str = Field(min_length=1, max_length=100)
+    props_uri: str = Field(min_length=1, max_length=2000)
+    props_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    project_source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    adapter_key: str = Field(min_length=1, max_length=100)
+    adapter_version: str = Field(min_length=1, max_length=100)
+    props: dict
