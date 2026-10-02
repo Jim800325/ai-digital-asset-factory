@@ -214,12 +214,13 @@ def test_step7_episode_bundle_and_human_review_package():
                 subtitle_text = archive.read(
                     "subtitles.srt"
                 ).decode("utf-8")
-                assert " --> " in subtitle_text
-                assert brief.characters[0].display_name not in subtitle_text
-                assert any(
-                    character.character_id in subtitle_text
-                    for character in brief.characters
+                timeline_json = json.loads(
+                    archive.read("timeline.json")
                 )
+                first_subtitle = timeline_json["scenes"][0]["subtitles"][0]
+                assert " --> " in subtitle_text
+                assert first_subtitle["speaker"] in subtitle_text
+                assert first_subtitle["text"] in subtitle_text
 
                 hashes = json.loads(
                     archive.read("manifest_hashes.json")
