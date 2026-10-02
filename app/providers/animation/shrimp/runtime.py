@@ -78,3 +78,16 @@ def build_render_adapter() -> ControlledRemotionRenderAdapter:
         remotion_cli=settings.shrimp_remotion_cli,
         timeout_seconds=settings.shrimp_remotion_render_timeout_seconds,
     )
+
+
+def run_render_stage(
+    job_id,
+    *,
+    actor: str = "shrimp-render-worker",
+) -> dict:
+    return execute_render_stage(
+        job_id,
+        adapter=build_render_adapter(),
+        ffprobe_cli=settings.shrimp_ffprobe_cli,
+        actor=actor,
+    )
