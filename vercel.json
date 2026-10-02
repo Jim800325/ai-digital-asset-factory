@@ -5,5 +5,5 @@
       "maxDuration": 300
     }
   },
-  "buildCommand": "python scripts/step4a_recover_build.py"
+  "buildCommand": "python -m scripts.step4a_recover_build"
 }
