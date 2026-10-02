@@ -927,7 +927,7 @@ def execute_qc_stage(
             "qc_report_sha256": persisted["report_sha256"],
             "hard_failure_count": 0,
             "replayed": False,
-            "next_stage": "PACKAGING_REVIEW",
+            "next_stage": "PACKAGE",
             "publish_enabled": False,
             "production_execution_enabled": False,
         }
