@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     shrimp_remotion_render_output_root: str = ""
     shrimp_remotion_render_timeout_seconds: float = 300.0
     shrimp_ffprobe_cli: str = "ffprobe"
+    shrimp_qc_analyzer: str = "DISABLED"
+    shrimp_qc_ffmpeg_cli: str = "ffmpeg"
+    shrimp_qc_max_black_segment_ms: int = 1500
+    shrimp_qc_max_black_ratio: float = 0.10
+    shrimp_qc_max_freeze_segment_ms: int = 8000
+    shrimp_qc_max_freeze_ratio: float = 0.50
+    shrimp_qc_max_dialogue_silence_ratio: float = 0.80
+    shrimp_qc_analysis_timeout_seconds: float = 180.0
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""

@@ -9,6 +9,10 @@ from app.providers.animation.shrimp.adapters.remotion_render import (
     ControlledRemotionRenderAdapter,
 )
 from app.providers.animation.shrimp.render_execution import execute_render_stage
+from app.providers.animation.shrimp.qc_execution import (
+    QCThresholds,
+    execute_qc_stage,
+)
 
 
 def _csv(value: str) -> list[str]:
@@ -93,5 +97,35 @@ def run_render_stage(
         job_id,
         adapter=build_render_adapter(),
         ffprobe_cli=settings.shrimp_ffprobe_cli,
+        actor=actor,
+    )
+
+
+def build_qc_thresholds() -> QCThresholds:
+    return QCThresholds(
+        max_black_segment_ms=settings.shrimp_qc_max_black_segment_ms,
+        max_black_ratio=settings.shrimp_qc_max_black_ratio,
+        max_freeze_segment_ms=settings.shrimp_qc_max_freeze_segment_ms,
+        max_freeze_ratio=settings.shrimp_qc_max_freeze_ratio,
+        max_dialogue_silence_ratio=settings.shrimp_qc_max_dialogue_silence_ratio,
+        analysis_timeout_seconds=settings.shrimp_qc_analysis_timeout_seconds,
+    )
+
+
+def run_qc_stage(
+    job_id,
+    *,
+    actor: str = "shrimp-qc-worker",
+) -> dict:
+    if settings.shrimp_qc_analyzer.upper() != "FFMPEG":
+        raise RuntimeError(
+            "Shrimp QC analyzer is disabled; set "
+            "SHRIMP_QC_ANALYZER=FFMPEG on an internal worker"
+        )
+    return execute_qc_stage(
+        job_id,
+        ffprobe_cli=settings.shrimp_ffprobe_cli,
+        ffmpeg_cli=settings.shrimp_qc_ffmpeg_cli,
+        thresholds=build_qc_thresholds(),
         actor=actor,
     )
