@@ -170,6 +170,8 @@ def update_shrimp_content_brief(
         reason="content brief changed",
         actor=actor,
     )
+    from app.providers.animation.shrimp.resource_planning import stale_resource_plans
+    stale_resource_plans(job_id, reason="content brief changed")
     start_provider_stage(job_id, "CONTENT_BRIEF", actor=actor)
     manifest = write_provider_manifest(
         job_id,
@@ -191,6 +193,8 @@ def update_shrimp_content_brief(
                   story_sha256=NULL,
                   script_sha256=NULL,
                   scene_sha256=NULL,
+                  asset_plan_sha256=NULL,
+                  voice_plan_sha256=NULL,
                   updated_at=now()
               WHERE provider_job_id=CAST(:job_id AS uuid)
             """),
@@ -325,6 +329,7 @@ def run_deterministic_planning(
         "script_sha256": script_sha,
         "scene_sha256": scene_sha,
         "next_stage": "ASSETS",
+        "resource_planning_required": True,
         "external_side_effects": "DENY",
         "publish_enabled": False,
     }
@@ -337,7 +342,8 @@ def get_shrimp_animation_job(job_id) -> dict:
             text("""
               SELECT episode_id,schema_version,planning_version,
                      deterministic_seed,brief_sha256,story_sha256,
-                     script_sha256,scene_sha256,created_at,updated_at
+                     script_sha256,scene_sha256,asset_plan_sha256,
+                     voice_plan_sha256,created_at,updated_at
               FROM shrimp_animation_jobs
               WHERE provider_job_id=CAST(:job_id AS uuid)
             """),
