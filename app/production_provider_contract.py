@@ -840,6 +840,15 @@ def write_provider_manifest(
                 reason=f"upstream manifest changed at {stage_key}",
                 actor=actor,
             )
+            db.execute(
+                text("""
+                  UPDATE production_provider_jobs
+                  SET job_status='RUNNING',current_stage=:stage_key,
+                      completed_at=NULL,updated_at=now(),error=NULL
+                  WHERE id=:id
+                """),
+                {"id": job["id"], "stage_key": stage_key},
+            )
 
         _event(
             db,
