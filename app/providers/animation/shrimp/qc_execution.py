@@ -740,6 +740,12 @@ def _validate_inputs(job_id):
     if meta["render_artifact_sha256"] != render["artifact_sha256"]:
         raise RuntimeError("Job render artifact hash drift detected")
 
+    artifact_path = _artifact_path(render["artifact_uri"])
+    if not artifact_path.is_file():
+        raise RuntimeError("Current render artifact file is missing")
+    if _sha256_file(artifact_path) != render["artifact_sha256"]:
+        raise RuntimeError("Current render artifact bytes drift detected")
+
     return (
         job,
         timeline,
