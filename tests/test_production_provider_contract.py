@@ -40,7 +40,7 @@ def _item(source_type: str, url: str, title: str, body: str):
 def _acceptance_spec():
     return ProductionProviderSpec(
         provider_key="contract_acceptance",
-        asset_class="DATASET_API",
+        asset_class="TEMPLATE_WORKFLOW",
         provider_version="v0.1-test",
         capabilities=("manifest", "retry", "cost-accounting"),
         stages=(
@@ -80,21 +80,21 @@ def test_production_provider_contract_end_to_end_and_fail_closed():
                 _item(
                     "NEWS_ARTICLE",
                     urls[0],
-                    "Orchid supplier compliance directory dataset API",
+                    "Orchid supplier compliance workflow template playbook",
                     (
-                        "Teams need an alternative supplier compliance directory dataset API. "
-                        "Manual supplier data collection is slow, difficult, and takes hours. "
-                        "We pay $20 per month and need automated compliance data access."
+                        "Teams need an alternative supplier compliance workflow template playbook. "
+                        "Manual compliance checklists are slow, difficult, and take hours. "
+                        "We pay $20 per month and need an automated reusable workflow template."
                     ),
                 ),
                 _item(
                     "COMMUNITY_POST",
                     urls[1],
-                    "Orchid supplier compliance directory dataset API",
+                    "Orchid supplier compliance workflow template playbook",
                     (
-                        "Operators need a supplier compliance directory dataset API and tracker. "
+                        "Operators need a supplier compliance workflow template and checklist. "
                         "The manual workflow is expensive and slow. "
-                        "Our budget is $25 per month and we are willing to pay for automation."
+                        "Our budget is $25 per month and we are willing to pay for a reusable playbook."
                     ),
                 ),
             ]
