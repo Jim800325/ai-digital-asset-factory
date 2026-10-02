@@ -281,6 +281,7 @@ def test_step5_ffprobe_rejects_frame_count_drift(tmp_path):
         )
 
 
+@pytest.mark.timeout(300)
 @pytest.mark.skipif(
     os.getenv("SHRIMP_STEP5_REAL_REMOTION_SMOKE") != "1",
     reason="real Remotion smoke is enabled only in CI acceptance",
