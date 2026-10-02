@@ -65,6 +65,35 @@ The generic `ASSETS` and `VOICES` stages remain `PENDING` or `STALE` until the l
 
 See `docs/SHRIMP_ANIMATION_PROVIDER_STEP2.md`.
 
+## Step 3 implementation
+
+Step 3 turns the Step 2 ASSET / VOICE resource plans into verified stage artifacts.
+
+Implemented:
+
+- ComfyUI-native asset adapter contract and internal-endpoint implementation;
+- GPT-SoVITS-compatible TTS adapter contract and internal-endpoint implementation;
+- explicit private/allowlisted adapter endpoint validation;
+- local reusable-artifact resolver constrained to configured storage roots;
+- image signature + SHA-256 verification;
+- WAV decoding + SHA-256 + measured duration verification;
+- immutable artifact/provenance persistence;
+- resumable artifact execution with cached verified outputs;
+- ASSETS and VOICES generic Provider Contract stage completion only after verification;
+- artifact manifest SHA-256 tracking on shrimp jobs;
+- resource accounting for generated network bytes.
+
+Default runtime remains fail-closed:
+
+```text
+SHRIMP_ASSET_ADAPTER=DISABLED
+SHRIMP_VOICE_ADAPTER=DISABLED
+```
+
+CI uses explicit fake adapters only. Mock/fixture artifacts are never presented as real ComfyUI or GPT-SoVITS outputs.
+
+See `docs/SHRIMP_ANIMATION_PROVIDER_STEP3.md`.
+
 ## Pipeline
 
 ```text
