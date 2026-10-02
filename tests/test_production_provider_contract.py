@@ -273,6 +273,38 @@ def test_production_provider_contract_end_to_end_and_fail_closed():
         assert all(stage["stage_status"] == "STALE" for stage in job["stages"])
         assert job["current_manifests"] == []
 
+        start_provider_stage(job_id, "PLAN", actor="ci-worker")
+        changed_plan = write_provider_manifest(
+            job_id,
+            "PLAN",
+            ProviderManifestEnvelope(
+                manifest_kind="plan",
+                schema_version="v1",
+                payload={"dataset": "competitor-pricing", "revision": 2},
+            ),
+            actor="ci-worker",
+        )
+        assert changed_plan["manifest_version"] == 2
+        assert changed_plan["invalidated_stages"] == [
+            "GENERATE", "PACKAGE", "QC"
+        ]
+        during_rebuild = get_provider_job(job_id)
+        assert during_rebuild["job_status"] == "RUNNING"
+        assert during_rebuild["current_stage"] == "PLAN"
+        complete_provider_stage(job_id, "PLAN", actor="ci-worker")
+
+        after_rebuild = get_provider_job(job_id)
+        statuses = {
+            stage["stage_key"]: stage["stage_status"]
+            for stage in after_rebuild["stages"]
+        }
+        assert statuses == {
+            "PLAN": "SUCCEEDED",
+            "GENERATE": "STALE",
+            "PACKAGE": "STALE",
+            "QC": "STALE",
+        }
+
         with engine.begin() as db:
             db.execute(
                 text("""
