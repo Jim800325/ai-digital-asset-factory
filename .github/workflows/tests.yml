@@ -63,15 +63,24 @@ jobs:
       OPENHANDS_GATEWAY_MODE: MOCK
       OPENHANDS_GATEWAY_IMAGE: python:3.12-slim
       OPENHANDS_MODEL: openai/mock-test-model
+      SHRIMP_STEP5_REAL_REMOTION_SMOKE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: renderer/remotion/package.json
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: python -m pip install -r requirements.txt
+
+      - name: Install pinned Remotion renderer
+        run: npm install --prefix renderer/remotion --no-audit --no-fund
 
       - name: Compile Python
         run: python -m compileall -q app tests
@@ -92,7 +101,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "036_shrimp_animation_timeline.sql", expected
+          assert expected[-1] == "037_shrimp_animation_render.sql", expected
           print("migrations:", actual)
           PY
 
