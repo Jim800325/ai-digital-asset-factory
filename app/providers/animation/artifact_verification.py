@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
+import re
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,15 +43,29 @@ class LocalFileArtifactResolver:
         self.allowed_roots = tuple(roots)
 
     def read_bytes(self, storage_uri: str) -> bytes:
-        parsed = urlparse(storage_uri)
-        if parsed.scheme not in {"", "file"}:
-            raise ValueError("Local resolver accepts only file paths/file:// URIs")
-        if parsed.scheme == "file":
-            path = Path(unquote(parsed.path))
-            if parsed.netloc and parsed.netloc not in {"", "localhost"}:
-                path = Path(f"//{parsed.netloc}{unquote(parsed.path)}")
+        raw = storage_uri.strip()
+        if re.match(r"^[A-Za-z]:[\\/]", raw):
+            path = Path(raw)
+        elif raw.startswith("\\\\"):
+            path = Path(raw)
         else:
-            path = Path(storage_uri)
+            parsed = urlparse(raw)
+            if parsed.scheme not in {"", "file"}:
+                raise ValueError(
+                    "Local resolver accepts only file paths/file:// URIs"
+                )
+            if parsed.scheme == "file":
+                path_text = unquote(parsed.path)
+                if (
+                    os.name == "nt"
+                    and re.match(r"^/[A-Za-z]:/", path_text)
+                ):
+                    path_text = path_text[1:]
+                path = Path(path_text)
+                if parsed.netloc and parsed.netloc not in {"", "localhost"}:
+                    path = Path(f"//{parsed.netloc}{path_text}")
+            else:
+                path = Path(raw)
         resolved = path.expanduser().resolve()
         if not any(
             resolved == root or root in resolved.parents
