@@ -199,6 +199,7 @@ def update_shrimp_content_brief(
                   voices_manifest_sha256=NULL,
                   animation_manifest_sha256=NULL,
                   remotion_props_sha256=NULL,
+                  render_artifact_sha256=NULL,
                   updated_at=now()
               WHERE provider_job_id=CAST(:job_id AS uuid)
             """),
