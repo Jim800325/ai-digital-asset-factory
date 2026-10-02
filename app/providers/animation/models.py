@@ -293,3 +293,75 @@ class VoicePlan(ShrimpModel):
     adapter_required_count: int = Field(ge=0)
     blocked_count: int = Field(ge=0)
     ready_for_synthesis: bool
+
+
+class ArtifactProvenance(ShrimpModel):
+    adapter_key: str = Field(min_length=1, max_length=100)
+    adapter_version: str = Field(min_length=1, max_length=100)
+    provider_request_id: str | None = Field(default=None, max_length=300)
+    source_reference: str = Field(min_length=1, max_length=2000)
+    source_type: Literal[
+        "REUSABLE_REGISTRY",
+        "COMFYUI_GENERATED",
+        "TTS_GENERATED",
+        "FIXTURE",
+    ]
+    provenance: str = Field(min_length=1, max_length=4000)
+    request_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class VerifiedArtifact(ShrimpModel):
+    logical_key: str
+    artifact_kind: Literal["CHARACTER", "BACKGROUND", "VOICE"]
+    source_mode: Literal["REUSED", "GENERATED"]
+    plan_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    storage_uri: str
+    media_type: str
+    byte_size: int = Field(gt=0)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    license_id: str
+    usage_rights: Literal["APPROVED"]
+    provenance: ArtifactProvenance
+    duration_ms: int | None = Field(default=None, gt=0)
+
+
+class AssetArtifactManifest(ShrimpModel):
+    schema_version: Literal["asset-artifacts-v0.1"] = "asset-artifacts-v0.1"
+    provider_version: Literal["shrimp-animation-v0.1"] = "shrimp-animation-v0.1"
+    episode_id: str
+    asset_plan_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    artifacts: list[VerifiedArtifact] = Field(min_length=1)
+    reused_count: int = Field(ge=0)
+    generated_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _asset_manifest_consistency(self):
+        if any(item.artifact_kind == "VOICE" for item in self.artifacts):
+            raise ValueError("Asset manifest cannot contain voice artifacts")
+        if self.reused_count != sum(
+            item.source_mode == "REUSED" for item in self.artifacts
+        ):
+            raise ValueError("Asset manifest reused_count mismatch")
+        if self.generated_count != sum(
+            item.source_mode == "GENERATED" for item in self.artifacts
+        ):
+            raise ValueError("Asset manifest generated_count mismatch")
+        return self
+
+
+class VoiceArtifactManifest(ShrimpModel):
+    schema_version: Literal["voice-artifacts-v0.1"] = "voice-artifacts-v0.1"
+    provider_version: Literal["shrimp-animation-v0.1"] = "shrimp-animation-v0.1"
+    episode_id: str
+    voice_plan_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    artifacts: list[VerifiedArtifact] = Field(min_length=1)
+    total_duration_ms: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _voice_manifest_consistency(self):
+        if any(item.artifact_kind != "VOICE" for item in self.artifacts):
+            raise ValueError("Voice manifest may contain only voice artifacts")
+        total = sum(int(item.duration_ms or 0) for item in self.artifacts)
+        if self.total_duration_ms != total:
+            raise ValueError("Voice manifest total_duration_ms mismatch")
+        return self
