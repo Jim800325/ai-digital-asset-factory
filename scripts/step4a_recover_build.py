@@ -6,7 +6,7 @@ import sys
 from uuid import UUID
 
 from app.config import settings
-from app.migrate import migration_files, migration_status
+from app.migrate import migrate, migration_files, migration_status
 from app.vercel_prepare_acceptance import recover_prepare_acceptance
 
 
@@ -84,6 +84,7 @@ def main() -> None:
     if not settings.vercel_controlled_executor_token.strip():
         _fail("Vercel controlled executor token is unavailable")
 
+    migrate()
     migrations = migration_status()
     expected_migrations = migration_files()
     if (
