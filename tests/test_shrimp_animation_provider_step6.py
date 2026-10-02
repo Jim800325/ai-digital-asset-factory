@@ -293,7 +293,7 @@ def test_step6_qc_gate_pass_reject_replay_and_invalidation():
             assert result["stage_status"] == "SUCCEEDED"
             assert result["job_status"] == "QC_PASSED"
             assert result["hard_failure_count"] == 0
-            assert result["next_stage"] == "PACKAGING_REVIEW"
+            assert result["next_stage"] == "PACKAGE"
             assert result["publish_enabled"] is False
             assert result["production_execution_enabled"] is False
 

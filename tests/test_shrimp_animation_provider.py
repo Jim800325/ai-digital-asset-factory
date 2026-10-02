@@ -179,6 +179,7 @@ def test_shrimp_provider_step1_end_to_end_invalidation_and_rebuild():
             "ANIMATION",
             "RENDER",
             "QC",
+            "PACKAGE",
         ]
 
         opportunity_id, proposal_id = _create_content_ip_proposal()
@@ -205,7 +206,7 @@ def test_shrimp_provider_step1_end_to_end_invalidation_and_rebuild():
             before_status[key] == "PENDING"
             for key in [
                 "STORY", "SCRIPT", "SCENE", "ASSETS", "VOICES",
-                "ANIMATION", "RENDER", "QC",
+                "ANIMATION", "RENDER", "QC", "PACKAGE",
             ]
         )
 
@@ -228,7 +229,9 @@ def test_shrimp_provider_step1_end_to_end_invalidation_and_rebuild():
         assert statuses["SCENE"] == "SUCCEEDED"
         assert all(
             statuses[key] == "PENDING"
-            for key in ["ASSETS", "VOICES", "ANIMATION", "RENDER", "QC"]
+            for key in [
+                "ASSETS", "VOICES", "ANIMATION", "RENDER", "QC", "PACKAGE"
+            ]
         )
         meta = planned["shrimp_animation"]
         assert meta["story_sha256"] == first["story_sha256"]
@@ -291,7 +294,7 @@ def test_shrimp_provider_step1_end_to_end_invalidation_and_rebuild():
             invalidated_status[key] == "STALE"
             for key in [
                 "STORY", "SCRIPT", "SCENE", "ASSETS", "VOICES",
-                "ANIMATION", "RENDER", "QC",
+                "ANIMATION", "RENDER", "QC", "PACKAGE",
             ]
         )
         assert invalidated["shrimp_animation"]["story_sha256"] is None

@@ -201,6 +201,9 @@ def update_shrimp_content_brief(
                   remotion_props_sha256=NULL,
                   render_artifact_sha256=NULL,
                   qc_report_sha256=NULL,
+                  episode_bundle_sha256=NULL,
+                  release_review_package_sha256=NULL,
+                  review_status='STALE',
                   updated_at=now()
               WHERE provider_job_id=CAST(:job_id AS uuid)
             """),
@@ -352,7 +355,9 @@ def get_shrimp_animation_job(job_id) -> dict:
                      voice_plan_sha256,assets_manifest_sha256,
                      voices_manifest_sha256,animation_manifest_sha256,
                      remotion_props_sha256,render_artifact_sha256,
-                     qc_report_sha256,\n                     created_at,updated_at
+                     qc_report_sha256,episode_bundle_sha256,
+                     release_review_package_sha256,review_status,
+                     created_at,updated_at
               FROM shrimp_animation_jobs
               WHERE provider_job_id=CAST(:job_id AS uuid)
             """),

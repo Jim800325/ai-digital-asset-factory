@@ -13,6 +13,7 @@ from app.providers.animation.shrimp.qc_execution import (
     QCThresholds,
     execute_qc_stage,
 )
+from app.providers.animation.shrimp.packaging_execution import execute_package_stage
 
 
 def _csv(value: str) -> list[str]:
@@ -127,5 +128,22 @@ def run_qc_stage(
         ffprobe_cli=settings.shrimp_ffprobe_cli,
         ffmpeg_cli=settings.shrimp_qc_ffmpeg_cli,
         thresholds=build_qc_thresholds(),
+        actor=actor,
+    )
+
+
+def run_package_stage(
+    job_id,
+    *,
+    actor: str = "shrimp-package-worker",
+) -> dict:
+    if not settings.shrimp_package_enabled:
+        raise RuntimeError(
+            "Shrimp packaging is disabled; set "
+            "SHRIMP_PACKAGE_ENABLED=true on an internal worker"
+        )
+    return execute_package_stage(
+        job_id,
+        output_root=settings.shrimp_package_output_root,
         actor=actor,
     )
