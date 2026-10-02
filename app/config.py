@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     shrimp_remotion_composition_id: str = "ShrimpAnimation"
     shrimp_remotion_props_output_root: str = ""
     shrimp_remotion_cli: str = "remotion"
+    shrimp_render_adapter: str = "DISABLED"
+    shrimp_remotion_render_output_root: str = ""
+    shrimp_remotion_render_timeout_seconds: float = 300.0
+    shrimp_ffprobe_cli: str = "ffprobe"
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""
