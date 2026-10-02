@@ -759,14 +759,15 @@ def write_provider_manifest(
         if stage["stage_status"] != "RUNNING":
             raise RuntimeError("Manifest may only be written by a RUNNING stage")
 
-        current = db.execute(
+        latest = db.execute(
             text("""
-              SELECT id,manifest_version,content_sha256
+              SELECT id,manifest_version,content_sha256,is_current
               FROM production_provider_manifests
               WHERE job_id=:job_id
                 AND stage_key=:stage_key
                 AND manifest_kind=:manifest_kind
-                AND is_current=true
+              ORDER BY manifest_version DESC
+              LIMIT 1
               FOR UPDATE
             """),
             {
@@ -775,7 +776,11 @@ def write_provider_manifest(
                 "manifest_kind": manifest.manifest_kind,
             },
         ).mappings().one_or_none()
-        if current and current["content_sha256"] == content_sha256:
+        if (
+            latest
+            and latest["is_current"]
+            and latest["content_sha256"] == content_sha256
+        ):
             return {
                 "job_id": str(job["id"]),
                 "stage_key": stage_key,
@@ -785,15 +790,15 @@ def write_provider_manifest(
                 "invalidated_stages": [],
             }
 
-        version = int(current["manifest_version"]) + 1 if current else 1
-        if current:
+        version = int(latest["manifest_version"]) + 1 if latest else 1
+        if latest and latest["is_current"]:
             db.execute(
                 text("""
                   UPDATE production_provider_manifests
                   SET is_current=false,superseded_at=now()
                   WHERE id=:id
                 """),
-                {"id": current["id"]},
+                {"id": latest["id"]},
             )
 
         db.execute(
@@ -825,7 +830,7 @@ def write_provider_manifest(
         )
 
         invalidated: list[str] = []
-        if current:
+        if latest:
             snapshot = _job_snapshot(job)
             downstream = _downstream_keys(snapshot, stage_key)
             invalidated = _invalidate_keys(
