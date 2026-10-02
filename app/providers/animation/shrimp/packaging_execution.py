@@ -482,7 +482,7 @@ def _review_content(
             "frame_count": timeline.total_duration_frames,
         },
         "bundle": {
-            "uri": bundle["bundle_uri"],
+            "filename": _file_path(bundle["bundle_uri"]).name,
             "sha256": bundle["bundle_sha256"],
             "byte_size": bundle["byte_size"],
             "bundle_manifest_sha256": bundle["bundle_manifest_sha256"],
