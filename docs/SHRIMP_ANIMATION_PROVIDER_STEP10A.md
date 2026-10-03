@@ -58,6 +58,16 @@ SHRIMP_YOUTUBE_OAUTH_CLIENT_SECRET=<secret>
 SHRIMP_YOUTUBE_OAUTH_REFRESH_TOKEN=<sacrificial channel refresh token>
 ```
 
+The OAuth grant must be created for the sacrificial channel with offline access
+and the YouTube management scope:
+
+```text
+https://www.googleapis.com/auth/youtube.force-ssl
+```
+
+Only the refresh token is stored in the Preview secret store. Short-lived
+access tokens are minted at runtime and are never committed to the repository.
+
 The live-acceptance key must be independent from:
 
 - human build approval key;
@@ -195,6 +205,14 @@ RECONCILED_PRESENT
 AMBIGUOUS
 REJECTED
 ```
+
+### Emergency cleanup
+
+Once a provider video ID is known, any later verification failure also enters
+the same one-shot cleanup path. Cleanup verifies exact sacrificial-channel
+ownership plus the deterministic reconciliation marker, but deliberately does
+not require the object to already be private. This prevents an unexpected
+visibility drift from blocking deletion.
 
 A successful acceptance must finish as:
 
