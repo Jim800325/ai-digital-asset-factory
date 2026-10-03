@@ -349,11 +349,11 @@ FOR EACH ROW EXECUTE FUNCTION enforce_shrimp_publish_execution_guard();
 CREATE OR REPLACE FUNCTION protect_shrimp_publish_execution_events()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $event$
 BEGIN
   RAISE EXCEPTION 'Controlled Publisher Execution event content is immutable';
 END;
-$;
+$event$;
 
 DROP TRIGGER IF EXISTS trg_shrimp_publish_execution_events_append_only
   ON shrimp_animation_publish_execution_events;
