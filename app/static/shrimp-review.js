@@ -232,6 +232,7 @@ function renderPlayer(d){
     ["Hash binding",d.integrity_gate?.hash_binding_ok],
     ["Bundle bytes",d.integrity_gate?.bundle_file_ok],
     ["Review document",d.integrity_gate?.review_document_ok],
+    ["Episode media",d.integrity_gate?.episode_media_ok],
     ["QC current",d.integrity_gate?.qc_ok],
     ["Rights / provenance",d.integrity_gate?.provenance_ok],
   ];
