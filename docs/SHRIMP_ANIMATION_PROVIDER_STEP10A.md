@@ -309,3 +309,52 @@ Therefore merging or deploying Step 10A code alone cannot publish to YouTube.
 A real acceptance requires explicit Preview-scoped secrets, explicit
 sacrificial account/target allowlists, a Step 9 authorization decision, a
 Step 10 execution snapshot, and the independent Step 10A acceptance key.
+
+
+## Readiness endpoint
+
+Step 10A exposes a secret-redacted readiness endpoint:
+
+```text
+GET /v1/shrimp-animation/youtube-live-acceptance/readiness
+```
+
+It returns only booleans, counts and blocker keys. It never returns OAuth
+client IDs, client secrets, refresh tokens, human keys, or exact allowlist
+values.
+
+The endpoint verifies:
+
+- Vercel Preview environment;
+- isolated Preview database selection;
+- Step 9 publish-authorization key is configured and independent;
+- Step 10 execution key is configured and independent;
+- publisher executor is enabled;
+- execution adapter is `YOUTUBE_CONTROLLED`;
+- Step 10A live-acceptance key is configured and independent;
+- Step 10A live acceptance is enabled;
+- all three YouTube OAuth values are present;
+- sacrificial account allowlist exists;
+- real/main account denylist exists;
+- sacrificial target allowlist exists;
+- real/main target denylist exists;
+- allowlists and denylists do not overlap;
+- at least one non-STALE YouTube controlled execution exists.
+
+Database counts are also returned for:
+
+```text
+RELEASE_APPROVED episodes
+active YouTube targets
+PUBLISH_AUTHORIZED YouTube plans
+YOUTUBE_CONTROLLED executions
+runnable YouTube executions
+```
+
+A live run must not start unless:
+
+```text
+status = READY
+blockers = []
+secrets_redacted = true
+```
