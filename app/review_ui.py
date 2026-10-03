@@ -8,6 +8,7 @@ STATIC_DIR=Path(__file__).resolve().parent/"static"
 REVIEW_HTML=STATIC_DIR/"review.html"
 AUDITS_HTML=STATIC_DIR/"audits.html"
 SHRIMP_REVIEW_HTML=STATIC_DIR/"shrimp-review.html"
+SHRIMP_PUBLISH_HTML=STATIC_DIR/"shrimp-publish.html"
 
 router=APIRouter(include_in_schema=False)
 
@@ -64,3 +65,12 @@ def shrimp_review_workspace_page():
 @router.get("/animation-review/{job_id}")
 def shrimp_review_workspace_job_page(job_id:UUID):
     return _html_file(SHRIMP_REVIEW_HTML)
+
+
+@router.get("/animation-publishing")
+def shrimp_publish_workspace_page():
+    return _html_file(SHRIMP_PUBLISH_HTML)
+
+@router.get("/animation-publishing/{job_id}")
+def shrimp_publish_workspace_job_page(job_id:UUID):
+    return _html_file(SHRIMP_PUBLISH_HTML)
