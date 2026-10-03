@@ -92,6 +92,9 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q app tests
 
+      - name: Check Shrimp review UI JavaScript
+        run: node --check app/static/shrimp-review.js
+
       - name: Apply all repository migrations
         run: python -m app.migrate
 
