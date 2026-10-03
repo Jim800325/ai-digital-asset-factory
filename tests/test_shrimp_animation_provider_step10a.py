@@ -191,10 +191,7 @@ def _register_youtube_target(client: TestClient) -> dict:
             "platform": "YOUTUBE",
             "display_name": "CI YouTube Sacrificial",
             "account_reference": "UCciSacrificialChannel",
-            "metadata_constraints": {
-                "privacy": "private",
-                "live_acceptance": True,
-            },
+            "metadata_constraints": {},
             "actor": "ci-step10a",
         },
     )
