@@ -179,6 +179,7 @@ def test_step8_human_review_workspace_approve_reject_and_stale(monkeypatch):
             assert workspace["integrity_gate"]["hash_binding_ok"] is True
             assert workspace["integrity_gate"]["bundle_file_ok"] is True
             assert workspace["integrity_gate"]["review_document_ok"] is True
+            assert workspace["integrity_gate"]["episode_media_ok"] is True
             assert workspace["integrity_gate"]["qc_ok"] is True
             assert workspace["integrity_gate"]["provenance_ok"] is True
             assert workspace["ui_safety"]["auto_publish"] is False
@@ -419,6 +420,15 @@ def test_step8_human_review_workspace_approve_reject_and_stale(monkeypatch):
             render_path = _file_path(render_uri)
             original_render = render_path.read_bytes()
             render_path.write_bytes(original_render + b"tampered-player")
+            tampered_workspace = get_shrimp_review_workspace(reject_job)
+            assert tampered_workspace["can_approve"] is False
+            assert tampered_workspace["can_reject"] is True
+            assert tampered_workspace["integrity_gate"][
+                "episode_media_ok"
+            ] is False
+            assert "episode_player_integrity_failed" in (
+                tampered_workspace["integrity_gate"]["blocking_reasons"]
+            )
 
             reject_response = client.post(
                 f"/v1/shrimp-animation/review-workspace/"
