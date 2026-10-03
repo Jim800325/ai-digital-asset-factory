@@ -117,6 +117,10 @@ from app.providers.animation.shrimp.publisher_execution import (
     reconcile_published_media,
     upload_publish_media,
 )
+from app.providers.animation.shrimp.youtube_live_acceptance import (
+    get_youtube_live_acceptance,
+    run_youtube_live_acceptance,
+)
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
@@ -346,6 +350,45 @@ def _require_shrimp_publish_execution_key(
             detail="Invalid Shrimp publish execution key",
         )
 
+def _shrimp_youtube_live_acceptance_key_independent() -> bool:
+    expected=settings.shrimp_youtube_live_acceptance_key.strip()
+    if not expected:
+        return False
+    earlier_keys=(
+        settings.human_approval_key.strip(),
+        settings.human_release_key.strip(),
+        settings.human_deployment_key.strip(),
+        settings.human_production_execution_key.strip(),
+        settings.preview_acceptance_key.strip(),
+        settings.shrimp_human_review_key.strip(),
+        settings.shrimp_publish_authorization_key.strip(),
+        settings.shrimp_publish_execution_key.strip(),
+    )
+    return all(
+        not value or not secrets.compare_digest(expected,value)
+        for value in earlier_keys
+    )
+
+def _require_shrimp_youtube_live_acceptance_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_youtube_live_acceptance_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Shrimp YouTube live acceptance gate is not configured",
+        )
+    if not _shrimp_youtube_live_acceptance_key_independent():
+        raise HTTPException(
+            status_code=503,
+            detail="Shrimp YouTube live acceptance key must be independent",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Shrimp YouTube live acceptance key",
+        )
+
 def _require_deployment_key(provided: str | None) -> None:
     expected=settings.human_deployment_key.strip()
     if not expected:
@@ -452,6 +495,22 @@ def health():
             settings.shrimp_publish_execution_adapter.strip().upper()
             or "MOCK"
         ),
+        "shrimp_youtube_live_acceptance_gate":(
+            "DISABLED"
+            if not settings.shrimp_youtube_live_acceptance_key.strip()
+            else (
+                "ENABLED"
+                if _shrimp_youtube_live_acceptance_key_independent()
+                else "MISCONFIGURED"
+            )
+        ),
+        "shrimp_youtube_live_acceptance_enabled":
+            settings.shrimp_youtube_live_acceptance_enabled,
+        "shrimp_youtube_oauth_credentials_present":all((
+            settings.shrimp_youtube_oauth_client_id.strip(),
+            settings.shrimp_youtube_oauth_client_secret.strip(),
+            settings.shrimp_youtube_oauth_refresh_token.strip(),
+        )),
         "production_execution_gate":(
             "DISABLED"
             if not settings.human_production_execution_key.strip()
@@ -974,6 +1033,49 @@ def shrimp_animation_publish_execution_publish_reconcile(
         raise HTTPException(status_code=404,detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+
+@app.post(
+    "/v1/shrimp-animation/publish-executions/"
+    "{execution_id}/youtube-live-acceptance"
+)
+def shrimp_animation_youtube_live_acceptance_run(
+    execution_id: UUID,
+    payload: ShrimpPublishExecutionAction,
+    x_shrimp_youtube_live_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-YouTube-Live-Acceptance-Key",
+    ),
+):
+    _require_shrimp_youtube_live_acceptance_key(
+        x_shrimp_youtube_live_acceptance_key
+    )
+    try:
+        return run_youtube_live_acceptance(
+            execution_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get(
+    "/v1/shrimp-animation/publish-executions/"
+    "{execution_id}/youtube-live-acceptance"
+)
+def shrimp_animation_youtube_live_acceptance_get(
+    execution_id: UUID,
+):
+    result=get_youtube_live_acceptance(execution_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="YouTube live acceptance run not found",
+        )
+    return result
 
 
 @app.get("/v1/animation/registry")
