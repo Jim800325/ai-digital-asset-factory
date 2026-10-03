@@ -204,6 +204,7 @@ def update_shrimp_content_brief(
                   episode_bundle_sha256=NULL,
                   release_review_package_sha256=NULL,
                   review_status='STALE',
+                  reviewed_at=NULL,
                   updated_at=now()
               WHERE provider_job_id=CAST(:job_id AS uuid)
             """),
@@ -357,7 +358,7 @@ def get_shrimp_animation_job(job_id) -> dict:
                      remotion_props_sha256,render_artifact_sha256,
                      qc_report_sha256,episode_bundle_sha256,
                      release_review_package_sha256,review_status,
-                     created_at,updated_at
+                     reviewed_at,created_at,updated_at
               FROM shrimp_animation_jobs
               WHERE provider_job_id=CAST(:job_id AS uuid)
             """),
