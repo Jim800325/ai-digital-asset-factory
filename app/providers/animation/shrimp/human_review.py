@@ -610,6 +610,11 @@ def decide_shrimp_release(
     # Re-read and hash files immediately before acquiring the terminal
     # database lock so a decision is never made against unverified bytes.
     workspace = get_shrimp_review_workspace(job_id)
+    if workspace["review_status"] in {
+        "RELEASE_APPROVED",
+        "RELEASE_REJECTED",
+    }:
+        raise RuntimeError("Human review decision is already terminal")
     if normalized == "APPROVE" and not workspace["can_approve"]:
         reasons = workspace["integrity_gate"]["blocking_reasons"]
         raise PermissionError(
