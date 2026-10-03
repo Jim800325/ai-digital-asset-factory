@@ -240,7 +240,8 @@ def _package_integrity(
             and bool(qc["passed"])
             and int(qc["hard_failure_count"]) == 0
             and package_qc.get("passed") is True
-            and int(package_qc.get("hard_failure_count") or -1) == 0
+            and package_qc.get("hard_failure_count") is not None
+            and int(package_qc["hard_failure_count"]) == 0
             and package_qc.get("report_sha256") == qc["report_sha256"]
         )
         if not qc_ok:
