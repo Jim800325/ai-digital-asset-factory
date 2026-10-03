@@ -338,12 +338,6 @@ def create_publish_execution(
         media = get_episode_player_file(source["provider_job_id"])
         bundle = get_episode_bundle_file(source["provider_job_id"])
         get_review_document_file(source["provider_job_id"])
-        if media.sha256 != source["dry_run_snapshot"][
-            "episode_bundle_sha256"
-        ] and False:
-            # Kept intentionally unreachable: episode media and bundle hashes
-            # are distinct identities. Actual media binding is persisted below.
-            raise RuntimeError("unreachable")
         if bundle.sha256 != source["episode_bundle_sha256"]:
             raise RuntimeError("Episode Bundle bytes drifted before execution")
 
@@ -766,43 +760,42 @@ def reconcile_publish_upload(
                     "provider_write_replay_forbidden": True,
                 },
             )
-            return get_publish_execution(execution_id)
-
-        result_sha = _receipt_sha(receipt)
-        previous = current["execution_status"]
-        db.execute(
-            text("""
-              UPDATE shrimp_animation_publish_executions
-              SET execution_status='UPLOADED',
-                  upload_outcome='RECONCILED_ACCEPTED',
-                  provider_upload_id=COALESCE(
-                    provider_upload_id,:provider_upload_id
-                  ),
-                  upload_provider_state=:provider_state,
-                  upload_provider_result_sha256=:result_sha,
-                  upload_reconciled_at=now()
-              WHERE id=:id
-            """),
-            {
-                "id": current["id"],
-                "provider_upload_id": receipt.provider_upload_id,
-                "provider_state": receipt.state[:200],
-                "result_sha": result_sha,
-            },
-        )
-        _event(
-            db,
-            current["id"],
-            event_type="UPLOAD_RECONCILED_ACCEPTED",
-            actor=clean_actor,
-            previous_status=previous,
-            next_status="UPLOADED",
-            details={
-                "provider_upload_id": receipt.provider_upload_id,
-                "provider_write_performed": False,
-            },
-            provider_result_sha256=result_sha,
-        )
+        else:
+            result_sha = _receipt_sha(receipt)
+            previous = current["execution_status"]
+            db.execute(
+                text("""
+                  UPDATE shrimp_animation_publish_executions
+                  SET execution_status='UPLOADED',
+                      upload_outcome='RECONCILED_ACCEPTED',
+                      provider_upload_id=COALESCE(
+                        provider_upload_id,:provider_upload_id
+                      ),
+                      upload_provider_state=:provider_state,
+                      upload_provider_result_sha256=:result_sha,
+                      upload_reconciled_at=now()
+                  WHERE id=:id
+                """),
+                {
+                    "id": current["id"],
+                    "provider_upload_id": receipt.provider_upload_id,
+                    "provider_state": receipt.state[:200],
+                    "result_sha": result_sha,
+                },
+            )
+            _event(
+                db,
+                current["id"],
+                event_type="UPLOAD_RECONCILED_ACCEPTED",
+                actor=clean_actor,
+                previous_status=previous,
+                next_status="UPLOADED",
+                details={
+                    "provider_upload_id": receipt.provider_upload_id,
+                    "provider_write_performed": False,
+                },
+                provider_result_sha256=result_sha,
+            )
     return get_publish_execution(execution_id)
 
 
@@ -1043,52 +1036,51 @@ def reconcile_published_media(
                     "provider_write_replay_forbidden": True,
                 },
             )
-            return get_publish_execution(execution_id)
-
-        result_sha = _receipt_sha(receipt)
-        previous = current["execution_status"]
-        db.execute(
-            text("""
-              UPDATE shrimp_animation_publish_executions
-              SET execution_status='PUBLISHED',
-                  publish_outcome='RECONCILED_ACCEPTED',
-                  provider_publish_id=COALESCE(
-                    provider_publish_id,:provider_publish_id
-                  ),
-                  provider_publish_url=COALESCE(
-                    provider_publish_url,:provider_publish_url
-                  ),
-                  publish_provider_state=:provider_state,
-                  publish_provider_result_sha256=:result_sha,
-                  publish_reconciled_at=now(),
-                  external_publish_performed=:external_performed
-              WHERE id=:id
-            """),
-            {
-                "id": current["id"],
-                "provider_publish_id": receipt.provider_publish_id,
-                "provider_publish_url": receipt.url,
-                "provider_state": receipt.state[:200],
-                "result_sha": result_sha,
-                "external_performed": bool(
-                    receipt.provider_write_performed
-                ),
-            },
-        )
-        _event(
-            db,
-            current["id"],
-            event_type="PUBLISH_RECONCILED_ACCEPTED",
-            actor=clean_actor,
-            previous_status=previous,
-            next_status="PUBLISHED",
-            details={
-                "provider_publish_id": receipt.provider_publish_id,
-                "provider_publish_url": receipt.url,
-                "provider_write_performed": False,
-            },
-            provider_result_sha256=result_sha,
-        )
+        else:
+            result_sha = _receipt_sha(receipt)
+            previous = current["execution_status"]
+            db.execute(
+                text("""
+                  UPDATE shrimp_animation_publish_executions
+                  SET execution_status='PUBLISHED',
+                      publish_outcome='RECONCILED_ACCEPTED',
+                      provider_publish_id=COALESCE(
+                        provider_publish_id,:provider_publish_id
+                      ),
+                      provider_publish_url=COALESCE(
+                        provider_publish_url,:provider_publish_url
+                      ),
+                      publish_provider_state=:provider_state,
+                      publish_provider_result_sha256=:result_sha,
+                      publish_reconciled_at=now(),
+                      external_publish_performed=:external_performed
+                  WHERE id=:id
+                """),
+                {
+                    "id": current["id"],
+                    "provider_publish_id": receipt.provider_publish_id,
+                    "provider_publish_url": receipt.url,
+                    "provider_state": receipt.state[:200],
+                    "result_sha": result_sha,
+                    "external_performed": bool(
+                        receipt.provider_write_performed
+                    ),
+                },
+            )
+            _event(
+                db,
+                current["id"],
+                event_type="PUBLISH_RECONCILED_ACCEPTED",
+                actor=clean_actor,
+                previous_status=previous,
+                next_status="PUBLISHED",
+                details={
+                    "provider_publish_id": receipt.provider_publish_id,
+                    "provider_publish_url": receipt.url,
+                    "provider_write_performed": False,
+                },
+                provider_result_sha256=result_sha,
+            )
     return get_publish_execution(execution_id)
 
 
