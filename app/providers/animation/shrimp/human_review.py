@@ -155,6 +155,7 @@ def _package_integrity(
     reasons: list[str] = []
     bundle_file_ok = False
     review_document_ok = False
+    episode_media_ok = False
     hash_binding_ok = False
     qc_ok = False
     provenance_ok = False
@@ -201,6 +202,38 @@ def _package_integrity(
 
         package_content = dict(review.get("package_content") or {})
         package_qc = dict(package_content.get("qc") or {})
+
+        try:
+            episode_item = _artifact_item(package_content, "episode.mp4")
+            media = dict(package_content.get("media") or {})
+            with engine.connect() as media_db:
+                render = media_db.execute(
+                    text("""
+                      SELECT artifact_uri,artifact_sha256
+                      FROM shrimp_animation_renders
+                      WHERE provider_job_id=CAST(:job_id AS uuid)
+                        AND render_status='CURRENT'
+                      ORDER BY created_at DESC
+                      LIMIT 1
+                    """),
+                    {"job_id": job["provider_job_id"]},
+                ).mappings().one_or_none()
+            if render is not None and episode_item is not None:
+                render_path = _file_path(render["artifact_uri"])
+                expected_render_sha = render["artifact_sha256"]
+                episode_media_ok = (
+                    render_path.is_file()
+                    and _sha256_file(render_path) == expected_render_sha
+                    and expected_render_sha
+                    == media.get("render_artifact_sha256")
+                    and expected_render_sha == episode_item.get("sha256")
+                    and expected_render_sha
+                    == bundle["render_artifact_sha256"]
+                )
+        except (ValueError, PermissionError, OSError):
+            episode_media_ok = False
+        if not episode_media_ok:
+            reasons.append("episode_player_integrity_failed")
         qc_ok = (
             qc is not None
             and qc["qc_status"] == "PASSED"
@@ -228,6 +261,7 @@ def _package_integrity(
         "hash_binding_ok": hash_binding_ok,
         "bundle_file_ok": bundle_file_ok,
         "review_document_ok": review_document_ok,
+        "episode_media_ok": episode_media_ok,
         "qc_ok": qc_ok,
         "provenance_ok": provenance_ok,
         "blocking_reasons": reasons,
