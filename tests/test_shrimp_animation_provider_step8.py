@@ -380,7 +380,19 @@ def test_step8_human_review_workspace_approve_reject_and_stale(monkeypatch):
                 "decision_status"
             ] == "STALE"
 
-            # Independent REJECT path.
+            # Independent REJECT path. The shared Step 4 fixture uses
+            # a fixed opportunity fingerprint, so remove the completed first
+            # fixture before creating the independent second candidate.
+            with engine.begin() as db:
+                db.execute(
+                    text("""
+                      DELETE FROM digital_asset_opportunities
+                      WHERE id=CAST(:id AS uuid)
+                    """),
+                    {"id": str(opportunity_id)},
+                )
+            opportunity_ids.remove(str(opportunity_id))
+
             opportunity_id2, proposal_id2 = _create_proposal()
             opportunity_ids.append(str(opportunity_id2))
             reject_job, _, _ = _build_review_ready_job(
