@@ -389,6 +389,129 @@ def _require_shrimp_youtube_live_acceptance_key(
             detail="Invalid Shrimp YouTube live acceptance key",
         )
 
+def _shrimp_youtube_live_acceptance_readiness() -> dict[str, Any]:
+    vercel_env=(os.getenv("VERCEL_ENV") or "").strip().lower()
+    try:
+        db_selection=database_selection()
+        preview_isolated=bool(db_selection.get("preview_isolated"))
+        database_source=str(db_selection.get("source") or "")
+    except RuntimeError:
+        preview_isolated=False
+        database_source="UNAVAILABLE"
+
+    publish_auth_gate=(
+        bool(settings.shrimp_publish_authorization_key.strip())
+        and _shrimp_publish_key_independent()
+    )
+    publish_execution_gate=(
+        bool(settings.shrimp_publish_execution_key.strip())
+        and _shrimp_publish_execution_key_independent()
+    )
+    live_gate=(
+        bool(settings.shrimp_youtube_live_acceptance_key.strip())
+        and _shrimp_youtube_live_acceptance_key_independent()
+    )
+    oauth_present=all((
+        settings.shrimp_youtube_oauth_client_id.strip(),
+        settings.shrimp_youtube_oauth_client_secret.strip(),
+        settings.shrimp_youtube_oauth_refresh_token.strip(),
+    ))
+    adapter=(
+        settings.shrimp_publish_execution_adapter.strip().upper()
+        or "MOCK"
+    )
+    allowed_accounts=(
+        settings.shrimp_publish_execution_allowed_account_ref_list
+    )
+    denied_accounts=(
+        settings.shrimp_publish_execution_denied_account_ref_list
+    )
+    allowed_targets=(
+        settings.shrimp_publish_execution_allowed_target_key_list
+    )
+    denied_targets=(
+        settings.shrimp_publish_execution_denied_target_key_list
+    )
+
+    counts={
+        "release_approved_episodes":0,
+        "active_youtube_targets":0,
+        "authorized_youtube_plans":0,
+        "youtube_controlled_executions":0,
+        "runnable_youtube_executions":0,
+    }
+    try:
+        with engine.connect() as db:
+            counts["release_approved_episodes"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_animation_jobs
+              WHERE review_status='RELEASE_APPROVED'
+            """)).scalar_one()
+            counts["active_youtube_targets"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_animation_publish_targets
+              WHERE platform='YOUTUBE'
+                AND target_status='ACTIVE'
+                AND account_reference IS NOT NULL
+            """)).scalar_one()
+            counts["authorized_youtube_plans"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_animation_publish_plans
+              WHERE platform='YOUTUBE'
+                AND plan_status='PUBLISH_AUTHORIZED'
+            """)).scalar_one()
+            counts["youtube_controlled_executions"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_animation_publish_executions
+              WHERE platform='YOUTUBE'
+                AND execution_adapter='YOUTUBE_CONTROLLED'
+            """)).scalar_one()
+            counts["runnable_youtube_executions"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_animation_publish_executions
+              WHERE platform='YOUTUBE'
+                AND execution_adapter='YOUTUBE_CONTROLLED'
+                AND source_stale=false
+                AND execution_status IN (
+                  'SNAPSHOT_CREATED','UPLOAD_UNKNOWN','UPLOADED',
+                  'PUBLISH_UNKNOWN','PUBLISHED'
+                )
+            """)).scalar_one()
+    except Exception:
+        counts={key:None for key in counts}
+
+    checks={
+        "vercel_preview":vercel_env=="preview",
+        "preview_database_isolated":preview_isolated,
+        "publish_authorization_gate":publish_auth_gate,
+        "publish_execution_gate":publish_execution_gate,
+        "publish_executor_enabled":settings.shrimp_publish_executor_enabled,
+        "youtube_controlled_adapter":adapter=="YOUTUBE_CONTROLLED",
+        "youtube_live_acceptance_gate":live_gate,
+        "youtube_live_acceptance_enabled":
+            settings.shrimp_youtube_live_acceptance_enabled,
+        "youtube_oauth_credentials_present":oauth_present,
+        "sacrificial_account_allowlist_present":bool(allowed_accounts),
+        "real_account_denylist_present":bool(denied_accounts),
+        "sacrificial_target_allowlist_present":bool(allowed_targets),
+        "real_target_denylist_present":bool(denied_targets),
+        "allowlist_denylist_disjoint":
+            not bool(set(allowed_accounts)&set(denied_accounts))
+            and not bool(set(allowed_targets)&set(denied_targets)),
+        "runnable_youtube_execution_present":
+            bool(counts["runnable_youtube_executions"]),
+    }
+    blockers=[key for key,value in checks.items() if not value]
+    return {
+        "status":"READY" if not blockers else "BLOCKED",
+        "vercel_env":vercel_env or "non-vercel",
+        "database_source":database_source,
+        "checks":checks,
+        "counts":counts,
+        "blockers":blockers,
+        "secrets_redacted":True,
+    }
+
 def _require_deployment_key(provided: str | None) -> None:
     expected=settings.human_deployment_key.strip()
     if not expected:
@@ -1034,6 +1157,11 @@ def shrimp_animation_publish_execution_publish_reconcile(
     except RuntimeError as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/youtube-live-acceptance/readiness")
+def shrimp_animation_youtube_live_acceptance_readiness():
+    return _shrimp_youtube_live_acceptance_readiness()
 
 
 @app.post(
