@@ -425,3 +425,107 @@ def test_step10a_youtube_private_live_acceptance_contract(monkeypatch):
                 {"target_key": target_key},
             )
         _cleanup_registry()
+
+
+def test_step10a_readiness_redacts_secrets(monkeypatch):
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setattr(
+        settings,
+        "preview_database_url",
+        settings.database_url,
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_publish_authorization_key",
+        "ci-readiness-publish-auth-key",
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_publish_execution_key",
+        "ci-readiness-execution-key",
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_youtube_live_acceptance_key",
+        "ci-readiness-live-key",
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_publish_executor_enabled",
+        True,
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_publish_execution_adapter",
+        "YOUTUBE_CONTROLLED",
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_youtube_live_acceptance_enabled",
+        True,
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_youtube_oauth_client_id",
+        "ci-client-id-secret",
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_youtube_oauth_client_secret",
+        "ci-client-secret-secret",
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_youtube_oauth_refresh_token",
+        "ci-refresh-token-secret",
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_publish_execution_allowed_account_refs",
+        "UCciReadinessSacrificial",
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_publish_execution_denied_account_refs",
+        "UCciReadinessProduction",
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_publish_execution_allowed_target_keys",
+        "ci-youtube-readiness",
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_publish_execution_denied_target_keys",
+        "prod-youtube-main",
+    )
+
+    response = TestClient(app).get(
+        "/v1/shrimp-animation/youtube-live-acceptance/readiness"
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["secrets_redacted"] is True
+    assert payload["checks"]["vercel_preview"] is True
+    assert payload["checks"]["preview_database_isolated"] is True
+    assert payload["checks"]["publish_authorization_gate"] is True
+    assert payload["checks"]["publish_execution_gate"] is True
+    assert payload["checks"]["publish_executor_enabled"] is True
+    assert payload["checks"]["youtube_controlled_adapter"] is True
+    assert payload["checks"]["youtube_live_acceptance_gate"] is True
+    assert payload["checks"]["youtube_live_acceptance_enabled"] is True
+    assert payload["checks"]["youtube_oauth_credentials_present"] is True
+    assert payload["checks"]["sacrificial_account_allowlist_present"] is True
+    assert payload["checks"]["real_account_denylist_present"] is True
+    assert payload["checks"]["sacrificial_target_allowlist_present"] is True
+    assert payload["checks"]["real_target_denylist_present"] is True
+    assert payload["checks"]["allowlist_denylist_disjoint"] is True
+    assert payload["checks"]["runnable_youtube_execution_present"] is False
+    assert payload["status"] == "BLOCKED"
+    assert "runnable_youtube_execution_present" in payload["blockers"]
+
+    serialized = str(payload)
+    assert "ci-client-id-secret" not in serialized
+    assert "ci-client-secret-secret" not in serialized
+    assert "ci-refresh-token-secret" not in serialized
+    assert "ci-readiness-live-key" not in serialized
