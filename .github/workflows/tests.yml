@@ -95,6 +95,9 @@ jobs:
       - name: Check Shrimp review UI JavaScript
         run: node --check app/static/shrimp-review.js
 
+      - name: Check Shrimp publishing UI JavaScript
+        run: node --check app/static/shrimp-publish.js
+
       - name: Apply all repository migrations
         run: python -m app.migrate
 
@@ -111,7 +114,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "040_shrimp_animation_human_review.sql", expected
+          assert expected[-1] == "041_shrimp_animation_publishing_authorization.sql", expected
           print("migrations:", actual)
           PY
 
