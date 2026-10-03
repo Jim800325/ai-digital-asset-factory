@@ -319,6 +319,7 @@ def list_shrimp_review_workspace(limit: int = 100) -> list[dict]:
     result = []
     for row in rows:
         item = dict(row)
+        item["job_id"] = str(item["job_id"])
         package = dict(item.pop("package_content") or {})
         episode = dict(package.get("episode") or {})
         qc = dict(package.get("qc") or {})
