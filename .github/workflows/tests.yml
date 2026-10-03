@@ -114,7 +114,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "041_shrimp_animation_publishing_authorization.sql", expected
+          assert expected[-1] == "042_shrimp_animation_controlled_publisher_execution.sql", expected
           print("migrations:", actual)
           PY
 
@@ -275,6 +275,17 @@ jobs:
                      OR COALESCE(prepare_write_count,0)>1
               """)).scalar_one()
 
+              unsafe_shrimp_publish_execution = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM shrimp_animation_publish_executions
+                  WHERE automatic_execution=true
+                     OR upload_write_count>1
+                     OR publish_write_count>1
+                     OR execution_adapter IN (
+                          'BILIBILI_CONTROLLED','YOUTUBE_CONTROLLED'
+                        )
+              """)).scalar_one()
+
           assert base["status"] == "CANDIDATE", base
           assert base["evidence_gate_passed"] is True, base
           assert base["build_readiness"] == "BUILD_READY", base
@@ -318,6 +329,7 @@ jobs:
           assert unsafe_production_execution == 0, unsafe_production_execution
           assert unsafe_vercel_prepare == 0, unsafe_vercel_prepare
           assert unsafe_step4a_acceptance == 0, unsafe_step4a_acceptance
+          assert unsafe_shrimp_publish_execution == 0, unsafe_shrimp_publish_execution
 
           print("base:", dict(base))
           print("ordinary_sandbox:", dict(ordinary))
