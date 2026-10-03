@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     shrimp_package_output_root: str = ""
     shrimp_human_review_key: str = ""
     shrimp_publish_authorization_key: str = ""
+    shrimp_publish_execution_key: str = ""
+    shrimp_publish_executor_enabled: bool = False
+    shrimp_publish_execution_adapter: str = "MOCK"
+    shrimp_publish_execution_allowed_account_refs: str = ""
+    shrimp_publish_execution_denied_account_refs: str = ""
+    shrimp_publish_execution_allowed_target_keys: str = ""
+    shrimp_publish_execution_denied_target_keys: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""
@@ -105,6 +112,38 @@ class Settings(BaseSettings):
         extra="ignore",
         env_ignore_empty=True,
     )
+
+    @property
+    def shrimp_publish_execution_allowed_account_ref_list(self) -> list[str]:
+        return [
+            x.strip()
+            for x in self.shrimp_publish_execution_allowed_account_refs.split(",")
+            if x.strip()
+        ]
+
+    @property
+    def shrimp_publish_execution_denied_account_ref_list(self) -> list[str]:
+        return [
+            x.strip()
+            for x in self.shrimp_publish_execution_denied_account_refs.split(",")
+            if x.strip()
+        ]
+
+    @property
+    def shrimp_publish_execution_allowed_target_key_list(self) -> list[str]:
+        return [
+            x.strip()
+            for x in self.shrimp_publish_execution_allowed_target_keys.split(",")
+            if x.strip()
+        ]
+
+    @property
+    def shrimp_publish_execution_denied_target_key_list(self) -> list[str]:
+        return [
+            x.strip()
+            for x in self.shrimp_publish_execution_denied_target_keys.split(",")
+            if x.strip()
+        ]
 
     @property
     def seeds(self) -> list[str]:
