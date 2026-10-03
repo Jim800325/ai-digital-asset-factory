@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Shrimp Publishing Authorization · AI Digital Asset Factory</title>
+  <link rel="stylesheet" href="/review-assets/review.css">
+  <link rel="stylesheet" href="/review-assets/shrimp-publish.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">SHRIMP ANIMATION PROVIDER · v0.1 · STEP 9</div>
+        <h1>Publishing Authorization Workspace</h1>
+      </div>
+      <div class="top-actions">
+        <span class="safe-badge">外部发布永久禁用</span>
+        <a class="button ghost link-button" href="/animation-review">Human Review</a>
+        <button id="refreshButton" class="button ghost" type="button">重新整理</button>
+      </div>
+    </header>
+
+    <div class="safety-banner">
+      <strong>授权边界：</strong>
+      本页面只建立 Platform Target、Publisher Plan、dry-run 与 PUBLISH AUTHORIZED / REJECTED。
+      Step 9 不读取平台凭证、不发送网络请求、不上传视频。
+    </div>
+
+    <main class="publish-layout">
+      <section class="panel">
+        <h2>1 · Platform Target Registry</h2>
+        <p class="muted">仅保存平台目标元数据；禁止保存 token、cookie 或密码。</p>
+        <div id="targetList" class="stack"></div>
+
+        <details class="form-card">
+          <summary>注册新目标</summary>
+          <div class="form-grid">
+            <label>Target key<input id="targetKey" placeholder="bilibili-main-dryrun"></label>
+            <label>Platform
+              <select id="targetPlatform">
+                <option value="BILIBILI">BILIBILI</option>
+                <option value="YOUTUBE">YOUTUBE</option>
+                <option value="CUSTOM">CUSTOM</option>
+              </select>
+            </label>
+            <label>Display name<input id="targetName" placeholder="Bilibili Main"></label>
+            <label>Account reference<input id="targetAccount" placeholder="non-secret channel/account reference"></label>
+          </div>
+          <label>Publish authorization key
+            <input id="targetKeySecret" type="password" autocomplete="off" placeholder="X-Shrimp-Publish-Key">
+          </label>
+          <button id="registerTargetButton" class="button" type="button">注册目标</button>
+        </details>
+      </section>
+
+      <section class="panel">
+        <h2>2 · RELEASE_APPROVED Episodes</h2>
+        <div id="episodeList" class="stack"></div>
+      </section>
+
+      <section class="panel">
+        <h2>3 · Controlled Publisher Plan</h2>
+        <div id="planEmpty" class="empty-state compact">
+          <p>选择一个 RELEASE_APPROVED Episode 后生成 dry-run Plan。</p>
+        </div>
+        <div id="planForm" class="hidden">
+          <div id="selectedEpisode" class="selection-card"></div>
+          <div class="form-grid">
+            <label>Target<select id="planTarget"></select></label>
+            <label>Visibility
+              <select id="planVisibility">
+                <option value="DRAFT">DRAFT</option>
+                <option value="PRIVATE">PRIVATE</option>
+                <option value="UNLISTED">UNLISTED</option>
+                <option value="PUBLIC">PUBLIC</option>
+              </select>
+            </label>
+            <label class="wide">Title<input id="planTitle"></label>
+            <label class="wide">Description<textarea id="planDescription" rows="4"></textarea></label>
+            <label>Tags<input id="planTags" placeholder="tag1, tag2"></label>
+            <label>Category<input id="planCategory" placeholder="optional"></label>
+          </div>
+          <label>Publish authorization key
+            <input id="planKeySecret" type="password" autocomplete="off" placeholder="X-Shrimp-Publish-Key">
+          </label>
+          <button id="createPlanButton" class="button" type="button">生成 dry-run Publisher Plan</button>
+        </div>
+      </section>
+
+      <section class="panel full">
+        <h2>4 · Dry-Run / Authorization</h2>
+        <div id="planList" class="stack"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script src="/review-assets/shrimp-publish.js" defer></script>
+</body>
+</html>
