@@ -685,7 +685,8 @@ def decide_shrimp_release(
                 or not qc["passed"]
                 or int(qc["hard_failure_count"]) != 0
                 or package_qc.get("passed") is not True
-                or int(package_qc.get("hard_failure_count") or -1) != 0
+                or package_qc.get("hard_failure_count") is None
+                or int(package_qc["hard_failure_count"]) != 0
             ):
                 raise PermissionError("APPROVE requires current zero-failure QC")
             if (
