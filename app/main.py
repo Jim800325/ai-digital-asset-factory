@@ -1,7 +1,7 @@
 import hashlib
 import os
 import secrets
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response
@@ -98,6 +98,15 @@ from app.providers.animation.shrimp.human_review import (
     get_shrimp_review_workspace,
     list_shrimp_review_workspace,
 )
+from app.providers.animation.shrimp.publishing_authorization import (
+    create_publish_plan,
+    decide_publish_authorization,
+    get_publish_plan,
+    get_publish_target,
+    list_publish_plans,
+    list_publish_targets,
+    register_publish_target,
+)
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
@@ -180,6 +189,41 @@ class ShrimpHumanReviewDecision(BaseModel):
         max_length=20,
     )
 
+class ShrimpPublishTargetCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target_key: str = Field(min_length=3,max_length=120)
+    platform: Literal["BILIBILI","YOUTUBE","CUSTOM"]
+    display_name: str = Field(min_length=1,max_length=200)
+    account_reference: str | None = Field(default=None,max_length=300)
+    metadata_constraints: dict[str, Any] = Field(default_factory=dict)
+    actor: str = Field(
+        default="shrimp-publish-target-api",
+        min_length=1,
+        max_length=200,
+    )
+
+class ShrimpPublishPlanCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target_key: str = Field(min_length=3,max_length=120)
+    publish_metadata: dict[str, Any]
+    actor: str = Field(
+        default="shrimp-publish-plan-api",
+        min_length=1,
+        max_length=200,
+    )
+
+class ShrimpPublishAuthorizationDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["AUTHORIZE","REJECT"]
+    reason: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(
+        default="shrimp-publish-auth-api",
+        min_length=1,
+        max_length=200,
+    )
+    plan_sha256: str = Field(min_length=64,max_length=64)
+    dry_run_sha256: str = Field(min_length=64,max_length=64)
+
 def _require_approval_key(provided: str | None) -> None:
     expected=settings.human_approval_key.strip()
     if not expected:
@@ -211,6 +255,40 @@ def _require_shrimp_review_key(provided: str | None) -> None:
         raise HTTPException(
             status_code=403,
             detail="Invalid Shrimp human review key",
+        )
+
+def _shrimp_publish_key_independent() -> bool:
+    expected=settings.shrimp_publish_authorization_key.strip()
+    if not expected:
+        return False
+    earlier_keys=(
+        settings.human_approval_key.strip(),
+        settings.human_release_key.strip(),
+        settings.human_deployment_key.strip(),
+        settings.human_production_execution_key.strip(),
+        settings.shrimp_human_review_key.strip(),
+    )
+    return all(
+        not value or not secrets.compare_digest(expected,value)
+        for value in earlier_keys
+    )
+
+def _require_shrimp_publish_key(provided: str | None) -> None:
+    expected=settings.shrimp_publish_authorization_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Shrimp publish authorization gate is not configured",
+        )
+    if not _shrimp_publish_key_independent():
+        raise HTTPException(
+            status_code=503,
+            detail="Shrimp publish authorization key must be independent",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Shrimp publish authorization key",
         )
 
 def _require_deployment_key(provided: str | None) -> None:
@@ -296,6 +374,15 @@ def health():
         "approval_gate":"ENABLED" if settings.human_approval_key.strip() else "DISABLED",
         "release_gate":"ENABLED" if settings.human_release_key.strip() else "DISABLED",
         "deployment_authorization_gate":"ENABLED" if settings.human_deployment_key.strip() else "DISABLED",
+        "shrimp_publish_authorization_gate":(
+            "DISABLED"
+            if not settings.shrimp_publish_authorization_key.strip()
+            else (
+                "ENABLED"
+                if _shrimp_publish_key_independent()
+                else "MISCONFIGURED"
+            )
+        ),
         "production_execution_gate":(
             "DISABLED"
             if not settings.human_production_execution_key.strip()
@@ -542,6 +629,118 @@ def shrimp_animation_review_decision(
                 payload.release_review_package_sha256
             ),
             confirmed_checklist=payload.confirmed_checklist,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+
+@app.post("/v1/shrimp-animation/publish-targets", status_code=201)
+def shrimp_animation_publish_target_create(
+    payload: ShrimpPublishTargetCreate,
+    x_shrimp_publish_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Key",
+    ),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    try:
+        return register_publish_target(
+            target_key=payload.target_key,
+            platform=payload.platform,
+            display_name=payload.display_name,
+            account_reference=payload.account_reference,
+            metadata_constraints=payload.metadata_constraints,
+            actor=payload.actor,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/publish-targets")
+def shrimp_animation_publish_targets(active_only: bool = False):
+    return list_publish_targets(active_only=active_only)
+
+
+@app.get("/v1/shrimp-animation/publish-targets/{target_key}")
+def shrimp_animation_publish_target(target_key: str):
+    try:
+        return get_publish_target(target_key)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/jobs/{job_id}/publish-plans",
+    status_code=201,
+)
+def shrimp_animation_publish_plan_create(
+    job_id: UUID,
+    payload: ShrimpPublishPlanCreate,
+    x_shrimp_publish_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Key",
+    ),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    try:
+        return create_publish_plan(
+            job_id,
+            target_key=payload.target_key,
+            publish_metadata=payload.publish_metadata,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/jobs/{job_id}/publish-plans")
+def shrimp_animation_publish_plans(job_id: UUID):
+    return list_publish_plans(job_id)
+
+
+@app.get("/v1/shrimp-animation/publish-plans/{plan_id}")
+def shrimp_animation_publish_plan(plan_id: UUID):
+    try:
+        return get_publish_plan(plan_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/publish-plans/{plan_id}/decision")
+def shrimp_animation_publish_plan_decision(
+    plan_id: UUID,
+    payload: ShrimpPublishAuthorizationDecision,
+    x_shrimp_publish_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Key",
+    ),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    try:
+        return decide_publish_authorization(
+            plan_id,
+            decision=payload.decision,
+            reason=payload.reason,
+            actor=payload.actor,
+            plan_sha256=payload.plan_sha256,
+            dry_run_sha256=payload.dry_run_sha256,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
