@@ -214,7 +214,6 @@ def _authorize_youtube_plan(client: TestClient, *, job_id) -> dict:
                 "tags": ["step10a", "sacrificial", "private"],
                 "category": "ci",
                 "visibility": "DRAFT",
-                "youtube_category_id": "22",
             },
             "actor": "ci-step10a-plan",
         },
