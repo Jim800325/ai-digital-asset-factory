@@ -926,12 +926,29 @@ def execute_package_stage(
             )
         _verify_replay_files(bundle, review)
         with engine.begin() as db:
+            current_review_status = db.execute(
+                text("""
+                  SELECT review_status
+                  FROM shrimp_animation_jobs
+                  WHERE provider_job_id=CAST(:job_id AS uuid)
+                  FOR UPDATE
+                """),
+                {"job_id": job_id},
+            ).scalar_one()
+            target_review_status = (
+                current_review_status
+                if current_review_status in {
+                    "RELEASE_APPROVED",
+                    "RELEASE_REJECTED",
+                }
+                else "READY_FOR_HUMAN_REVIEW"
+            )
             db.execute(
                 text("""
                   UPDATE shrimp_animation_jobs
                   SET episode_bundle_sha256=:bundle_sha,
                       release_review_package_sha256=:review_sha,
-                      review_status='READY_FOR_HUMAN_REVIEW',
+                      review_status=:review_status,
                       updated_at=now()
                   WHERE provider_job_id=CAST(:job_id AS uuid)
                 """),
@@ -939,13 +956,14 @@ def execute_package_stage(
                     "job_id": job_id,
                     "bundle_sha": bundle["bundle_sha256"],
                     "review_sha": review["package_sha256"],
+                    "review_status": target_review_status,
                 },
             )
         return {
             "job_id": str(job_id),
             "stage_status": "SUCCEEDED",
             "job_status": "QC_PASSED",
-            "review_status": "READY_FOR_HUMAN_REVIEW",
+            "review_status": target_review_status,
             "bundle_id": str(bundle["id"]),
             "episode_bundle_sha256": bundle["bundle_sha256"],
             "review_package_id": str(review["id"]),

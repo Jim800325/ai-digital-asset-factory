@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 REVIEW_HTML=STATIC_DIR/"review.html"
 AUDITS_HTML=STATIC_DIR/"audits.html"
+SHRIMP_REVIEW_HTML=STATIC_DIR/"shrimp-review.html"
 
 router=APIRouter(include_in_schema=False)
 
@@ -54,3 +55,12 @@ def live_acceptance_audit_registry_detail_page(audit_id:str):
 @router.get("/review/{candidate_id}")
 def review_workspace_candidate_page(candidate_id:UUID):
     return _review_file()
+
+
+@router.get("/animation-review")
+def shrimp_review_workspace_page():
+    return _html_file(SHRIMP_REVIEW_HTML)
+
+@router.get("/animation-review/{job_id}")
+def shrimp_review_workspace_job_page(job_id:UUID):
+    return _html_file(SHRIMP_REVIEW_HTML)

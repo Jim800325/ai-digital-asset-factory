@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Shrimp Animation Human Review · AI Digital Asset Factory</title>
+  <link rel="stylesheet" href="/review-assets/review.css">
+  <link rel="stylesheet" href="/review-assets/shrimp-review.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">SHRIMP ANIMATION PROVIDER · v0.1 · STEP 8</div>
+        <h1>Human Review Workspace</h1>
+      </div>
+      <div class="top-actions">
+        <span class="safe-badge">自动发布永久禁用</span>
+        <a class="button ghost link-button" href="/review">Software Review</a>
+        <button id="refreshButton" class="button ghost" type="button">重新整理</button>
+      </div>
+    </header>
+
+    <div class="safety-banner">
+      <strong>人工 Release Gate：</strong>
+      本页面只允许观看 Episode、检查 Bundle / QC / Provenance，并记录明确的 APPROVE 或 REJECT。
+      APPROVE 只产生 RELEASE_APPROVED；不会自动发布、部署、推广或启用 Production execution。
+    </div>
+
+    <main class="workspace shrimp-workspace">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <h2>Episodes</h2>
+          <p id="episodeCount">载入中…</p>
+        </div>
+        <div id="episodeList" class="candidate-list" aria-live="polite"></div>
+      </aside>
+
+      <section class="detail-panel">
+        <div id="emptyState" class="empty-state">
+          <div class="empty-icon">▶</div>
+          <h2>选择一个 Episode</h2>
+          <p>观看 MP4、检查 QC / provenance / Bundle，再进行人工决策。</p>
+        </div>
+
+        <div id="detailContent" class="detail-content hidden">
+          <div class="detail-head">
+            <div>
+              <div id="episodeKicker" class="eyebrow"></div>
+              <h2 id="episodeTitle"></h2>
+              <p id="episodeSubtitle" class="muted"></p>
+            </div>
+            <div id="statusBadges" class="status-badges"></div>
+          </div>
+
+          <div id="summaryCards" class="summary-grid"></div>
+
+          <nav class="tabs">
+            <button class="tab active" data-tab="player" type="button">Episode Player</button>
+            <button class="tab" data-tab="qc" type="button">QC</button>
+            <button class="tab" data-tab="provenance" type="button">Provenance</button>
+            <button class="tab" data-tab="bundle" type="button">Artifacts / Hashes</button>
+            <button class="tab" data-tab="transcript" type="button">Transcript</button>
+            <button class="tab" data-tab="decision" type="button">APPROVE / REJECT</button>
+          </nav>
+
+          <section id="tab-player" class="tab-panel active"></section>
+          <section id="tab-qc" class="tab-panel"></section>
+          <section id="tab-provenance" class="tab-panel"></section>
+          <section id="tab-bundle" class="tab-panel"></section>
+          <section id="tab-transcript" class="tab-panel"></section>
+          <section id="tab-decision" class="tab-panel"></section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script src="/review-assets/shrimp-review.js" defer></script>
+</body>
+</html>

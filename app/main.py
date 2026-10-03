@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
@@ -90,6 +90,14 @@ from app.providers.animation.shrimp.execution import list_shrimp_artifacts
 from app.providers.animation.shrimp.animation_execution import (
     list_animation_compositions,
 )
+from app.providers.animation.shrimp.human_review import (
+    decide_shrimp_release,
+    get_episode_bundle_file,
+    get_episode_player_file,
+    get_review_document_file,
+    get_shrimp_review_workspace,
+    list_shrimp_review_workspace,
+)
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
@@ -153,6 +161,25 @@ class ProductionProviderJobCreate(BaseModel):
     proposal_id: UUID
     requested_by: str = Field(default="provider-api",min_length=1,max_length=200)
 
+class ShrimpHumanReviewDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["APPROVE","REJECT"]
+    reason: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(
+        default="shrimp-human-review-api",
+        min_length=1,
+        max_length=200,
+    )
+    episode_bundle_sha256: str = Field(min_length=64,max_length=64)
+    release_review_package_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+    )
+    confirmed_checklist: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+
 def _require_approval_key(provided: str | None) -> None:
     expected=settings.human_approval_key.strip()
     if not expected:
@@ -172,6 +199,19 @@ def _require_release_key(provided: str | None) -> None:
         )
     if provided is None or not secrets.compare_digest(provided,expected):
         raise HTTPException(status_code=403,detail="Invalid human release key")
+
+def _require_shrimp_review_key(provided: str | None) -> None:
+    expected=settings.shrimp_human_review_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Shrimp human review gate is not configured",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Shrimp human review key",
+        )
 
 def _require_deployment_key(provided: str | None) -> None:
     expected=settings.human_deployment_key.strip()
@@ -294,6 +334,12 @@ def health():
         "release_deployment":"DISABLED",
         "release_review_package":"ENABLED",
         "human_review_workspace":"ENABLED",
+        "shrimp_human_review_workspace":"ENABLED",
+        "shrimp_human_review_gate":(
+            "ENABLED"
+            if settings.shrimp_human_review_key.strip()
+            else "DISABLED"
+        ),
         "build_execution":"DISABLED",
         "sandbox_execution":"ENABLED" if settings.sandbox_execution_enabled else "DISABLED",
         "openhands_adapter":"ENABLED" if settings.openhands_enabled else "DISABLED",
@@ -396,6 +442,116 @@ def shrimp_animation_compositions(
         )
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/review-workspace")
+def shrimp_animation_review_workspace(limit: int = 100):
+    return list_shrimp_review_workspace(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/review-workspace/{job_id}")
+def shrimp_animation_review_workspace_job(job_id: UUID):
+    try:
+        return get_shrimp_review_workspace(job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/review-workspace/{job_id}/episode")
+def shrimp_animation_review_episode(job_id: UUID):
+    try:
+        item=get_episode_player_file(job_id)
+        return FileResponse(
+            item.path,
+            media_type=item.media_type,
+            headers={
+                "Cache-Control":"no-store",
+                "X-Content-SHA256":item.sha256,
+                "X-Content-Type-Options":"nosniff",
+            },
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except (RuntimeError,PermissionError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/review-workspace/{job_id}/bundle")
+def shrimp_animation_review_bundle(job_id: UUID):
+    try:
+        item=get_episode_bundle_file(job_id)
+        return FileResponse(
+            item.path,
+            media_type=item.media_type,
+            filename=item.filename,
+            headers={
+                "Cache-Control":"no-store",
+                "X-Content-SHA256":item.sha256,
+                "X-Content-Type-Options":"nosniff",
+            },
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except (RuntimeError,PermissionError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get(
+    "/v1/shrimp-animation/review-workspace/{job_id}/review-document"
+)
+def shrimp_animation_review_document(job_id: UUID):
+    try:
+        item=get_review_document_file(job_id)
+        return FileResponse(
+            item.path,
+            media_type=item.media_type,
+            headers={
+                "Cache-Control":"no-store",
+                "X-Content-SHA256":item.sha256,
+                "X-Content-Type-Options":"nosniff",
+            },
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except (RuntimeError,PermissionError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/review-workspace/{job_id}/decision"
+)
+def shrimp_animation_review_decision(
+    job_id: UUID,
+    payload: ShrimpHumanReviewDecision,
+    x_shrimp_review_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Review-Key",
+    ),
+):
+    _require_shrimp_review_key(x_shrimp_review_key)
+    try:
+        return decide_shrimp_release(
+            job_id,
+            decision=payload.decision,
+            reason=payload.reason,
+            actor=payload.actor,
+            episode_bundle_sha256=payload.episode_bundle_sha256,
+            release_review_package_sha256=(
+                payload.release_review_package_sha256
+            ),
+            confirmed_checklist=payload.confirmed_checklist,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
 
 @app.get("/v1/animation/registry")
 def animation_registry():
