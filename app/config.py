@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     shrimp_package_enabled: bool = False
     shrimp_package_output_root: str = ""
     shrimp_human_review_key: str = ""
+    shrimp_publish_authorization_key: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""
