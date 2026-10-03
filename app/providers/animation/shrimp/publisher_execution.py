@@ -402,6 +402,7 @@ def create_publish_execution(
                 "publish_metadata": canonical_json(
                     execution_material["publish_metadata"]
                 ),
+                "execution_sha256": execution_sha,
                 "upload_key": upload_key,
                 "publish_key": publish_key,
                 "actor": clean_actor[:200],
