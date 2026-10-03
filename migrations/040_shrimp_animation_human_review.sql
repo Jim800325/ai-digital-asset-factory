@@ -81,19 +81,6 @@ CREATE TRIGGER trg_shrimp_review_decision_immutable
 BEFORE UPDATE ON shrimp_animation_review_decisions
 FOR EACH ROW EXECUTE FUNCTION prevent_shrimp_review_decision_mutation();
 
-CREATE OR REPLACE FUNCTION prevent_shrimp_review_decision_delete()
-RETURNS trigger AS $$
-BEGIN
-  RAISE EXCEPTION 'Shrimp human review decisions cannot be deleted';
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_shrimp_review_decision_no_delete
-  ON shrimp_animation_review_decisions;
-CREATE TRIGGER trg_shrimp_review_decision_no_delete
-BEFORE DELETE ON shrimp_animation_review_decisions
-FOR EACH ROW EXECUTE FUNCTION prevent_shrimp_review_decision_delete();
-
 CREATE OR REPLACE FUNCTION stale_shrimp_package_when_qc_stales()
 RETURNS trigger AS $$
 BEGIN
