@@ -107,6 +107,16 @@ from app.providers.animation.shrimp.publishing_authorization import (
     list_publish_targets,
     register_publish_target,
 )
+from app.providers.animation.shrimp.publisher_execution import (
+    create_publish_execution,
+    get_publish_execution,
+    get_publish_execution_for_plan,
+    list_publish_executions,
+    publish_uploaded_media,
+    reconcile_publish_upload,
+    reconcile_published_media,
+    upload_publish_media,
+)
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
@@ -224,6 +234,14 @@ class ShrimpPublishAuthorizationDecision(BaseModel):
     plan_sha256: str = Field(min_length=64,max_length=64)
     dry_run_sha256: str = Field(min_length=64,max_length=64)
 
+class ShrimpPublishExecutionAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(
+        default="shrimp-publish-execution-api",
+        min_length=1,
+        max_length=200,
+    )
+
 def _require_approval_key(provided: str | None) -> None:
     expected=settings.human_approval_key.strip()
     if not expected:
@@ -289,6 +307,43 @@ def _require_shrimp_publish_key(provided: str | None) -> None:
         raise HTTPException(
             status_code=403,
             detail="Invalid Shrimp publish authorization key",
+        )
+
+def _shrimp_publish_execution_key_independent() -> bool:
+    expected=settings.shrimp_publish_execution_key.strip()
+    if not expected:
+        return False
+    earlier_keys=(
+        settings.human_approval_key.strip(),
+        settings.human_release_key.strip(),
+        settings.human_deployment_key.strip(),
+        settings.human_production_execution_key.strip(),
+        settings.shrimp_human_review_key.strip(),
+        settings.shrimp_publish_authorization_key.strip(),
+    )
+    return all(
+        not value or not secrets.compare_digest(expected,value)
+        for value in earlier_keys
+    )
+
+def _require_shrimp_publish_execution_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_publish_execution_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Shrimp publish execution gate is not configured",
+        )
+    if not _shrimp_publish_execution_key_independent():
+        raise HTTPException(
+            status_code=503,
+            detail="Shrimp publish execution key must be independent",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Shrimp publish execution key",
         )
 
 def _require_deployment_key(provided: str | None) -> None:
@@ -382,6 +437,20 @@ def health():
                 if _shrimp_publish_key_independent()
                 else "MISCONFIGURED"
             )
+        ),
+        "shrimp_publish_execution_gate":(
+            "DISABLED"
+            if not settings.shrimp_publish_execution_key.strip()
+            else (
+                "ENABLED"
+                if _shrimp_publish_execution_key_independent()
+                else "MISCONFIGURED"
+            )
+        ),
+        "shrimp_publish_executor_enabled":settings.shrimp_publish_executor_enabled,
+        "shrimp_publish_execution_adapter":(
+            settings.shrimp_publish_execution_adapter.strip().upper()
+            or "MOCK"
         ),
         "production_execution_gate":(
             "DISABLED"
@@ -750,6 +819,161 @@ def shrimp_animation_publish_plan_decision(
         raise HTTPException(status_code=409,detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+
+@app.post(
+    "/v1/shrimp-animation/publish-plans/{plan_id}/execution",
+    status_code=201,
+)
+def shrimp_animation_publish_execution_create(
+    plan_id: UUID,
+    payload: ShrimpPublishExecutionAction,
+    x_shrimp_publish_execution_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Execution-Key",
+    ),
+):
+    _require_shrimp_publish_execution_key(
+        x_shrimp_publish_execution_key
+    )
+    try:
+        return create_publish_execution(
+            plan_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get(
+    "/v1/shrimp-animation/publish-plans/{plan_id}/execution"
+)
+def shrimp_animation_publish_execution_for_plan(plan_id: UUID):
+    result=get_publish_execution_for_plan(plan_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Controlled Publisher Execution not found",
+        )
+    return result
+
+
+@app.get("/v1/shrimp-animation/jobs/{job_id}/publish-executions")
+def shrimp_animation_publish_executions(job_id: UUID):
+    return list_publish_executions(job_id)
+
+
+@app.get("/v1/shrimp-animation/publish-executions/{execution_id}")
+def shrimp_animation_publish_execution(execution_id: UUID):
+    try:
+        return get_publish_execution(execution_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/publish-executions/{execution_id}/upload"
+)
+def shrimp_animation_publish_execution_upload(
+    execution_id: UUID,
+    payload: ShrimpPublishExecutionAction,
+    x_shrimp_publish_execution_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Execution-Key",
+    ),
+):
+    _require_shrimp_publish_execution_key(
+        x_shrimp_publish_execution_key
+    )
+    try:
+        return upload_publish_media(
+            execution_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/publish-executions/"
+    "{execution_id}/upload/reconcile"
+)
+def shrimp_animation_publish_execution_upload_reconcile(
+    execution_id: UUID,
+    payload: ShrimpPublishExecutionAction,
+    x_shrimp_publish_execution_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Execution-Key",
+    ),
+):
+    _require_shrimp_publish_execution_key(
+        x_shrimp_publish_execution_key
+    )
+    try:
+        return reconcile_publish_upload(
+            execution_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/publish-executions/{execution_id}/publish"
+)
+def shrimp_animation_publish_execution_publish(
+    execution_id: UUID,
+    payload: ShrimpPublishExecutionAction,
+    x_shrimp_publish_execution_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Execution-Key",
+    ),
+):
+    _require_shrimp_publish_execution_key(
+        x_shrimp_publish_execution_key
+    )
+    try:
+        return publish_uploaded_media(
+            execution_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/publish-executions/"
+    "{execution_id}/publish/reconcile"
+)
+def shrimp_animation_publish_execution_publish_reconcile(
+    execution_id: UUID,
+    payload: ShrimpPublishExecutionAction,
+    x_shrimp_publish_execution_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Execution-Key",
+    ),
+):
+    _require_shrimp_publish_execution_key(
+        x_shrimp_publish_execution_key
+    )
+    try:
+        return reconcile_published_media(
+            execution_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
 @app.get("/v1/animation/registry")
