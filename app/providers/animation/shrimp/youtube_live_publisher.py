@@ -326,6 +326,26 @@ class YouTubeLivePublisherAdapter:
             return None
         return items[0]
 
+    def _owned_video(
+        self,
+        execution: dict[str, Any],
+        *,
+        video_id: str,
+        marker: str | None = None,
+    ) -> dict[str, Any] | None:
+        self.validate_target(execution)
+        item = self._video(video_id)
+        if item is None:
+            return None
+        snippet = item.get("snippet") or {}
+        if str(snippet.get("channelId") or "") != str(
+            execution["account_reference"]
+        ):
+            raise RuntimeError("YouTube provider object channel binding mismatch")
+        if marker and marker not in str(snippet.get("description") or ""):
+            raise RuntimeError("YouTube reconciliation marker is missing")
+        return item
+
     def read_back_video(
         self,
         execution: dict[str, Any],
@@ -333,22 +353,21 @@ class YouTubeLivePublisherAdapter:
         video_id: str,
         marker: str | None = None,
     ) -> dict[str, Any]:
-        self.validate_target(execution)
-        item = self._video(video_id)
+        item = self._owned_video(
+            execution,
+            video_id=video_id,
+            marker=marker,
+        )
         if item is None:
             raise RuntimeError("YouTube video is not present")
         snippet = item.get("snippet") or {}
         status = item.get("status") or {}
         processing = item.get("processingDetails") or {}
-        if str(snippet.get("channelId") or "") != str(execution["account_reference"]):
-            raise RuntimeError("YouTube read-back channel binding mismatch")
         privacy = str(status.get("privacyStatus") or "")
         if privacy != "private":
             raise RuntimeError(
                 f"YouTube Step 10A requires private visibility, got {privacy!r}"
             )
-        if marker and marker not in str(snippet.get("description") or ""):
-            raise RuntimeError("YouTube reconciliation marker is missing")
         return {
             "video_id": video_id,
             "channel_id": snippet.get("channelId"),
@@ -492,21 +511,22 @@ class YouTubeLivePublisherAdapter:
                 ),
             )
 
-        readback = self.read_back_video(
-            execution,
-            video_id=video_id,
-            marker=marker,
-        )
+        response_snippet = payload.get("snippet") or {}
+        response_status = payload.get("status") or {}
         return UploadReceipt(
             provider_upload_id=video_id,
-            state=str(readback.get("upload_status") or "UPLOADED"),
+            state=str(response_status.get("uploadStatus") or "UPLOADED"),
             provider_write_performed=True,
             metadata={
                 "adapter": self.kind,
-                "channel_id": readback["channel_id"],
-                "privacy_status": readback["privacy_status"],
-                "processing_status": readback["processing_status"],
+                "channel_id": response_snippet.get("channelId"),
+                "privacy_status": response_status.get("privacyStatus"),
+                "processing_status": None,
                 "reconciliation_marker": marker,
+                "provider_response_sha256": hashlib.sha256(
+                    response.content
+                ).hexdigest(),
+                "read_back_deferred": True,
             },
         )
 
@@ -636,25 +656,26 @@ class YouTubeLivePublisherAdapter:
             payload=body,
         )
         payload = response.json()
-        video_id = str(payload.get("id") or provider_upload_id)
-        readback = self.read_back_video(
-            execution,
-            video_id=video_id,
-            marker=marker,
-        )
-        if readback["title"] != title:
-            raise RuntimeError("YouTube publish read-back title mismatch")
+        response_video_id = str(payload.get("id") or provider_upload_id)
+        if response_video_id != provider_upload_id:
+            response_video_id = provider_upload_id
+        response_snippet = payload.get("snippet") or {}
+        response_status = payload.get("status") or {}
         return PublishReceipt(
-            provider_publish_id=video_id,
-            url=f"https://www.youtube.com/watch?v={video_id}",
+            provider_publish_id=response_video_id,
+            url=f"https://www.youtube.com/watch?v={response_video_id}",
             state="PRIVATE",
             provider_write_performed=True,
             metadata={
                 "adapter": self.kind,
-                "privacy_status": readback["privacy_status"],
-                "processing_status": readback["processing_status"],
-                "final_title": title,
+                "privacy_status": response_status.get("privacyStatus"),
+                "processing_status": None,
+                "final_title": response_snippet.get("title") or title,
                 "reconciliation_marker": marker,
+                "provider_response_sha256": hashlib.sha256(
+                    response.content
+                ).hexdigest(),
+                "read_back_deferred": True,
             },
         )
 
@@ -709,12 +730,19 @@ class YouTubeLivePublisherAdapter:
         video_id: str,
     ) -> dict[str, Any]:
         self.preflight(execution)
-        readback = self.read_back_video(
+        upload_key = str(execution.get("upload_idempotency_key") or "")
+        marker = self._marker(upload_key)
+        owned = self._owned_video(
             execution,
             video_id=video_id,
+            marker=marker,
         )
-        if readback["privacy_status"] != "private":
-            raise RuntimeError("Step 10A refuses cleanup of non-private video")
+        if owned is None:
+            return {
+                "video_id": video_id,
+                "provider_write_performed": False,
+                "already_deleted": True,
+            }
         url = f"{settings.shrimp_youtube_api_base.rstrip('/')}/videos"
         try:
             response = httpx.delete(
