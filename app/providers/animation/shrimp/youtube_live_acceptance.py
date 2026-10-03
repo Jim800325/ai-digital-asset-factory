@@ -16,6 +16,7 @@ from app.providers.animation.shrimp.publisher_execution import (
 )
 from app.providers.animation.shrimp.publisher_execution_adapter import (
     PublisherWriteOutcomeUnknown,
+    PublisherWriteRejected,
 )
 from app.providers.animation.shrimp.youtube_live_publisher import (
     YouTubeLivePublisherAdapter,
@@ -116,6 +117,215 @@ def _upsert_failure(
                 ),
             },
         )
+
+
+def _cleanup_once(
+    execution_id,
+    *,
+    execution: dict[str, Any],
+    video_id: str,
+    actor: str,
+    adapter: YouTubeLivePublisherAdapter,
+) -> dict[str, Any]:
+    with engine.begin() as db:
+        run = _get_run_locked(db, execution_id)
+        if run is None:
+            raise RuntimeError("Step 10A acceptance audit is unavailable")
+        if run["cleanup_verified"]:
+            return {
+                "deleted": True,
+                "write_performed": False,
+                "replayed": True,
+                "cleanup_outcome": run["cleanup_outcome"],
+            }
+        if run["cleanup_write_count"] == 0:
+            db.execute(
+                text("""
+                  UPDATE shrimp_animation_youtube_live_acceptance_runs
+                  SET cleanup_write_count=1,
+                      cleanup_outcome='REQUESTED'
+                  WHERE id=:id
+                """),
+                {"id": run["id"]},
+            )
+            do_cleanup = True
+        else:
+            do_cleanup = False
+
+    cleanup_ambiguous = False
+    if do_cleanup:
+        try:
+            cleanup_result = adapter.delete_video(
+                execution,
+                video_id=video_id,
+            )
+            with engine.begin() as db:
+                run = _get_run_locked(db, execution_id)
+                db.execute(
+                    text("""
+                      UPDATE shrimp_animation_youtube_live_acceptance_runs
+                      SET cleanup_outcome='ACCEPTED',
+                          cleanup_performed=:cleanup_performed,
+                          evidence=CAST(:evidence AS jsonb)
+                      WHERE id=:id
+                    """),
+                    {
+                        "id": run["id"],
+                        "cleanup_performed": bool(
+                            cleanup_result.get(
+                                "provider_write_performed",
+                                False,
+                            )
+                            or cleanup_result.get(
+                                "already_deleted",
+                                False,
+                            )
+                        ),
+                        "evidence": _json(
+                            _merge_evidence(
+                                run.get("evidence"),
+                                "cleanup_write",
+                                {
+                                    **cleanup_result,
+                                    "actor": actor,
+                                },
+                            )
+                        ),
+                    },
+                )
+        except PublisherWriteOutcomeUnknown as exc:
+            cleanup_ambiguous = True
+            with engine.begin() as db:
+                run = _get_run_locked(db, execution_id)
+                db.execute(
+                    text("""
+                      UPDATE shrimp_animation_youtube_live_acceptance_runs
+                      SET acceptance_status='CLEANUP_UNKNOWN',
+                          cleanup_outcome='AMBIGUOUS',
+                          failure_type=:failure_type,
+                          failure_evidence_sha256=:failure_sha,
+                          evidence=CAST(:evidence AS jsonb)
+                      WHERE id=:id
+                    """),
+                    {
+                        "id": run["id"],
+                        "failure_type": exc.error_type[:200],
+                        "failure_sha": exc.evidence_sha256,
+                        "evidence": _json(
+                            _merge_evidence(
+                                run.get("evidence"),
+                                "cleanup_ambiguous",
+                                {
+                                    "actor": actor,
+                                    "error_type": exc.error_type,
+                                    "evidence_sha256":
+                                        exc.evidence_sha256,
+                                    "write_replay_forbidden": True,
+                                },
+                            )
+                        ),
+                    },
+                )
+        except PublisherWriteRejected as exc:
+            with engine.begin() as db:
+                run = _get_run_locked(db, execution_id)
+                db.execute(
+                    text("""
+                      UPDATE shrimp_animation_youtube_live_acceptance_runs
+                      SET cleanup_outcome='REJECTED',
+                          failure_type='PublisherWriteRejected',
+                          failure_evidence_sha256=:failure_sha,
+                          evidence=CAST(:evidence AS jsonb)
+                      WHERE id=:id
+                    """),
+                    {
+                        "id": run["id"],
+                        "failure_sha": exc.evidence_sha256,
+                        "evidence": _json(
+                            _merge_evidence(
+                                run.get("evidence"),
+                                "cleanup_rejected",
+                                {
+                                    "actor": actor,
+                                    "evidence_sha256":
+                                        exc.evidence_sha256,
+                                    "message": str(exc)[:2000],
+                                },
+                            )
+                        ),
+                    },
+                )
+            raise
+
+    deleted = adapter.verify_deleted(
+        execution,
+        video_id=video_id,
+    )
+    with engine.begin() as db:
+        run = _get_run_locked(db, execution_id)
+        if deleted:
+            outcome = (
+                "RECONCILED_DELETED"
+                if cleanup_ambiguous
+                else run["cleanup_outcome"]
+            )
+            db.execute(
+                text("""
+                  UPDATE shrimp_animation_youtube_live_acceptance_runs
+                  SET cleanup_outcome=:cleanup_outcome,
+                      cleanup_verified=true,
+                      cleanup_performed=true,
+                      evidence=CAST(:evidence AS jsonb)
+                  WHERE id=:id
+                """),
+                {
+                    "id": run["id"],
+                    "cleanup_outcome": outcome,
+                    "evidence": _json(
+                        _merge_evidence(
+                            run.get("evidence"),
+                            "cleanup_read_back",
+                            {
+                                "video_id": video_id,
+                                "deleted": True,
+                                "provider_write_replayed": False,
+                            },
+                        )
+                    ),
+                },
+            )
+        else:
+            db.execute(
+                text("""
+                  UPDATE shrimp_animation_youtube_live_acceptance_runs
+                  SET acceptance_status='CLEANUP_UNKNOWN',
+                      cleanup_outcome='RECONCILED_PRESENT',
+                      evidence=CAST(:evidence AS jsonb)
+                  WHERE id=:id
+                """),
+                {
+                    "id": run["id"],
+                    "evidence": _json(
+                        _merge_evidence(
+                            run.get("evidence"),
+                            "cleanup_read_back",
+                            {
+                                "video_id": video_id,
+                                "deleted": False,
+                                "second_delete_forbidden": True,
+                            },
+                        )
+                    ),
+                },
+            )
+    return {
+        "deleted": bool(deleted),
+        "write_performed": bool(do_cleanup),
+        "replayed": not do_cleanup,
+        "cleanup_outcome": (
+            get_youtube_live_acceptance(execution_id) or {}
+        ).get("cleanup_outcome"),
+    }
 
 
 def get_youtube_live_acceptance(execution_id) -> dict[str, Any] | None:
@@ -399,145 +609,24 @@ def run_youtube_live_acceptance(
                 },
             )
 
-        with engine.begin() as db:
-            run = _get_run_locked(db, execution_id)
-            if run["cleanup_write_count"] == 0:
-                db.execute(
-                    text("""
-                      UPDATE shrimp_animation_youtube_live_acceptance_runs
-                      SET cleanup_write_count=1,
-                          cleanup_outcome='REQUESTED'
-                      WHERE id=:id
-                    """),
-                    {"id": run["id"]},
-                )
-                do_cleanup = True
-            else:
-                do_cleanup = False
-
-        cleanup_ambiguous = False
-        if do_cleanup:
-            try:
-                cleanup_result = chosen.delete_video(
-                    execution,
-                    video_id=video_id,
-                )
-                with engine.begin() as db:
-                    run = _get_run_locked(db, execution_id)
-                    db.execute(
-                        text("""
-                          UPDATE shrimp_animation_youtube_live_acceptance_runs
-                          SET cleanup_outcome='ACCEPTED',
-                              cleanup_performed=true,
-                              evidence=CAST(:evidence AS jsonb)
-                          WHERE id=:id
-                        """),
-                        {
-                            "id": run["id"],
-                            "evidence": _json(
-                                _merge_evidence(
-                                    run.get("evidence"),
-                                    "cleanup_write",
-                                    cleanup_result,
-                                )
-                            ),
-                        },
-                    )
-            except PublisherWriteOutcomeUnknown as exc:
-                cleanup_ambiguous = True
-                with engine.begin() as db:
-                    run = _get_run_locked(db, execution_id)
-                    db.execute(
-                        text("""
-                          UPDATE shrimp_animation_youtube_live_acceptance_runs
-                          SET acceptance_status='CLEANUP_UNKNOWN',
-                              cleanup_outcome='AMBIGUOUS',
-                              failure_type=:failure_type,
-                              failure_evidence_sha256=:failure_sha,
-                              evidence=CAST(:evidence AS jsonb)
-                          WHERE id=:id
-                        """),
-                        {
-                            "id": run["id"],
-                            "failure_type": exc.error_type[:200],
-                            "failure_sha": exc.evidence_sha256,
-                            "evidence": _json(
-                                _merge_evidence(
-                                    run.get("evidence"),
-                                    "cleanup_ambiguous",
-                                    {
-                                        "error_type": exc.error_type,
-                                        "evidence_sha256":
-                                            exc.evidence_sha256,
-                                        "write_replay_forbidden": True,
-                                    },
-                                )
-                            ),
-                        },
-                    )
-
-        deleted = chosen.verify_deleted(
-            execution,
+        cleanup = _cleanup_once(
+            execution_id,
+            execution=execution,
             video_id=video_id,
+            actor=clean_actor,
+            adapter=chosen,
         )
-        with engine.begin() as db:
-            run = _get_run_locked(db, execution_id)
-            if deleted:
-                outcome = (
-                    "RECONCILED_DELETED"
-                    if cleanup_ambiguous
-                    else run["cleanup_outcome"]
-                )
+        if cleanup["deleted"]:
+            with engine.begin() as db:
+                run = _get_run_locked(db, execution_id)
                 db.execute(
                     text("""
                       UPDATE shrimp_animation_youtube_live_acceptance_runs
                       SET acceptance_status='CLEANED_UP',
-                          cleanup_outcome=:cleanup_outcome,
-                          cleanup_verified=true,
-                          cleanup_performed=true,
-                          evidence=CAST(:evidence AS jsonb),
                           finished_at=now()
                       WHERE id=:id
                     """),
-                    {
-                        "id": run["id"],
-                        "cleanup_outcome": outcome,
-                        "evidence": _json(
-                            _merge_evidence(
-                                run.get("evidence"),
-                                "cleanup_read_back",
-                                {
-                                    "video_id": video_id,
-                                    "deleted": True,
-                                    "provider_write_replayed": False,
-                                },
-                            )
-                        ),
-                    },
-                )
-            else:
-                db.execute(
-                    text("""
-                      UPDATE shrimp_animation_youtube_live_acceptance_runs
-                      SET acceptance_status='CLEANUP_UNKNOWN',
-                          cleanup_outcome='RECONCILED_PRESENT',
-                          evidence=CAST(:evidence AS jsonb)
-                      WHERE id=:id
-                    """),
-                    {
-                        "id": run["id"],
-                        "evidence": _json(
-                            _merge_evidence(
-                                run.get("evidence"),
-                                "cleanup_read_back",
-                                {
-                                    "video_id": video_id,
-                                    "deleted": False,
-                                    "second_delete_forbidden": True,
-                                },
-                            )
-                        ),
-                    },
+                    {"id": run["id"]},
                 )
 
         result = get_youtube_live_acceptance(execution_id)
@@ -547,6 +636,25 @@ def run_youtube_live_acceptance(
         return result
 
     except Exception as exc:
+        try:
+            current_execution = get_publish_execution(execution_id)
+            current_run = get_youtube_live_acceptance(execution_id)
+            emergency_video_id = str(
+                (current_run or {}).get("video_id")
+                or current_execution.get("provider_publish_id")
+                or current_execution.get("provider_upload_id")
+                or ""
+            )
+            if emergency_video_id:
+                _cleanup_once(
+                    execution_id,
+                    execution=current_execution,
+                    video_id=emergency_video_id,
+                    actor=clean_actor + "-emergency-cleanup",
+                    adapter=chosen,
+                )
+        except Exception:
+            pass
         _upsert_failure(
             execution_id,
             actor=clean_actor,
