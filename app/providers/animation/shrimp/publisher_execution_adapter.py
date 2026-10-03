@@ -273,5 +273,8 @@ def get_publisher_execution_adapter(kind: str) -> PublisherExecutionAdapter:
     if normalized == "BILIBILI_CONTROLLED":
         return BilibiliControlledPublisherAdapter()
     if normalized == "YOUTUBE_CONTROLLED":
-        return YouTubeControlledPublisherAdapter()
+        from app.providers.animation.shrimp.youtube_live_publisher import (
+            YouTubeLivePublisherAdapter,
+        )
+        return YouTubeLivePublisherAdapter()
     raise RuntimeError("Unsupported Shrimp publisher execution adapter")
