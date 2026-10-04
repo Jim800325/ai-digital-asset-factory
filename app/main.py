@@ -1187,7 +1187,7 @@ def shrimp_animation_bilibili_account_update(
     _require_shrimp_publish_key(x_shrimp_publish_key)
     changes=payload.model_dump(
         exclude={"actor"},
-        exclude_none=True,
+        exclude_unset=True,
     )
     try:
         return update_bilibili_account(
