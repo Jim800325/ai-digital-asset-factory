@@ -278,10 +278,18 @@ def evaluate_account_circuit(account_id, *, actor: str) -> dict:
             )
 
         circuit=_account_circuit_row(db,account_id,actor=actor)
+        ambiguity_threshold=max(
+            1,int(settings.shrimp_bilibili_circuit_ambiguity_threshold)
+        )
+        failure_threshold=max(
+            1,int(settings.shrimp_bilibili_circuit_provider_failure_threshold)
+        )
         if (
             circuit["circuit_status"] in {"OPEN","RECOVERY_PENDING"}
             and circuit.get("recovery_not_before") is not None
             and circuit["recovery_not_before"]<=datetime.now(timezone.utc)
+            and ambiguity<ambiguity_threshold
+            and failures<failure_threshold
         ):
             evidence=_recovery_evidence(db,account_id)
             previous=circuit["circuit_status"]
