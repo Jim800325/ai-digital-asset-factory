@@ -73,7 +73,7 @@ def _build_review_ready_job(
     temp_dir: str,
     requested_by: str,
 ):
-    brief = _brief().model_copy(update={"target_duration_ms": 10000})
+    brief = _brief().model_copy(update={"target_duration_ms": 10000, "episode_id": f"shrimp-{requested_by}"})
     created = create_shrimp_animation_job(
         proposal_id,
         brief,
