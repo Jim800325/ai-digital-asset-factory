@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 
+from app.config import settings
 from app.db import engine
 from app.providers.animation.models import canonical_json
 
@@ -195,6 +196,27 @@ def resolve_account_for_target(db,target:dict)->dict|None:
 def apply_account_defaults_and_guard(db,account:dict,metadata:dict)->tuple[dict,dict,str]:
     if account["account_status"]!="ACTIVE": raise RuntimeError("Bilibili account is INACTIVE")
     policy=dict(account.get("safety_policy") or {})
+    refs={
+        str(account["account_key"]),
+        str(account["mid"]),
+        "MID:"+str(account["mid"]),
+    }
+    allowed=set(settings.shrimp_publish_execution_allowed_account_ref_list)
+    denied=set(settings.shrimp_publish_execution_denied_account_ref_list)
+    mode=str(policy.get("mode") or "SACRIFICIAL").upper()
+    if policy.get("require_global_allowlist",True) and mode=="SACRIFICIAL":
+        if not (refs & allowed):
+            raise RuntimeError(
+                "Bilibili sacrificial account is not in the global allowlist"
+            )
+    if mode=="REAL" and refs & allowed:
+        raise RuntimeError(
+            "REAL Bilibili account must not be in the sacrificial allowlist"
+        )
+    if mode=="REAL" and not (refs & denied):
+        raise RuntimeError(
+            "REAL Bilibili account must be protected by the global denylist"
+        )
     value=dict(metadata or {})
     if not value.get("description") and account.get("default_description"):
         value["description"]=account["default_description"]
