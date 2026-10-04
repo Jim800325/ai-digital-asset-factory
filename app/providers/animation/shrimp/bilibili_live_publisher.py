@@ -95,14 +95,22 @@ class BilibiliLivePublisherAdapter:
             raise RuntimeError("Bilibili returned non-object JSON")
         return payload
 
+    def expected_mid(self, execution: dict[str, Any]) -> str:
+        reference = str(execution.get("account_reference") or "").strip()
+        if reference.isdigit():
+            return reference
+        if self._dede_user_id.isdigit():
+            return self._dede_user_id
+        raise RuntimeError(
+            "Bilibili controlled target has no resolvable numeric MID"
+        )
+
     def validate_target(self, execution: dict[str, Any]) -> None:
         if execution.get("platform") != "BILIBILI":
             raise RuntimeError("Bilibili adapter requires platform=BILIBILI")
-        expected_mid = str(execution.get("account_reference") or "").strip()
-        if not expected_mid or not expected_mid.isdigit():
-            raise RuntimeError(
-                "Bilibili controlled target account_reference must be numeric MID"
-            )
+        expected_mid = self.expected_mid(execution)
+        if not expected_mid:
+            raise RuntimeError("Bilibili controlled target has no expected MID")
 
     def probe_account(self, *, expected_mid: str) -> dict[str, Any]:
         clean_mid = str(expected_mid or "").strip()
@@ -176,9 +184,9 @@ class BilibiliLivePublisherAdapter:
             mid = str(data.get("mid") or "")
             if not mid:
                 raise RuntimeError("Bilibili preflight returned no MID")
-            if mid != str(execution["account_reference"]):
+            if mid != self.expected_mid(execution):
                 raise RuntimeError(
-                    "Authenticated Bilibili MID does not match sacrificial target"
+                    "Authenticated Bilibili MID does not match controlled target"
                 )
             if self._dede_user_id != mid:
                 raise RuntimeError(
@@ -716,10 +724,10 @@ class BilibiliLivePublisherAdapter:
         owner_mid = str(
             archive.get("mid")
             or archive.get("author_mid")
-            or execution.get("account_reference")
+            or self.expected_mid(execution)
             or ""
         )
-        if owner_mid and owner_mid != str(execution["account_reference"]):
+        if owner_mid and owner_mid != self.expected_mid(execution):
             raise RuntimeError("Bilibili read-back owner MID drifted")
         return {
             "aid": str(archive.get("aid") or aid),
