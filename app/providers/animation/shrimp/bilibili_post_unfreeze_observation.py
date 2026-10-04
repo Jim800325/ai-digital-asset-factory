@@ -200,6 +200,7 @@ def _write_evaluation(
         "health_evidence_sha256":_sha(evidence),
     }
     with engine.begin() as db:
+        evaluation_sha=_sha(material)
         row=db.execute(text("""
           INSERT INTO shrimp_bilibili_post_unfreeze_ramp_evaluations(
             session_id,stage_before,quota_before,decision,
@@ -211,6 +212,7 @@ def _write_evaluation(
             :session_id,:stage_before,:quota_before,:decision,
             :next_stage,:next_quota,:elapsed,:executions,
             CAST(:evidence AS jsonb),:evidence_sha,:evaluation_sha,:actor)
+          ON CONFLICT (evaluation_sha256) DO NOTHING
           RETURNING *
         """),{
             "session_id":session["id"],
@@ -223,9 +225,14 @@ def _write_evaluation(
             "executions":execution_count,
             "evidence":canonical_json(evidence),
             "evidence_sha":material["health_evidence_sha256"],
-            "evaluation_sha":_sha(material),
+            "evaluation_sha":evaluation_sha,
             "actor":actor[:200],
-        }).mappings().one()
+        }).mappings().one_or_none()
+        if row is None:
+            row=db.execute(text("""
+              SELECT * FROM shrimp_bilibili_post_unfreeze_ramp_evaluations
+              WHERE evaluation_sha256=:sha
+            """),{"sha":evaluation_sha}).mappings().one()
     return _ser(row)
 
 
