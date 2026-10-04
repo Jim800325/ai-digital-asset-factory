@@ -96,6 +96,7 @@ class Settings(BaseSettings):
     shrimp_bilibili_incident_recovery_sla_minutes: int = 120
     shrimp_bilibili_incident_default_owner: str = "publisher-oncall"
     shrimp_bilibili_incident_secondary_owner: str = "publisher-backup"
+    shrimp_bilibili_incident_ops_key: str = ""
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
