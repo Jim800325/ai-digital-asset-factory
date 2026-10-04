@@ -208,6 +208,26 @@ def decide_governance_review(
         "CAUTION":{"ACCEPT_CAUTION","REJECT_RECOMMENDATION"},
         "FREEZE_RECOMMENDED":{"AUTHORIZE_FREEZE_INTENT","REJECT_RECOMMENDATION"},
     }
+    with engine.connect() as db:
+        preflight=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_reliability_governance_reviews
+          WHERE id=:id
+        """),{"id":review_id}).mappings().one_or_none()
+    if preflight is None:
+        raise LookupError("Reliability governance review not found")
+    if preflight["review_status"]!="PENDING_DECISION":
+        raise RuntimeError("Governance review is not pending")
+    current_snapshot=_evidence_snapshot()
+    current_sha=_sha(current_snapshot)
+    if current_sha!=preflight["evidence_sha256"]:
+        with engine.begin() as db:
+            db.execute(text("""
+              UPDATE shrimp_bilibili_reliability_governance_reviews
+              SET review_status='STALE',superseded_at=now()
+              WHERE id=:id AND review_status='PENDING_DECISION'
+            """),{"id":review_id})
+        raise RuntimeError("Governance evidence drifted; generate a new review")
+
     with engine.begin() as db:
         review=db.execute(text("""
           SELECT * FROM shrimp_bilibili_reliability_governance_reviews
@@ -219,16 +239,6 @@ def decide_governance_review(
             raise RuntimeError("Governance review is not pending")
         if decision not in allowed[review["recommendation"]]:
             raise ValueError("Decision is incompatible with governance recommendation")
-
-        current_snapshot=_evidence_snapshot()
-        current_sha=_sha(current_snapshot)
-        if current_sha!=review["evidence_sha256"]:
-            db.execute(text("""
-              UPDATE shrimp_bilibili_reliability_governance_reviews
-              SET review_status='STALE',superseded_at=now()
-              WHERE id=:id
-            """),{"id":review_id})
-            raise RuntimeError("Governance evidence drifted; generate a new review")
 
         decision_material={
             "review_id":str(review_id),
