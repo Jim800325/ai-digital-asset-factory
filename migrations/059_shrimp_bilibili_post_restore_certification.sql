@@ -80,8 +80,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_shrimp_bilibili_open_cert_reopen_event
 CREATE OR REPLACE FUNCTION prevent_bilibili_certification_mutation()
 RETURNS trigger AS $$
 BEGIN
-  IF OLD.certification_status='CERTIFIED'
-     AND NEW.certification_status IN ('REOPEN_RECOMMENDED','SUPERSEDED')
+  IF OLD.certification_status IN ('CERTIFIED','REOPEN_RECOMMENDED')
+     AND (
+       NEW.certification_status='SUPERSEDED'
+       OR (
+         OLD.certification_status='CERTIFIED'
+         AND NEW.certification_status='REOPEN_RECOMMENDED'
+       )
+     )
      AND NEW.certification_snapshot=OLD.certification_snapshot
      AND NEW.stability_baseline=OLD.stability_baseline
      AND NEW.promoted_slo=OLD.promoted_slo
