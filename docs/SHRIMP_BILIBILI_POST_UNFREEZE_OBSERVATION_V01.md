@@ -247,6 +247,16 @@ Actual refreeze still requires the existing human chain:
 
 Observation can recommend refreeze but cannot execute it.
 
+If a human-applied Reliability Policy Change occurs while an Observation
+Session is ACTIVE, REFREEZE_RECOMMENDED, or READY_FOR_ACCEPTANCE, the
+Observation Session is marked STALE. Any pending Restore Acceptance is also
+marked STALE. A superseded observation window can never continue ramping after
+an independently applied policy change.
+
+Concurrent evaluators also fail closed: the Session stage/quota/status is
+rechecked under row lock before a ramp change. If another evaluator already
+advanced the stage, the second evaluator cannot advance it again.
+
 ## Scheduled evaluation
 
 The existing Bilibili Recovery Policy workflow runs at:
