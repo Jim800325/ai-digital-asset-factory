@@ -1007,6 +1007,12 @@ def publish_uploaded_media(
             },
             provider_result_sha256=result_sha,
         )
+        mark_publish_committed(
+            db,
+            execution_id=current["id"],
+            source_sha256=result_sha,
+            actor=clean_actor,
+        )
     return get_publish_execution(execution_id)
 
 
@@ -1108,6 +1114,12 @@ def reconcile_published_media(
                     "provider_write_performed": False,
                 },
                 provider_result_sha256=result_sha,
+            )
+            mark_publish_committed(
+                db,
+                execution_id=current["id"],
+                source_sha256=result_sha,
+                actor=clean_actor,
             )
     return get_publish_execution(execution_id)
 
