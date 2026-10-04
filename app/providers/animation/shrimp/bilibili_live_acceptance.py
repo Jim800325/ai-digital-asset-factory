@@ -10,6 +10,9 @@ from app.db import engine
 from app.providers.animation.shrimp.bilibili_live_publisher import (
     BilibiliLivePublisherAdapter,
 )
+from app.providers.animation.shrimp.bilibili_credentials import (
+    build_adapter_for_execution,
+)
 from app.providers.animation.shrimp.publisher_execution import (
     get_publish_execution,
     publish_uploaded_media,
@@ -333,8 +336,8 @@ def run_bilibili_live_acceptance(
     clean_actor = (
         (actor or "").strip() or "shrimp-bilibili-live-acceptance-api"
     )
-    chosen = adapter or BilibiliLivePublisherAdapter()
     execution = get_publish_execution(execution_id)
+    chosen = adapter or build_adapter_for_execution(execution)
 
     if execution["platform"] != "BILIBILI":
         raise RuntimeError("Step 10B only accepts BILIBILI executions")
@@ -362,7 +365,7 @@ def run_bilibili_live_acceptance(
                 """),
                 {
                     "execution_id": execution_id,
-                    "expected_mid": execution["account_reference"],
+                    "expected_mid": chosen.expected_mid(execution),
                     "marker": marker,
                     "actor": clean_actor[:200],
                 },
@@ -375,7 +378,7 @@ def run_bilibili_live_acceptance(
 
     try:
         preflight = chosen.preflight(execution)
-        if preflight["mid"] != str(execution["account_reference"]):
+        if preflight["mid"] != chosen.expected_mid(execution):
             raise RuntimeError(
                 "Step 10B authenticated MID does not match execution"
             )
