@@ -2,7 +2,7 @@
 const byId=id=>document.getElementById(id);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const clear=n=>n.replaceChildren();
-const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[]};
+const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[]};
 function toast(msg,bad=false){const n=byId("toast");n.textContent=msg;n.className="toast"+(bad?" bad":"");n.classList.remove("hidden");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.add("hidden"),3200)}
 async function api(url,opts={}){const r=await fetch(url,{cache:"no-store",...opts,headers:{"Accept":"application/json",...(opts.headers||{})}});const b=await r.json().catch(()=>({detail:"Invalid response"}));if(!r.ok)throw new Error(b.detail||("HTTP "+r.status));return b}
 function pill(v){const s=String(v||"UNKNOWN").toUpperCase();const cls=/READY|SUCCESS|APPROVED|AUTHORIZED|PUBLISHED|CURRENT|ACTIVE|PASS|CONFIGURED/.test(s)?"good":/BLOCKED|FAILED|REJECTED|STALE|DISABLED|MISSING|INACTIVE|EXPIRED|UNHEALTHY|MISMATCH|LOGGED_OUT|DENIED/.test(s)?"bad":"warn";return el("span","pill "+cls,s)}
@@ -144,8 +144,53 @@ async function reconcileStuck(x){
     await load();
   }catch(e){toast("Reconcile 失败："+e.message,true)}
 }
+async function requestIncidentRecovery(x){
+  const key=prompt("输入 Step 10B Live Acceptance Key，创建 Recovery Review 请求：");
+  if(!key)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-incidents/"+encodeURIComponent(x.id)+"/recovery-request",{method:"POST",headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Live-Acceptance-Key":key},body:JSON.stringify({actor:"shrimp-control-center-v0.4"})});
+    toast("Recovery Review 已创建");await load();
+  }catch(e){toast("Recovery Request 失败："+e.message,true)}
+}
+async function decideRecovery(x,decision){
+  const key=prompt("输入独立 Recovery Approval Key：");
+  if(!key)return;
+  const reason=prompt(decision+" 原因：","Evidence reviewed in Publisher Operations Console");
+  if(!reason)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-recovery-approvals/"+encodeURIComponent(x.id)+"/decision",{method:"POST",headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Recovery-Approval-Key":key},body:JSON.stringify({decision,reason,actor:"shrimp-control-center-v0.4"})});
+    toast("Recovery "+decision+" 已记录");await load();
+  }catch(e){toast("Recovery Decision 失败："+e.message,true)}
+}
+async function applyRecovery(x){
+  const key=prompt("输入 Step 10B Live Acceptance Key，应用已批准恢复：");
+  if(!key)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-recovery-approvals/"+encodeURIComponent(x.id)+"/apply",{method:"POST",headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Live-Acceptance-Key":key},body:JSON.stringify({actor:"shrimp-control-center-v0.4"})});
+    toast("Approved Recovery 已应用");await load();
+  }catch(e){toast("Recovery Apply 失败："+e.message,true)}
+}
+async function showIncidentTimeline(x){
+  try{
+    const rows=await api("/v1/shrimp-animation/bilibili-incidents/"+encodeURIComponent(x.id)+"/timeline");
+    const lines=(rows||[]).map(r=>(r.created_at?new Date(r.created_at).toLocaleString():"")+" · "+r.event_type+" · "+(r.source_type||""));
+    alert(lines.join("\n")||"暂无 Timeline Event");
+  }catch(e){toast("Timeline 读取失败："+e.message,true)}
+}
 function renderOperations(){
   const ops=state.operations||{},summary=ops.summary||{},escalations=ops.open_escalations||[],circuits=ops.circuits||[],runs=ops.recovery_runs||[];
+  const incidentBody=byId("incidentRows");clear(incidentBody);
+  if(!state.incidents.length)empty(incidentBody,7,"当前没有 Publisher Incident");
+  state.incidents.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.incident_key||String(x.id).slice(0,12)),el("td","mono",x.account_key||"—"));const sev=document.createElement("td");sev.appendChild(pill(x.severity));tr.appendChild(sev);const st=document.createElement("td");st.appendChild(pill(x.incident_status));tr.appendChild(st);tr.append(el("td","",x.opened_at?new Date(x.opened_at).toLocaleString():"—"),el("td","mono",String(x.evidence_sha256||"").slice(0,12)+"…"));const opsCell=document.createElement("td");const timeline=el("button","button ghost small","Timeline");timeline.type="button";timeline.addEventListener("click",()=>showIncidentTimeline(x));opsCell.appendChild(timeline);if(x.incident_status==="OPEN"){const req=el("button","button ghost small","Request Recovery");req.type="button";req.addEventListener("click",()=>requestIncidentRecovery(x));opsCell.appendChild(req)}tr.appendChild(opsCell);incidentBody.appendChild(tr)});
+
+  const approvalBody=byId("recoveryApprovalRows");clear(approvalBody);
+  if(!state.approvals.length)empty(approvalBody,7,"当前没有 Recovery Approval");
+  state.approvals.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.incident_key||"—"),el("td","mono",x.account_key||"—"));const st=document.createElement("td");st.appendChild(pill(x.request_status));tr.appendChild(st);tr.append(el("td","",x.requested_at?new Date(x.requested_at).toLocaleString():"—"),el("td","",x.decision||"—"),el("td","mono",String(x.evidence_sha256||"").slice(0,12)+"…"));const opsCell=document.createElement("td");if(x.request_status==="PENDING"){for(const d of ["APPROVE","REJECT"]){const b=el("button","button ghost small",d);b.type="button";b.addEventListener("click",()=>decideRecovery(x,d));opsCell.appendChild(b)}}else if(x.request_status==="APPROVED"){const b=el("button","button ghost small","Apply");b.type="button";b.addEventListener("click",()=>applyRecovery(x));opsCell.appendChild(b)}else{opsCell.appendChild(el("span","muted","—"))}tr.appendChild(opsCell);approvalBody.appendChild(tr)});
+
+  const notificationBody=byId("notificationRows");clear(notificationBody);
+  if(!state.notifications.length)empty(notificationBody,7,"当前没有 Operations Notification");
+  state.notifications.slice(0,80).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","",x.created_at?new Date(x.created_at).toLocaleString():"—"),el("td","mono",x.incident_key||"—"),el("td","",x.notification_type||"—"));const sev=document.createElement("td");sev.appendChild(pill(x.severity));tr.appendChild(sev);tr.append(el("td","",x.destination_type||"—"));const st=document.createElement("td");st.appendChild(pill(x.delivery_status));tr.appendChild(st);tr.append(el("td","",x.attempt_count??0));notificationBody.appendChild(tr)});
+
   byId("operationsRiskBadge").textContent=(summary.critical_escalations||0)+" CRITICAL";
   const metrics=byId("operationsMetrics");clear(metrics);
   [["Critical",summary.critical_escalations||0],["Warnings",summary.warning_escalations||0],["Open Circuits",summary.open_circuits||0],["Recovery Pending",summary.recovery_pending||0]].forEach(([k,v])=>{const card=el("div","metric-card");card.append(el("div","metric-label",k),el("div","metric-value small",v));metrics.appendChild(card)});
@@ -194,7 +239,7 @@ async function evaluateCircuit(x){
 }
 function renderSettings(){const s=state.summary||{},sys=s.system||{},r=s.bilibili?.readiness||{},c=r.checks||{};const groups=[["runtimeSettings",[["Vercel Env",sys.vercel_env||"—"],["Database",sys.database_available?"AVAILABLE":"UNAVAILABLE"],["Database Source",sys.database_source||"—"],["Preview Isolated",sys.preview_isolated?"YES":"NO"],["Migrations",sys.migration_status||"—"]]],["publisherSettings",[["Adapter",sys.publisher_adapter||"—"],["Executor",c.publish_executor_enabled?"ENABLED":"DISABLED"],["Step 9 Gate",c.publish_authorization_gate?"READY":"BLOCKED"],["Step 10 Gate",c.publish_execution_gate?"READY":"BLOCKED"]]],["bilibiliSettings",[["Account Profiles",state.accounts.length],["Controlled Adapter",c.bilibili_controlled_adapter?"READY":"BLOCKED"],["Live Acceptance",c.bilibili_live_acceptance_enabled?"ENABLED":"DISABLED"],["Cookie Bundle",c.bilibili_cookie_credentials_present?"CONFIGURED":"MISSING"]]],["securitySettings",[["Secrets Redacted",r.secrets_redacted?"YES":"NO"],["Account Allowlist",c.sacrificial_account_allowlist_present?"SET":"MISSING"],["Account Denylist",c.real_account_denylist_present?"SET":"MISSING"],["Target Allowlist",c.sacrificial_target_allowlist_present?"SET":"MISSING"],["Target Denylist",c.real_target_denylist_present?"SET":"MISSING"]]]];groups.forEach(([id,items])=>{const root=byId(id);clear(root);items.forEach(([k,v])=>row(root,k,v))})}
 async function load(){byId("refreshButton").disabled=true;try{
-  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents]=await Promise.all([
+  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications]=await Promise.all([
     api("/v1/shrimp-animation/control-center/summary"),
     api("/v1/shrimp-animation/publish-targets"),
     api("/v1/shrimp-animation/bilibili-accounts"),
@@ -205,11 +250,14 @@ async function load(){byId("refreshButton").disabled=true;try{
     api("/v1/shrimp-animation/bilibili-quota-ledger?limit=100"),
     api("/v1/shrimp-animation/bilibili-daily-quota-audits?limit=100"),
     api("/v1/shrimp-animation/bilibili-operations-console"),
-    api("/v1/shrimp-animation/bilibili-circuit-events?limit=100")
+    api("/v1/shrimp-animation/bilibili-circuit-events?limit=100"),
+    api("/v1/shrimp-animation/bilibili-incidents?limit=100"),
+    api("/v1/shrimp-animation/bilibili-recovery-approvals?limit=100"),
+    api("/v1/shrimp-animation/bilibili-notifications?limit=100")
   ]);
   let selection=null;
   try{selection=await api("/v1/shrimp-animation/bilibili-account-selection/healthy")}catch(_){}
-  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];
+  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];
   renderAccounts();renderJobs();renderExecutions();renderQuota();renderOperations();renderSettings();
 }catch(e){toast("载入失败："+e.message,true)}finally{byId("refreshButton").disabled=false}}
 byId("accountForm").addEventListener("submit",async e=>{
