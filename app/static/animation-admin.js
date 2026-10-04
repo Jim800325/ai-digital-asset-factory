@@ -813,7 +813,7 @@ function renderGovernance(){
     tr.append(el("td","mono",x.certification_key||String(x.certification_id||"").slice(0,12)),el("td","",x.escalation_type||"—"));
     const sev=document.createElement("td");sev.appendChild(pill(x.severity));tr.appendChild(sev);
     const st=document.createElement("td");st.appendChild(pill(x.escalation_status));tr.appendChild(st);
-    tr.append(el("td","",(x.overdue_minutes??0)+" min"),el("td","mono",String(x.evidence_sha256||"").slice(0,12)+"…"),el("td","",x.opened_at?new Date(x.opened_at).toLocaleString():"—"));
+    tr.append(el("td","",((x.current_overdue_minutes??x.overdue_minutes??0))+" min"),el("td","mono",String(x.evidence_sha256||"").slice(0,12)+"…"),el("td","",x.opened_at?new Date(x.opened_at).toLocaleString():"—"));
     slaBody.appendChild(tr);
   });
 
