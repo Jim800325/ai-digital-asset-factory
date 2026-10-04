@@ -19,6 +19,7 @@
       <a data-page="jobs" href="/animation/jobs">任务中心</a>
       <a data-page="executions" href="/animation/executions">发布执行</a>
       <a data-page="quota" href="/animation/quota">额度运营</a>
+      <a data-page="operations" href="/animation/operations">Publisher Ops</a>
       <a data-page="settings" href="/animation/settings">系统设置</a>
       <a href="/animation-review">Human Review</a>
       <a href="/animation-publishing">Publishing</a>
@@ -204,6 +205,42 @@
           <div class="section-title-row"><div><div class="card-kicker">QUOTA LEDGER</div><h2>不可变账本</h2></div><span class="safe-badge">No UPDATE / DELETE</span></div>
           <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Time</th><th>Account</th><th>Type</th><th>Units</th><th>Local Date</th><th>SHA</th></tr></thead><tbody id="quotaLedgerRows"></tbody></table></div>
         </section>
+      </section>
+
+      <section id="operationsPage" class="admin-page hidden">
+        <div class="hero-grid">
+          <article class="hero-card primary">
+            <div class="card-kicker">PUBLISHER OPERATIONS CONSOLE</div>
+            <div class="hero-head"><div><h2>Recovery / Escalation / Circuit</h2><p class="muted">Evidence-driven recovery only. No blind retry and no force release.</p></div><span id="operationsRiskBadge" class="pill warn">0 CRITICAL</span></div>
+            <div id="operationsMetrics" class="metric-grid"></div>
+          </article>
+          <article class="hero-card">
+            <div class="card-kicker">RECOVERY POLICY</div>
+            <h2>自动恢复边界</h2>
+            <div class="notice warn">自动策略只允许 provider read-back、Claim escalation 和 Circuit 状态评估；不会执行 Upload / Publish，也不会释放仍然模糊的 Claim。</div>
+          </article>
+        </div>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">CLAIM ESCALATIONS</div><h2>异常 Claim 告警</h2></div><span class="safe-badge">INFO / WARNING / CRITICAL</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Level</th><th>Account</th><th>Target</th><th>Execution</th><th>Age</th><th>Ambiguity</th><th>Status</th><th>Action</th></tr></thead><tbody id="escalationRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">ACCOUNT CIRCUIT BREAKERS</div><h2>账号熔断器</h2></div><span class="safe-badge">Router fail-closed</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Account</th><th>Circuit</th><th>Ambiguity</th><th>Provider Failures</th><th>Reason</th><th>Recovery After</th><th>Evidence</th><th>操作</th></tr></thead><tbody id="circuitRows"></tbody></table></div>
+        </section>
+
+        <div class="split-grid">
+          <section class="panel-card">
+            <div class="section-title-row"><div><div class="card-kicker">RECOVERY RUNS</div><h2>Automatic Recovery Policy</h2></div></div>
+            <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Started</th><th>Status</th><th>Stuck</th><th>Read-back</th><th>Ambiguous</th><th>Opened</th><th>Closed</th></tr></thead><tbody id="recoveryRunRows"></tbody></table></div>
+          </section>
+          <section class="panel-card">
+            <div class="section-title-row"><div><div class="card-kicker">CIRCUIT EVENTS</div><h2>Evidence Events</h2></div></div>
+            <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Time</th><th>Account</th><th>Event</th><th>State</th><th>Reason</th></tr></thead><tbody id="circuitEventRows"></tbody></table></div>
+          </section>
+        </div>
       </section>
 
       <section id="settingsPage" class="admin-page hidden">
