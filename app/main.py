@@ -706,10 +706,12 @@ def _require_shrimp_bilibili_reliability_restore_approval_key(
         settings.shrimp_bilibili_reliability_restore_apply_key.strip(),
         settings.shrimp_bilibili_reliability_policy_apply_key.strip(),
         settings.shrimp_bilibili_reliability_governance_key.strip(),
+        settings.shrimp_bilibili_incident_ops_key.strip(),
         settings.shrimp_bilibili_recovery_approval_key.strip(),
         settings.shrimp_bilibili_live_acceptance_key.strip(),
         settings.shrimp_publish_authorization_key.strip(),
         settings.shrimp_publish_execution_key.strip(),
+        settings.shrimp_human_review_key.strip(),
     )
     if any(
         value and secrets.compare_digest(expected,value)
@@ -739,10 +741,12 @@ def _require_shrimp_bilibili_reliability_restore_apply_key(
         settings.shrimp_bilibili_reliability_restore_approval_key.strip(),
         settings.shrimp_bilibili_reliability_policy_apply_key.strip(),
         settings.shrimp_bilibili_reliability_governance_key.strip(),
+        settings.shrimp_bilibili_incident_ops_key.strip(),
         settings.shrimp_bilibili_recovery_approval_key.strip(),
         settings.shrimp_bilibili_live_acceptance_key.strip(),
         settings.shrimp_publish_authorization_key.strip(),
         settings.shrimp_publish_execution_key.strip(),
+        settings.shrimp_human_review_key.strip(),
     )
     if any(
         value and secrets.compare_digest(expected,value)
