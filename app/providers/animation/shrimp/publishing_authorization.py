@@ -9,6 +9,10 @@ from sqlalchemy import text
 
 from app.db import engine
 from app.providers.animation.models import canonical_json
+from app.providers.animation.shrimp.bilibili_accounts import (
+    apply_account_defaults_and_guard,
+    resolve_account_for_target,
+)
 from app.providers.animation.shrimp.human_review import (
     get_episode_bundle_file,
     get_episode_player_file,
@@ -229,6 +233,7 @@ def _normalize_publish_metadata(
         "visibility",
         "cover_artifact_sha256",
         "scheduled_for",
+        "copyright",
     }
     unknown = sorted(set(value) - allowed)
     if unknown:
@@ -276,6 +281,9 @@ def _normalize_publish_metadata(
         raise ValueError("cover_artifact_sha256 must be a 64-character SHA-256")
 
     scheduled_for = str(value.get("scheduled_for") or "").strip() or None
+    copyright_value = str(value.get("copyright") or "").upper().strip() or None
+    if copyright_value not in {None, "ORIGINAL", "REPOST"}:
+        raise ValueError("publish metadata copyright must be ORIGINAL or REPOST")
 
     return {
         "title": title,
@@ -285,6 +293,7 @@ def _normalize_publish_metadata(
         "visibility": visibility,
         "cover_artifact_sha256": cover_sha,
         "scheduled_for": scheduled_for,
+        "copyright": copyright_value,
     }
 
 
@@ -457,10 +466,25 @@ def create_publish_plan(
         if target["execution_enabled"] or target["external_publish_enabled"]:
             raise RuntimeError("Publish Target execution must remain disabled")
 
+        account_profile = resolve_account_for_target(db, target)
+        account_snapshot = None
+        account_profile_sha256 = None
+        effective_metadata = dict(publish_metadata or {})
+        if target["platform"] == "BILIBILI" and account_profile is not None:
+            (
+                effective_metadata,
+                account_snapshot,
+                account_profile_sha256,
+            ) = apply_account_defaults_and_guard(
+                db,
+                account_profile,
+                effective_metadata,
+            )
+
         dry_run = _build_dry_run(
             source=source,
             target=target,
-            metadata=publish_metadata,
+            metadata=effective_metadata,
         )
         if file_integrity["episode_bundle_sha256"] != source[
             "episode_bundle_sha256"
@@ -479,6 +503,10 @@ def create_publish_plan(
             "platform": target["platform"],
             "target_key": target["target_key"],
             "target_snapshot_sha256": dry_run["target_snapshot_sha256"],
+            "account_profile_id":
+                str(account_profile["id"]) if account_profile else None,
+            "account_profile_sha256": account_profile_sha256,
+            "account_profile_snapshot": account_snapshot,
             "publish_metadata": dry_run["publish_metadata"],
             "dry_run_sha256": dry_run["dry_run_sha256"],
             "dry_run_status": "VERIFIED",
@@ -515,7 +543,8 @@ def create_publish_plan(
                 provider_job_id,review_decision_id,target_id,
                 platform,target_key,review_decision_sha256,
                 episode_bundle_sha256,release_review_package_sha256,
-                target_snapshot_sha256,publish_metadata,
+                target_snapshot_sha256,account_profile_id,
+                account_profile_sha256,publish_metadata,
                 dry_run_snapshot,dry_run_sha256,dry_run_status,
                 plan_payload,plan_sha256,plan_status,
                 execution_enabled,publish_performed,created_by)
@@ -523,7 +552,8 @@ def create_publish_plan(
                 CAST(:job_id AS uuid),:review_decision_id,:target_id,
                 :platform,:target_key,:review_decision_sha256,
                 :episode_bundle_sha256,:release_review_package_sha256,
-                :target_snapshot_sha256,CAST(:publish_metadata AS jsonb),
+                :target_snapshot_sha256,:account_profile_id,
+                :account_profile_sha256,CAST(:publish_metadata AS jsonb),
                 CAST(:dry_run_snapshot AS jsonb),:dry_run_sha256,'VERIFIED',
                 CAST(:plan_payload AS jsonb),:plan_sha256,
                 'PENDING_AUTHORIZATION',false,false,:actor)
@@ -540,6 +570,9 @@ def create_publish_plan(
                 "release_review_package_sha256":
                     source["release_review_package_sha256"],
                 "target_snapshot_sha256": dry_run["target_snapshot_sha256"],
+                "account_profile_id":
+                    account_profile["id"] if account_profile else None,
+                "account_profile_sha256": account_profile_sha256,
                 "publish_metadata": canonical_json(
                     dry_run["publish_metadata"]
                 ),
