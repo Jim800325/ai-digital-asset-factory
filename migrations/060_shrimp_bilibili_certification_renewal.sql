@@ -26,6 +26,16 @@ ALTER TABLE shrimp_bilibili_post_restore_certifications
 ALTER TABLE shrimp_bilibili_post_restore_certifications
   ADD COLUMN IF NOT EXISTS attestation_sequence integer;
 
+ALTER TABLE shrimp_bilibili_post_restore_certifications
+  DROP CONSTRAINT IF EXISTS shrimp_bilibili_post_restore_certifications_observation_session_id_key;
+ALTER TABLE shrimp_bilibili_post_restore_certifications
+  DROP CONSTRAINT IF EXISTS shrimp_bilibili_post_restore_certifications_restore_acceptance_id_key;
+
+CREATE INDEX IF NOT EXISTS idx_shrimp_bilibili_certification_session
+  ON shrimp_bilibili_post_restore_certifications(observation_session_id,certified_at DESC);
+CREATE INDEX IF NOT EXISTS idx_shrimp_bilibili_certification_acceptance
+  ON shrimp_bilibili_post_restore_certifications(restore_acceptance_id,certified_at DESC);
+
 UPDATE shrimp_bilibili_post_restore_certifications
 SET valid_from=COALESCE(valid_from,certified_at),
     expires_at=COALESCE(expires_at,certified_at + interval '30 days'),
