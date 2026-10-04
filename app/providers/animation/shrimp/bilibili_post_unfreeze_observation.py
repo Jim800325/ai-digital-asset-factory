@@ -364,6 +364,13 @@ def evaluate_observation(*,actor:str)->dict:
           SELECT * FROM shrimp_bilibili_post_unfreeze_observation_sessions
           WHERE id=:id FOR UPDATE
         """),{"id":session["id"]}).mappings().one()
+        if (
+            locked["session_status"]!="ACTIVE"
+            or int(locked["current_stage"])!=int(session["current_stage"])
+            or int(locked["current_quota_percent"])
+                !=int(session["current_quota_percent"])
+        ):
+            raise RuntimeError("Observation session changed during evaluation")
         control=db.execute(text("""
           SELECT * FROM shrimp_bilibili_reliability_policy_controls
           WHERE control_key='GLOBAL' FOR UPDATE
