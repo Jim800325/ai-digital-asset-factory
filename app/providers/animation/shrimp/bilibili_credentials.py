@@ -386,6 +386,13 @@ def run_credential_health_check(
           "actor":(actor or "shrimp-credential-health")[:200],
         }).mappings().one()
 
+    with engine.connect() as db:
+        refreshed=db.execute(text("""
+          SELECT consecutive_failures,degradation_status,credential_version
+          FROM shrimp_bilibili_credential_slots
+          WHERE id=:id
+        """),{"id":slot["id"]}).mappings().one()
+
     return {
         **_serialize(check),
         "slot_key":slot["slot_key"],
@@ -397,6 +404,9 @@ def run_credential_health_check(
         "health_status":health,
         "provider_uname":provider_uname,
         "provider_level":provider_level,
+        "consecutive_failures":int(refreshed["consecutive_failures"]),
+        "degradation_status":refreshed["degradation_status"],
+        "credential_version":int(refreshed["credential_version"]),
         "credential_presence":presence,
         "secrets_redacted":True,
     }
