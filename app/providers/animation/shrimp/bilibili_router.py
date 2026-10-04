@@ -15,6 +15,9 @@ from app.providers.animation.shrimp.bilibili_credentials import (
     credential_slot_is_fresh,
     select_failover_sacrificial_accounts,
 )
+from app.providers.animation.shrimp.bilibili_quota import (
+    quota_usage_for_account,
+)
 
 def _sha256(value:Any)->str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
@@ -56,37 +59,8 @@ def _target_for_account(db, account_key:str, mid:str)->dict|None:
     return dict(row) if row else None
 
 def _account_quota_available(db, account:dict)->bool:
-    limit=int(account.get("daily_publish_limit") or 0)
-    if limit<=0:
-        return False
-    timezone_name=str(account.get("timezone") or "Asia/Shanghai")
-    from zoneinfo import ZoneInfo
-    local_now=datetime.now(timezone.utc).astimezone(ZoneInfo(timezone_name))
-    day_start=local_now.replace(hour=0,minute=0,second=0,microsecond=0)
-    day_end=day_start+timedelta(days=1)
-    published=int(db.execute(text("""
-      SELECT COUNT(*)
-      FROM shrimp_animation_publish_executions
-      WHERE platform='BILIBILI'
-        AND account_reference IN (:account_key,:mid,:mid_ref)
-        AND execution_status='PUBLISHED'
-        AND publish_attempted_at>=:day_start
-        AND publish_attempted_at<:day_end
-    """),{
-      "account_key":account["account_key"],
-      "mid":account["mid"],
-      "mid_ref":"MID:"+account["mid"],
-      "day_start":day_start.astimezone(timezone.utc),
-      "day_end":day_end.astimezone(timezone.utc),
-    }).scalar_one())
-    held=int(db.execute(text("""
-      SELECT COUNT(*)
-      FROM shrimp_bilibili_publish_reservations
-      WHERE account_id=:account_id
-        AND reservation_status='HELD'
-        AND expires_at>now()
-    """),{"account_id":account["id"]}).scalar_one())
-    return published+held < limit
+    usage=quota_usage_for_account(db,account)
+    return usage["available_units"]>0
 
 
 def create_pre_publish_reservation(
