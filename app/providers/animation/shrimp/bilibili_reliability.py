@@ -161,7 +161,7 @@ def list_recurrence_clusters(*,limit:int=100)->list[dict]:
 def _error_budget(total:int, breach:int, target:float)->dict:
     if total<=0:
         return {"allowed":0,"consumed":0,"remaining":0,"success_rate":100.0}
-    allowed=max(1,math.ceil(total*max(0.0,100.0-target)/100.0))
+    allowed=math.floor(total*max(0.0,100.0-target)/100.0)
     success=max(0,total-breach)
     rate=round(success*100.0/total,2)
     return {
@@ -202,7 +202,7 @@ def _score(
     return round(ack_points+recovery_points+ambiguity_points+circuit_points+recurrence_points,2)
 
 
-def _scope_metrics(db, *,window_start,window_end,account_id=None)->dict:
+def _scope_metrics(db, *,window_start,window_end,account_id=None,account_key=None)->dict:
     account_filter=" AND i.account_id=:account_id" if account_id else ""
     params={"start":window_start,"end":window_end}
     if account_id:
@@ -284,13 +284,24 @@ def _scope_metrics(db, *,window_start,window_end,account_id=None)->dict:
       {exec_filter}
     """),params).scalar_one())
 
-    recurrence_count=int(db.execute(text("""
-      SELECT COUNT(*)
-      FROM shrimp_bilibili_recurrence_clusters
-      WHERE recurrence_status='RECURRING'
-        AND last_observed_at>=:start
-        AND last_observed_at<:end
-    """),params).scalar_one())
+    if account_key:
+        recurrence_params={**params,"account_key":account_key}
+        recurrence_count=int(db.execute(text("""
+          SELECT COUNT(*)
+          FROM shrimp_bilibili_recurrence_clusters
+          WHERE recurrence_status='RECURRING'
+            AND last_observed_at>=:start
+            AND last_observed_at<:end
+            AND account_keys ? :account_key
+        """),recurrence_params).scalar_one())
+    else:
+        recurrence_count=int(db.execute(text("""
+          SELECT COUNT(*)
+          FROM shrimp_bilibili_recurrence_clusters
+          WHERE recurrence_status='RECURRING'
+            AND last_observed_at>=:start
+            AND last_observed_at<:end
+        """),params).scalar_one())
 
     return {
         "incident":dict(incident),
@@ -324,6 +335,7 @@ def generate_reliability_scorecards(*,actor:str)->list[dict]:
                 window_start=start,
                 window_end=end,
                 account_id=account_id,
+                account_key=account_key,
             )
         inc=m["incident"]
         ack_total=int(inc["ack_success"] or 0)+int(inc["ack_breach"] or 0)
