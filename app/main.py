@@ -158,6 +158,15 @@ from app.providers.animation.shrimp.bilibili_incidents import (
     request_recovery,
     sync_critical_incidents,
 )
+from app.providers.animation.shrimp.bilibili_certification_trust_audit import (
+    generate_audit_proof,
+    list_audit_proofs,
+    list_integrity_audits,
+    list_renewal_escalations,
+    run_integrity_audit,
+    run_trust_audit_cycle,
+    trust_audit_dashboard,
+)
 from app.providers.animation.shrimp.bilibili_certification_renewal import (
     decide_recertification,
     evaluate_certification_expiry,
@@ -1483,6 +1492,38 @@ def shrimp_animation_bilibili_reliability_governance_review_generate(
 
 
 @app.post(
+    "/internal/shrimp-animation/bilibili-certification-trust-audit-cycle",
+    include_in_schema=False,
+)
+def shrimp_animation_bilibili_certification_trust_audit_cycle(
+    authorization: str | None = Header(default=None,alias="Authorization"),
+    x_shrimp_health_monitor_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Health-Monitor-Key",
+    ),
+):
+    provided=(x_shrimp_health_monitor_key or "").strip()
+    bearer=(authorization or "").strip()
+    expected=settings.shrimp_bilibili_health_monitor_key.strip()
+    cron=settings.cron_secret.strip()
+    manual_ok=bool(expected) and secrets.compare_digest(provided,expected)
+    cron_ok=bool(cron) and bearer.startswith("Bearer ") and secrets.compare_digest(
+        bearer[7:].strip(),cron
+    )
+    if not (manual_ok or cron_ok):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili certification trust audit authorization",
+        )
+    return {
+        "status":"AUDITED",
+        "result":run_trust_audit_cycle(
+            actor="scheduled-bilibili-certification-trust-audit"
+        ),
+    }
+
+
+@app.post(
     "/internal/shrimp-animation/bilibili-certification-renewal-cycle",
     include_in_schema=False,
 )
@@ -2016,6 +2057,34 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-certification-trust-audit")
+def shrimp_animation_bilibili_certification_trust_audit():
+    return trust_audit_dashboard()
+
+
+@app.get("/v1/shrimp-animation/bilibili-certification-integrity-audits")
+def shrimp_animation_bilibili_certification_integrity_audits(limit: int = 100):
+    return list_integrity_audits(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-renewal-sla-escalations")
+def shrimp_animation_bilibili_renewal_sla_escalations(limit: int = 100):
+    return list_renewal_escalations(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-certification-audit-proofs")
+def shrimp_animation_bilibili_certification_audit_proofs(limit: int = 100):
+    return list_audit_proofs(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-certification-audit-proof/latest")
+def shrimp_animation_bilibili_certification_audit_proof_latest():
+    proofs=list_audit_proofs(limit=1)
+    if proofs:
+        return proofs[0]
+    return generate_audit_proof(actor="shrimp-certification-audit-proof-api")
 
 
 @app.get("/v1/shrimp-animation/bilibili-certification-renewal")
