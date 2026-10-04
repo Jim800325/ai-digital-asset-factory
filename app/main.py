@@ -505,6 +505,8 @@ def _shrimp_bilibili_live_acceptance_readiness() -> dict[str, Any]:
         "authorized_bilibili_plans":0,
         "bilibili_controlled_executions":0,
         "runnable_bilibili_executions":0,
+        "bilibili_credential_slots":0,
+        "healthy_bilibili_credential_slots":0,
     }
     try:
         with engine.connect() as db:
@@ -543,6 +545,21 @@ def _shrimp_bilibili_live_acceptance_readiness() -> dict[str, Any]:
                   'PUBLISH_UNKNOWN','PUBLISHED'
                 )
             """)).scalar_one()
+            counts["bilibili_credential_slots"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_bilibili_credential_slots
+              WHERE slot_status='ACTIVE'
+            """)).scalar_one()
+            counts["healthy_bilibili_credential_slots"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_bilibili_credential_slots
+              WHERE slot_status='ACTIVE'
+                AND health_status='HEALTHY'
+                AND credential_status='CONFIGURED'
+                AND login_status='LOGGED_IN'
+                AND mid_status='MATCH'
+                AND publish_permission_status='ALLOWED'
+            """)).scalar_one()
     except Exception:
         counts={key:None for key in counts}
 
@@ -556,7 +573,9 @@ def _shrimp_bilibili_live_acceptance_readiness() -> dict[str, Any]:
         "bilibili_live_acceptance_gate":live_gate,
         "bilibili_live_acceptance_enabled":
             settings.shrimp_bilibili_live_acceptance_enabled,
-        "bilibili_cookie_credentials_present":cookies_present,
+        "bilibili_cookie_credentials_present":
+            cookies_present
+            or bool(counts["healthy_bilibili_credential_slots"]),
         "sacrificial_account_allowlist_present":bool(allowed_accounts),
         "real_account_denylist_present":bool(denied_accounts),
         "sacrificial_target_allowlist_present":bool(allowed_targets),
