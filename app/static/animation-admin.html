@@ -306,6 +306,26 @@
         </section>
 
         <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">RELIABILITY TREND</div><h2>Daily / Weekly Trend</h2></div><span class="safe-badge">Historical snapshots</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Bucket</th><th>Scope</th><th>Score</th><th>ACK</th><th>Recovery</th><th>Ambiguity</th><th>Circuits</th><th>Recurrence</th></tr></thead><tbody id="reliabilityTrendRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">ERROR BUDGET BURN</div><h2>Short / Long Burn Rate</h2></div><span class="safe-badge">Observe only</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Scope</th><th>Status</th><th>ACK Short</th><th>ACK Long</th><th>Recovery Short</th><th>Recovery Long</th><th>Evaluated</th></tr></thead><tbody id="burnRateRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">REGRESSION DETECTION</div><h2>Current vs Previous Window</h2></div><span class="safe-badge">Deterministic thresholds</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Severity</th><th>Scope</th><th>Metric</th><th>Baseline</th><th>Current</th><th>Delta</th><th>Detected</th></tr></thead><tbody id="regressionRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">POLICY RECOMMENDATIONS</div><h2>只读可靠性建议</h2></div><span class="safe-badge">READ_ONLY / OBSERVE_ONLY</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Priority</th><th>Category</th><th>Title</th><th>Recommendation</th><th>Generated</th></tr></thead><tbody id="policyRecommendationRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
           <div class="section-title-row"><div><div class="card-kicker">RECURRENCE DETECTION</div><h2>重复 Root Cause</h2></div><span class="safe-badge">Deterministic fingerprint</span></div>
           <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Status</th><th>Root Cause</th><th>Occurrences</th><th>Critical</th><th>Accounts</th><th>First</th><th>Last</th><th>Fingerprint</th></tr></thead><tbody id="recurrenceRows"></tbody></table></div>
         </section>

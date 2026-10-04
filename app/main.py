@@ -158,6 +158,14 @@ from app.providers.animation.shrimp.bilibili_incidents import (
     request_recovery,
     sync_critical_incidents,
 )
+from app.providers.animation.shrimp.bilibili_reliability_trend import (
+    list_burn_rates,
+    list_policy_recommendations,
+    list_regressions,
+    list_trend_points,
+    run_reliability_analysis,
+    trend_dashboard,
+)
 from app.providers.animation.shrimp.bilibili_reliability import (
     generate_reliability_scorecards,
     list_recurrence_clusters,
@@ -1105,6 +1113,38 @@ def shrimp_animation_bilibili_recovery_policy(
 
 
 @app.post(
+    "/internal/shrimp-animation/bilibili-reliability-analysis",
+    include_in_schema=False,
+)
+def shrimp_animation_bilibili_reliability_analysis(
+    authorization: str | None = Header(default=None,alias="Authorization"),
+    x_shrimp_health_monitor_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Health-Monitor-Key",
+    ),
+):
+    provided=(x_shrimp_health_monitor_key or "").strip()
+    bearer=(authorization or "").strip()
+    expected=settings.shrimp_bilibili_health_monitor_key.strip()
+    cron=settings.cron_secret.strip()
+    manual_ok=bool(expected) and secrets.compare_digest(provided,expected)
+    cron_ok=bool(cron) and bearer.startswith("Bearer ") and secrets.compare_digest(
+        bearer[7:].strip(),cron
+    )
+    if not (manual_ok or cron_ok):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili reliability analysis authorization",
+        )
+    return {
+        "status":"ANALYZED",
+        "result":run_reliability_analysis(
+            actor="scheduled-bilibili-reliability-analysis"
+        ),
+    }
+
+
+@app.post(
     "/internal/shrimp-animation/bilibili-reliability-scorecard",
     include_in_schema=False,
 )
@@ -1500,6 +1540,36 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-reliability-trend-dashboard")
+def shrimp_animation_bilibili_reliability_trend_dashboard():
+    return trend_dashboard()
+
+
+@app.get("/v1/shrimp-animation/bilibili-reliability-trends")
+def shrimp_animation_bilibili_reliability_trends(limit: int = 200):
+    return list_trend_points(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-error-budget-burn")
+def shrimp_animation_bilibili_error_budget_burn(limit: int = 100):
+    return list_burn_rates(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-reliability-regressions")
+def shrimp_animation_bilibili_reliability_regressions(
+    status: str | None = None,
+    limit: int = 100,
+):
+    return list_regressions(status=status,limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-reliability-policy-recommendations")
+def shrimp_animation_bilibili_reliability_policy_recommendations(
+    limit: int = 100,
+):
+    return list_policy_recommendations(limit=limit)
 
 
 @app.get("/v1/shrimp-animation/bilibili-reliability-dashboard")
