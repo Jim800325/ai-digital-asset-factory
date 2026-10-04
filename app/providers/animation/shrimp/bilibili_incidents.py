@@ -481,3 +481,67 @@ def list_recovery_approvals(*,limit:int=100)->list[dict]:
           LIMIT :limit
         """),{"limit":max(1,min(int(limit),500))}).mappings().all()
     return [_serialize(x) for x in rows]
+
+
+def queue_notification(
+    *,
+    incident_id,
+    notification_type:str,
+    severity:str,
+    payload:dict,
+)->dict:
+    destination_type=(
+        "WEBHOOK"
+        if settings.shrimp_bilibili_notification_webhook_url.strip()
+        else "CONTROL_CENTER"
+    )
+    destination_ref=(
+        "configured-webhook"
+        if destination_type=="WEBHOOK"
+        else "publisher-operations"
+    )
+    material={
+        "incident_id":str(incident_id) if incident_id else None,
+        "notification_type":notification_type,
+        "severity":severity,
+        "destination_type":destination_type,
+        "destination_ref":destination_ref,
+        "payload":payload,
+    }
+    sha=_sha256(material)
+    with engine.begin() as db:
+        row=db.execute(text("""
+          INSERT INTO shrimp_bilibili_notification_outbox(
+            incident_id,notification_type,severity,destination_type,
+            destination_ref,payload,payload_sha256)
+          VALUES(
+            :incident_id,:notification_type,:severity,:destination_type,
+            :destination_ref,CAST(:payload AS jsonb),:sha)
+          ON CONFLICT (payload_sha256) DO NOTHING
+          RETURNING *
+        """),{
+          "incident_id":incident_id,
+          "notification_type":notification_type,
+          "severity":severity,
+          "destination_type":destination_type,
+          "destination_ref":destination_ref,
+          "payload":canonical_json(payload),
+          "sha":sha,
+        }).mappings().one_or_none()
+        if row is None:
+            row=db.execute(text("""
+              SELECT * FROM shrimp_bilibili_notification_outbox
+              WHERE payload_sha256=:sha
+            """),{"sha":sha}).mappings().one()
+    return _serialize(row)
+
+def list_notifications(*,limit:int=100)->list[dict]:
+    with engine.connect() as db:
+        rows=db.execute(text("""
+          SELECT n.*,i.incident_key
+          FROM shrimp_bilibili_notification_outbox n
+          LEFT JOIN shrimp_bilibili_incidents i ON i.id=n.incident_id
+          ORDER BY n.created_at DESC,n.id DESC
+          LIMIT :limit
+        """),{"limit":max(1,min(int(limit),500))}).mappings().all()
+    return [_serialize(x) for x in rows]
