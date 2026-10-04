@@ -2,17 +2,18 @@
 const byId=id=>document.getElementById(id);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const clear=n=>n.replaceChildren();
-const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null};
+const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[]};
 function toast(msg,bad=false){const n=byId("toast");n.textContent=msg;n.className="toast"+(bad?" bad":"");n.classList.remove("hidden");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.add("hidden"),3200)}
 async function api(url,opts={}){const r=await fetch(url,{cache:"no-store",...opts,headers:{"Accept":"application/json",...(opts.headers||{})}});const b=await r.json().catch(()=>({detail:"Invalid response"}));if(!r.ok)throw new Error(b.detail||("HTTP "+r.status));return b}
 function pill(v){const s=String(v||"UNKNOWN").toUpperCase();const cls=/READY|SUCCESS|APPROVED|AUTHORIZED|PUBLISHED|CURRENT|ACTIVE|PASS|CONFIGURED/.test(s)?"good":/BLOCKED|FAILED|REJECTED|STALE|DISABLED|MISSING|INACTIVE|EXPIRED|UNHEALTHY|MISMATCH|LOGGED_OUT|DENIED/.test(s)?"bad":"warn";return el("span","pill "+cls,s)}
 function row(root,key,value){const n=el("div","setting-row");n.append(el("span","setting-key",key),el("span","setting-value",value));root.appendChild(n)}
 function empty(tbody,cols,msg){const tr=document.createElement("tr"),td=el("td","empty-row",msg);td.colSpan=cols;tr.appendChild(td);tbody.appendChild(tr)}
-function currentPage(){const p=location.pathname;return p.includes("/accounts")?"accounts":p.includes("/jobs")?"jobs":p.includes("/executions")?"executions":"settings"}
+function currentPage(){const p=location.pathname;return p.includes("/accounts")?"accounts":p.includes("/jobs")?"jobs":p.includes("/executions")?"executions":p.includes("/quota")?"quota":"settings"}
 const meta={
  accounts:["Bilibili 账号管理","多账号 Registry、默认投稿配置、发布窗口、每日限额与账号级安全策略。"],
  jobs:["动画任务中心","查看 Shrimp Animation pipeline 任务并快速进入 Review / Publishing。"],
  executions:["发布执行中心","查看受控 Upload / Publish、Exactly-once write budget 与 stale 状态。"],
+ quota:["额度运营中心","查看账号日额度、Reservation / Claim 生命周期、Stuck Claim reconciliation 与 Daily Reset Audit。"],
  settings:["增强设置","集中查看运行环境、发布器、Bilibili 与 Gate 配置；敏感值永不回显。"]
 };
 function showPage(){const p=currentPage();document.querySelectorAll(".admin-page").forEach(x=>x.classList.add("hidden"));byId(p+"Page").classList.remove("hidden");document.querySelectorAll(".admin-nav [data-page]").forEach(a=>a.classList.toggle("active",a.dataset.page===p));byId("pageTitle").textContent=meta[p][0];byId("pageSubtitle").textContent=meta[p][1]}
@@ -102,18 +103,63 @@ async function toggleAccount(a){
 }
 function renderJobs(){const rows=state.summary?.pipeline?.recent_jobs||[],body=byId("jobRows");clear(body);byId("jobsCount").textContent=(state.summary?.pipeline?.total_jobs||0)+" JOBS";if(!rows.length){empty(body,5,"尚无 Shrimp Animation Job");return}rows.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.id||"—"),el("td","",x.current_stage||"—"));const st=document.createElement("td");st.appendChild(pill(x.job_status));tr.appendChild(st);tr.append(el("td","",x.updated_at?new Date(x.updated_at).toLocaleString():"—"));const open=document.createElement("td"),a=el("a","table-link","Review");a.href="/animation-review/"+x.id;open.appendChild(a);tr.appendChild(open);body.appendChild(tr)})}
 function renderExecutions(){const rows=state.summary?.publishing?.recent_executions||[],body=byId("executionRows");clear(body);if(!rows.length){empty(body,7,"尚无 Controlled Publisher Execution");return}rows.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","",x.platform||"—"),el("td","mono",x.target_key||"—"));const st=document.createElement("td");st.appendChild(pill(x.execution_status));tr.appendChild(st);tr.append(el("td","",(x.upload_outcome||"—")+" · "+(x.upload_write_count??0)+"/1"),el("td","",(x.publish_outcome||"—")+" · "+(x.publish_write_count??0)+"/1"));const src=document.createElement("td");src.appendChild(pill(x.source_stale?"STALE":"CURRENT"));tr.appendChild(src);const open=document.createElement("td"),a=el("a","table-link","Publishing");a.href="/animation-publishing/"+x.provider_job_id;open.appendChild(a);tr.appendChild(open);body.appendChild(tr)})}
+function renderQuota(){
+  const q=state.quota||{},summary=q.reservations_summary||{},accounts=q.accounts||[],stuck=q.stuck_claims||[];
+  byId("quotaStuckBadge").textContent=(q.stuck_claim_count||0)+" STUCK";
+  byId("stuckThresholdLabel").textContent=">"+(q.stuck_threshold_minutes||0)+" MIN";
+  const metrics=byId("quotaMetrics");clear(metrics);
+  [["Published Today",summary.published_today||0],["Held",summary.held||0],["Claimed",summary.claimed||0],["Available",summary.available||0]].forEach(([k,v])=>{const card=el("div","metric-card");card.append(el("div","metric-label",k),el("div","metric-value small",v));metrics.appendChild(card)});
+
+  const accountBody=byId("quotaAccountRows");clear(accountBody);
+  if(!accounts.length)empty(accountBody,7,"暂无 Active Bilibili Account quota");
+  accounts.forEach(a=>{const tr=document.createElement("tr");tr.append(el("td","mono",a.account_key),el("td","",a.local_quota_date||"—"),el("td","",a.daily_publish_limit??0),el("td","",a.published_units??0),el("td","",a.held_units??0),el("td","",a.claimed_units??0),el("td","",a.available_units??0));accountBody.appendChild(tr)});
+
+  const stuckBody=byId("stuckClaimRows");clear(stuckBody);
+  if(!stuck.length)empty(stuckBody,8,"当前没有 Stuck Claim");
+  stuck.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.account_key||"—"),el("td","mono",x.target_key||"—"),el("td","mono",String(x.execution_id||"").slice(0,12)));const st=document.createElement("td");st.appendChild(pill(x.execution_status));tr.appendChild(st);tr.append(el("td","",x.claimed_at?new Date(x.claimed_at).toLocaleString():"—"),el("td","",(x.upload_write_count??0)+"/1 · "+(x.publish_write_count??0)+"/1"),el("td","",x.recommended_action||"—"));const ops=document.createElement("td");if(["UPLOAD_READBACK","PUBLISH_READBACK"].includes(x.recommended_action)){const b=el("button","button ghost small","Read-back Reconcile");b.type="button";b.addEventListener("click",()=>reconcileStuck(x));ops.appendChild(b)}else{ops.appendChild(el("span","muted","Manual review"))}tr.appendChild(ops);stuckBody.appendChild(tr)});
+
+  const resBody=byId("reservationRows");clear(resBody);
+  if(!state.reservations.length)empty(resBody,4,"暂无 Reservation");
+  state.reservations.slice(0,40).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.account_key||"—"),el("td","mono",x.target_key||"—"));const st=document.createElement("td");st.appendChild(pill(x.reservation_status));tr.appendChild(st);tr.append(el("td","",x.expires_at?new Date(x.expires_at).toLocaleString():"—"));resBody.appendChild(tr)});
+
+  const claimBody=byId("claimRows");clear(claimBody);
+  if(!state.claims.length)empty(claimBody,4,"暂无 Execution Claim");
+  state.claims.slice(0,40).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.account_key||"—"),el("td","mono",x.target_key||"—"));const st=document.createElement("td");st.appendChild(pill(x.claim_status));tr.appendChild(st);tr.append(el("td","",x.claimed_at?new Date(x.claimed_at).toLocaleString():"—"));claimBody.appendChild(tr)});
+
+  const auditBody=byId("dailyAuditRows");clear(auditBody);
+  if(!state.audits.length)empty(auditBody,8,"尚无 Daily Reset Audit");
+  state.audits.slice(0,60).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.account_key||"—"),el("td","",x.local_quota_date||"—"));const st=document.createElement("td");st.appendChild(pill(x.audit_status));tr.appendChild(st);tr.append(el("td","",x.previous_day_published_units??0),el("td","",x.published_units??0),el("td","",x.carryover_claim_count??0),el("td","",x.carryover_reservation_count??0),el("td","",x.available_units??0));auditBody.appendChild(tr)});
+
+  const ledgerBody=byId("quotaLedgerRows");clear(ledgerBody);
+  if(!state.ledger.length)empty(ledgerBody,6,"尚无 Quota Ledger");
+  state.ledger.slice(0,100).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","",x.created_at?new Date(x.created_at).toLocaleString():"—"),el("td","mono",x.account_key||"—"),el("td","",x.entry_type||"—"),el("td","",x.quota_units??0),el("td","",x.local_quota_date||"—"),el("td","mono",String(x.entry_sha256||"").slice(0,12)+"…"));ledgerBody.appendChild(tr)});
+}
+async function reconcileStuck(x){
+  const key=prompt("输入 Step 10B Live Acceptance Key，仅执行 provider read-back reconciliation：");
+  if(!key)return;
+  try{
+    const result=await api("/v1/shrimp-animation/bilibili-stuck-claims/"+encodeURIComponent(x.execution_id)+"/reconcile",{method:"POST",headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Live-Acceptance-Key":key},body:JSON.stringify({actor:"shrimp-control-center-v0.3"})});
+    toast("Reconcile: "+result.reconciliation_outcome);
+    await load();
+  }catch(e){toast("Reconcile 失败："+e.message,true)}
+}
 function renderSettings(){const s=state.summary||{},sys=s.system||{},r=s.bilibili?.readiness||{},c=r.checks||{};const groups=[["runtimeSettings",[["Vercel Env",sys.vercel_env||"—"],["Database",sys.database_available?"AVAILABLE":"UNAVAILABLE"],["Database Source",sys.database_source||"—"],["Preview Isolated",sys.preview_isolated?"YES":"NO"],["Migrations",sys.migration_status||"—"]]],["publisherSettings",[["Adapter",sys.publisher_adapter||"—"],["Executor",c.publish_executor_enabled?"ENABLED":"DISABLED"],["Step 9 Gate",c.publish_authorization_gate?"READY":"BLOCKED"],["Step 10 Gate",c.publish_execution_gate?"READY":"BLOCKED"]]],["bilibiliSettings",[["Account Profiles",state.accounts.length],["Controlled Adapter",c.bilibili_controlled_adapter?"READY":"BLOCKED"],["Live Acceptance",c.bilibili_live_acceptance_enabled?"ENABLED":"DISABLED"],["Cookie Bundle",c.bilibili_cookie_credentials_present?"CONFIGURED":"MISSING"]]],["securitySettings",[["Secrets Redacted",r.secrets_redacted?"YES":"NO"],["Account Allowlist",c.sacrificial_account_allowlist_present?"SET":"MISSING"],["Account Denylist",c.real_account_denylist_present?"SET":"MISSING"],["Target Allowlist",c.sacrificial_target_allowlist_present?"SET":"MISSING"],["Target Denylist",c.real_target_denylist_present?"SET":"MISSING"]]]];groups.forEach(([id,items])=>{const root=byId(id);clear(root);items.forEach(([k,v])=>row(root,k,v))})}
 async function load(){byId("refreshButton").disabled=true;try{
-  const [summary,targets,accounts,slots]=await Promise.all([
+  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits]=await Promise.all([
     api("/v1/shrimp-animation/control-center/summary"),
     api("/v1/shrimp-animation/publish-targets"),
     api("/v1/shrimp-animation/bilibili-accounts"),
-    api("/v1/shrimp-animation/bilibili-credential-slots")
+    api("/v1/shrimp-animation/bilibili-credential-slots"),
+    api("/v1/shrimp-animation/bilibili-quota-dashboard"),
+    api("/v1/shrimp-animation/bilibili-reservations?limit=100"),
+    api("/v1/shrimp-animation/bilibili-execution-claims?limit=100"),
+    api("/v1/shrimp-animation/bilibili-quota-ledger?limit=100"),
+    api("/v1/shrimp-animation/bilibili-daily-quota-audits?limit=100")
   ]);
   let selection=null;
   try{selection=await api("/v1/shrimp-animation/bilibili-account-selection/healthy")}catch(_){}
-  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;
-  renderAccounts();renderJobs();renderExecutions();renderSettings();
+  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];
+  renderAccounts();renderJobs();renderExecutions();renderQuota();renderSettings();
 }catch(e){toast("载入失败："+e.message,true)}finally{byId("refreshButton").disabled=false}}
 byId("accountForm").addEventListener("submit",async e=>{
   e.preventDefault();const key=byId("accountPublishKey").value;
