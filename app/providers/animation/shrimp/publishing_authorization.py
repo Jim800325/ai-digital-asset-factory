@@ -14,6 +14,7 @@ from app.providers.animation.shrimp.bilibili_accounts import (
     resolve_account_for_target,
 )
 from app.providers.animation.shrimp.bilibili_credentials import (
+    credential_slot_is_fresh,
     credential_slot_snapshot,
     resolve_credential_slot_for_account,
     slot_snapshot_sha256,
@@ -498,6 +499,12 @@ def create_publish_plan(
                 if credential_slot["health_status"] != "HEALTHY":
                     raise RuntimeError(
                         "Bilibili credential slot is not HEALTHY"
+                    )
+                if not credential_slot_is_fresh(
+                    credential_slot
+                ):
+                    raise RuntimeError(
+                        "Bilibili credential health check is stale"
                     )
                 if credential_slot["mid_status"] != "MATCH":
                     raise RuntimeError(
