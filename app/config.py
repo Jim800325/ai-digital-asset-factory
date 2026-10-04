@@ -111,6 +111,8 @@ class Settings(BaseSettings):
     shrimp_bilibili_regression_ambiguity_increase_percent: float = 5.0
     shrimp_bilibili_reliability_governance_key: str = ""
     shrimp_bilibili_reliability_policy_apply_key: str = ""
+    shrimp_bilibili_reliability_restore_approval_key: str = ""
+    shrimp_bilibili_reliability_restore_apply_key: str = ""
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
