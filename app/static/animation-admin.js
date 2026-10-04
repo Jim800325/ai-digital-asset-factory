@@ -2,7 +2,7 @@
 const byId=id=>document.getElementById(id);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const clear=n=>n.replaceChildren();
-const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null,reliabilityTrend:null,governance:null,policyChange:null,safeUnfreeze:null,observation:null,certification:null};
+const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null,reliabilityTrend:null,governance:null,policyChange:null,safeUnfreeze:null,observation:null,certification:null,certificationRenewal:null};
 function toast(msg,bad=false){const n=byId("toast");n.textContent=msg;n.className="toast"+(bad?" bad":"");n.classList.remove("hidden");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.add("hidden"),3200)}
 async function api(url,opts={}){const r=await fetch(url,{cache:"no-store",...opts,headers:{"Accept":"application/json",...(opts.headers||{})}});const b=await r.json().catch(()=>({detail:"Invalid response"}));if(!r.ok)throw new Error(b.detail||("HTTP "+r.status));return b}
 function pill(v){const s=String(v||"UNKNOWN").toUpperCase();const cls=/READY|SUCCESS|APPROVED|AUTHORIZED|PUBLISHED|CURRENT|ACTIVE|PASS|CONFIGURED/.test(s)?"good":/BLOCKED|FAILED|REJECTED|STALE|DISABLED|MISSING|INACTIVE|EXPIRED|UNHEALTHY|MISMATCH|LOGGED_OUT|DENIED/.test(s)?"bad":"warn";return el("span","pill "+cls,s)}
@@ -487,6 +487,28 @@ async function acceptRestoreObservation(session){
     await load();
   }catch(e){toast("Restore Acceptance 失败："+e.message,true)}
 }
+async function decideRecertification(candidate,decision){
+  const key=prompt("输入独立 Re-Certification Key：");
+  if(!key)return;
+  const actor=prompt("Re-Certification Actor：","shrimp-recertification-governance");
+  if(!actor)return;
+  const reason=prompt(decision+" 原因：","Reviewed renewed reliability baseline and evidence");
+  if(!reason)return;
+  try{
+    const result=await api("/v1/shrimp-animation/bilibili-recertification-candidates/"+encodeURIComponent(candidate.id)+"/decision",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Recertification-Key":key},
+      body:JSON.stringify({
+        decision,reason,actor,
+        candidate_sha256:candidate.candidate_sha256
+      })
+    });
+    toast(decision==="APPROVE"
+      ?("Re-Certification 已批准："+(result.certification?.certification_key||"NEW CERT"))
+      :"Re-Certification Candidate 已拒绝");
+    await load();
+  }catch(e){toast("Re-Certification 决策失败："+e.message,true)}
+}
 function renderGovernance(){
   const data=state.governance||{},review=data.current_review||null;
   const badge=byId("governanceRecommendationBadge");
@@ -690,11 +712,73 @@ function renderGovernance(){
   const reopenEvents=Array.isArray(certData.reopen_events)?certData.reopen_events:[];
   if(!reopenEvents.length)empty(reopenBody,5,"尚无 Certification Reopen Event");
   reopenEvents.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.certification_key||String(x.certification_id||"").slice(0,12)),el("td","mono",String(x.event_sha256||"").slice(0,12)+"…"));const st=document.createElement("td");st.appendChild(pill(x.event_status));tr.appendChild(st);tr.append(el("td","",Array.isArray(x.trigger_codes)&&x.trigger_codes.length?x.trigger_codes.join(", "):"—"),el("td","",x.opened_at?new Date(x.opened_at).toLocaleString():"—"));reopenBody.appendChild(tr)});
+
+  const renewal=state.certificationRenewal||{},currentCert=renewal.current_certification||null;
+  const validity=byId("certificationValidity");clear(validity);
+  row(validity,"Current Certification",currentCert?.certification_key||"NONE");
+  row(validity,"Status",currentCert?.certification_status||"—");
+  row(validity,"Attestation Sequence",currentCert?.attestation_sequence??"—");
+  row(validity,"Valid From",currentCert?.valid_from?new Date(currentCert.valid_from).toLocaleString():"—");
+  row(validity,"Renewal Due",currentCert?.renewal_due_at?new Date(currentCert.renewal_due_at).toLocaleString():"—");
+  row(validity,"Expires",currentCert?.expires_at?new Date(currentCert.expires_at).toLocaleString():"—");
+  row(validity,"Expires In",renewal.expires_in_days!=null?(renewal.expires_in_days+" days"):"—");
+  row(validity,"Current Health Proof",renewal.certification_current?"VALID":"NOT CURRENT");
+  row(validity,"Re-Certification Required",renewal.recertification_required?"YES":"NO");
+  row(validity,"Automatic Re-Certification",renewal.automatic_recertification?"ENABLED":"DISABLED");
+
+  const candidateBody=byId("recertificationCandidateRows");clear(candidateBody);
+  const candidates=Array.isArray(renewal.candidates)?renewal.candidates:[];
+  if(!candidates.length)empty(candidateBody,7,"尚无 Re-Certification Candidate");
+  candidates.forEach(x=>{
+    const tr=document.createElement("tr");
+    tr.append(el("td","mono",x.certification_key||String(x.source_certification_id||"").slice(0,12)));
+    const st=document.createElement("td");st.appendChild(pill(x.candidate_status));tr.appendChild(st);
+    tr.append(
+      el("td","mono",String(x.source_baseline_sha256||"").slice(0,12)+"…"),
+      el("td","mono",String(x.candidate_snapshot?.proposed_stability_baseline_sha256||x.proposed_stability_baseline?.scorecard_sha256||"").slice(0,12)+"…"),
+      el("td","mono",String(x.new_evidence_sha256||"").slice(0,12)+"…"),
+      el("td","",x.generated_at?new Date(x.generated_at).toLocaleString():"—")
+    );
+    const ops=document.createElement("td");
+    if(x.candidate_status==="PENDING_APPROVAL"){
+      for(const d of ["APPROVE","REJECT"]){
+        const b=el("button","button "+(d==="APPROVE"?"danger":"ghost")+" small",d);
+        b.type="button";b.addEventListener("click",()=>decideRecertification(x,d));ops.appendChild(b);
+      }
+    }else ops.appendChild(el("span","muted","—"));
+    tr.appendChild(ops);candidateBody.appendChild(tr);
+  });
+
+  const recertDecisionBody=byId("recertificationDecisionRows");clear(recertDecisionBody);
+  const recertDecisions=Array.isArray(renewal.decisions)?renewal.decisions:[];
+  if(!recertDecisions.length)empty(recertDecisionBody,5,"尚无 Re-Certification Decision");
+  recertDecisions.forEach(x=>{
+    const tr=document.createElement("tr");
+    tr.append(el("td","mono",x.certification_key||String(x.source_certification_id||"").slice(0,12)));
+    const d=document.createElement("td");d.appendChild(pill(x.decision));tr.appendChild(d);
+    tr.append(el("td","",x.actor||"—"),el("td","",x.reason||"—"),el("td","",x.decided_at?new Date(x.decided_at).toLocaleString():"—"));
+    recertDecisionBody.appendChild(tr);
+  });
+
+  const attBody=byId("attestationRows");clear(attBody);
+  const attestations=Array.isArray(renewal.attestations)?renewal.attestations:[];
+  if(!attestations.length)empty(attBody,6,"尚无 Reliability Attestation");
+  attestations.forEach(x=>{
+    const tr=document.createElement("tr");
+    tr.append(
+      el("td","",x.attestation_sequence??"—"),
+      el("td","mono",x.certification_key||String(x.certification_id||"").slice(0,12)),
+      el("td","",x.attestation_type||"—")
+    );
+    const st=document.createElement("td");st.appendChild(pill(x.attestation_status));tr.appendChild(st);
+    tr.append(el("td","mono",String(x.evidence_sha256||"").slice(0,12)+"…"),el("td","",x.created_at?new Date(x.created_at).toLocaleString():"—"));
+    attBody.appendChild(tr);
+  });
 }
 
 function renderSettings(){const s=state.summary||{},sys=s.system||{},r=s.bilibili?.readiness||{},c=r.checks||{};const groups=[["runtimeSettings",[["Vercel Env",sys.vercel_env||"—"],["Database",sys.database_available?"AVAILABLE":"UNAVAILABLE"],["Database Source",sys.database_source||"—"],["Preview Isolated",sys.preview_isolated?"YES":"NO"],["Migrations",sys.migration_status||"—"]]],["publisherSettings",[["Adapter",sys.publisher_adapter||"—"],["Executor",c.publish_executor_enabled?"ENABLED":"DISABLED"],["Step 9 Gate",c.publish_authorization_gate?"READY":"BLOCKED"],["Step 10 Gate",c.publish_execution_gate?"READY":"BLOCKED"]]],["bilibiliSettings",[["Account Profiles",state.accounts.length],["Controlled Adapter",c.bilibili_controlled_adapter?"READY":"BLOCKED"],["Live Acceptance",c.bilibili_live_acceptance_enabled?"ENABLED":"DISABLED"],["Cookie Bundle",c.bilibili_cookie_credentials_present?"CONFIGURED":"MISSING"]]],["securitySettings",[["Secrets Redacted",r.secrets_redacted?"YES":"NO"],["Account Allowlist",c.sacrificial_account_allowlist_present?"SET":"MISSING"],["Account Denylist",c.real_account_denylist_present?"SET":"MISSING"],["Target Allowlist",c.sacrificial_target_allowlist_present?"SET":"MISSING"],["Target Denylist",c.real_target_denylist_present?"SET":"MISSING"]]]];groups.forEach(([id,items])=>{const root=byId(id);clear(root);items.forEach(([k,v])=>row(root,k,v))})}
 async function load(){byId("refreshButton").disabled=true;try{
-  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability,reliabilityTrend,governance,policyChange,safeUnfreeze,observation,certification]=await Promise.all([
+  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability,reliabilityTrend,governance,policyChange,safeUnfreeze,observation,certification,certificationRenewal]=await Promise.all([
     api("/v1/shrimp-animation/control-center/summary"),
     api("/v1/shrimp-animation/publish-targets"),
     api("/v1/shrimp-animation/bilibili-accounts"),
@@ -720,11 +804,12 @@ async function load(){byId("refreshButton").disabled=true;try{
     api("/v1/shrimp-animation/bilibili-reliability-policy-change"),
     api("/v1/shrimp-animation/bilibili-reliability-safe-unfreeze"),
     api("/v1/shrimp-animation/bilibili-post-unfreeze-observation"),
-    api("/v1/shrimp-animation/bilibili-post-restore-certification")
+    api("/v1/shrimp-animation/bilibili-post-restore-certification"),
+    api("/v1/shrimp-animation/bilibili-certification-renewal")
   ]);
   let selection=null;
   try{selection=await api("/v1/shrimp-animation/bilibili-account-selection/healthy")}catch(_){}
-  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};state.reliabilityTrend=reliabilityTrend||{};state.governance=governance||{};state.policyChange=policyChange||{};state.safeUnfreeze=safeUnfreeze||{};state.observation=observation||{};state.certification=certification||{};
+  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};state.reliabilityTrend=reliabilityTrend||{};state.governance=governance||{};state.policyChange=policyChange||{};state.safeUnfreeze=safeUnfreeze||{};state.observation=observation||{};state.certification=certification||{};state.certificationRenewal=certificationRenewal||{};
   renderAccounts();renderJobs();renderExecutions();renderQuota();renderOperations();renderReliability();renderGovernance();renderSettings();
 }catch(e){toast("载入失败："+e.message,true)}finally{byId("refreshButton").disabled=false}}
 byId("accountForm").addEventListener("submit",async e=>{
