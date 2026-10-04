@@ -284,7 +284,9 @@ def _upsert_escalation(
             "escalation_type":escalation_type,
         }).mappings().one_or_none()
         if existing is not None:
-            return _ser(existing)
+            result=_ser(existing)
+            result["_created"]=False
+            return result
         row=db.execute(text("""
           INSERT INTO shrimp_bilibili_renewal_sla_escalations(
             certification_id,escalation_type,severity,escalation_status,
@@ -307,7 +309,9 @@ def _upsert_escalation(
             "escalation_sha":escalation_sha,
             "actor":actor[:200],
         }).mappings().one()
-    return _ser(row)
+    result=_ser(row)
+    result["_created"]=True
+    return result
 
 
 def evaluate_renewal_sla(*,actor:str)->dict:
@@ -365,6 +369,8 @@ def evaluate_renewal_sla(*,actor:str)->dict:
 
     notifications=[]
     for item in escalations:
+        if not item.get("_created"):
+            continue
         notifications.append(queue_notification(
             incident_id=None,
             notification_type="RELIABILITY_CERTIFICATION_RENEWAL_SLA",
