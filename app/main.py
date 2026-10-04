@@ -117,6 +117,12 @@ from app.providers.animation.shrimp.publisher_execution import (
     reconcile_published_media,
     upload_publish_media,
 )
+from app.providers.animation.shrimp.bilibili_accounts import (
+    create_bilibili_account,
+    get_bilibili_account,
+    list_bilibili_accounts,
+    update_bilibili_account,
+)
 from app.providers.animation.shrimp.bilibili_live_acceptance import (
     get_bilibili_live_acceptance,
     run_bilibili_live_acceptance,
@@ -202,6 +208,41 @@ class ShrimpHumanReviewDecision(BaseModel):
         default_factory=list,
         max_length=20,
     )
+
+class ShrimpBilibiliAccountCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    account_key: str = Field(min_length=3,max_length=120)
+    display_name: str = Field(min_length=1,max_length=200)
+    mid: str = Field(min_length=1,max_length=32)
+    tags: list[str] = Field(default_factory=list,max_length=30)
+    default_tid: int = Field(default=122,ge=1)
+    default_copyright: Literal["ORIGINAL","REPOST"] = "ORIGINAL"
+    default_description: str = Field(default="",max_length=5000)
+    default_tags: list[str] = Field(default_factory=list,max_length=30)
+    cover_strategy: Literal["REQUIRE_ARTIFACT","OPTIONAL","NONE"] = "REQUIRE_ARTIFACT"
+    daily_publish_limit: int = Field(default=1,ge=0,le=100)
+    publish_window_start: str | None = None
+    publish_window_end: str | None = None
+    timezone: str = Field(default="Asia/Shanghai",min_length=1,max_length=100)
+    safety_policy: dict[str, Any] = Field(default_factory=dict)
+    actor: str = Field(default="shrimp-account-api",min_length=1,max_length=200)
+
+class ShrimpBilibiliAccountUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    display_name: str | None = Field(default=None,min_length=1,max_length=200)
+    account_status: Literal["ACTIVE","INACTIVE"] | None = None
+    tags: list[str] | None = Field(default=None,max_length=30)
+    default_tid: int | None = Field(default=None,ge=1)
+    default_copyright: Literal["ORIGINAL","REPOST"] | None = None
+    default_description: str | None = Field(default=None,max_length=5000)
+    default_tags: list[str] | None = Field(default=None,max_length=30)
+    cover_strategy: Literal["REQUIRE_ARTIFACT","OPTIONAL","NONE"] | None = None
+    daily_publish_limit: int | None = Field(default=None,ge=0,le=100)
+    publish_window_start: str | None = None
+    publish_window_end: str | None = None
+    timezone: str | None = Field(default=None,min_length=1,max_length=100)
+    safety_policy: dict[str, Any] | None = None
+    actor: str = Field(default="shrimp-account-api",min_length=1,max_length=200)
 
 class ShrimpPublishTargetCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -1086,6 +1127,78 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.post("/v1/shrimp-animation/bilibili-accounts", status_code=201)
+def shrimp_animation_bilibili_account_create(
+    payload: ShrimpBilibiliAccountCreate,
+    x_shrimp_publish_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Key",
+    ),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    try:
+        return create_bilibili_account(
+            account_key=payload.account_key,
+            display_name=payload.display_name,
+            mid=payload.mid,
+            tags=payload.tags,
+            default_tid=payload.default_tid,
+            default_copyright=payload.default_copyright,
+            default_description=payload.default_description,
+            default_tags=payload.default_tags,
+            cover_strategy=payload.cover_strategy,
+            daily_publish_limit=payload.daily_publish_limit,
+            publish_window_start=payload.publish_window_start,
+            publish_window_end=payload.publish_window_end,
+            timezone_name=payload.timezone,
+            safety_policy=payload.safety_policy,
+            actor=payload.actor,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-accounts")
+def shrimp_animation_bilibili_accounts(include_inactive: bool = True):
+    return list_bilibili_accounts(include_inactive=include_inactive)
+
+
+@app.get("/v1/shrimp-animation/bilibili-accounts/{account_key}")
+def shrimp_animation_bilibili_account(account_key: str):
+    try:
+        return get_bilibili_account(account_key)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.patch("/v1/shrimp-animation/bilibili-accounts/{account_key}")
+def shrimp_animation_bilibili_account_update(
+    account_key: str,
+    payload: ShrimpBilibiliAccountUpdate,
+    x_shrimp_publish_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Key",
+    ),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    changes=payload.model_dump(
+        exclude={"actor"},
+        exclude_none=True,
+    )
+    try:
+        return update_bilibili_account(
+            account_key,
+            changes=changes,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
 
 
 @app.post("/v1/shrimp-animation/publish-targets", status_code=201)
