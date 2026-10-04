@@ -512,6 +512,202 @@ def _shrimp_bilibili_live_acceptance_readiness() -> dict[str, Any]:
         "secrets_redacted":True,
     }
 
+
+def _summary_counts(items: list[dict], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        value=str(item.get(key) or "UNKNOWN")
+        counts[value]=counts.get(value,0)+1
+    return counts
+
+
+def _control_center_row(row: Any) -> dict[str, Any]:
+    result=dict(row)
+    for key in (
+        "id","provider_job_id","publish_plan_id","target_id",
+        "authorization_decision_id","execution_id",
+    ):
+        if key in result and result[key] is not None:
+            result[key]=str(result[key])
+    return result
+
+
+def _shrimp_control_center_summary() -> dict[str, Any]:
+    db_state=database_health()
+    migrations=(
+        migration_status()
+        if db_state["available"]
+        else {
+            "status":"DB_UNAVAILABLE",
+            "expected_count":len(migration_files()),
+            "applied_count":None,
+            "latest_version":None,
+            "pending":None,
+        }
+    )
+
+    jobs=list_provider_jobs(
+        limit=200,
+        provider_key="shrimp_animation",
+    ) if db_state["available"] else []
+    job_items=[]
+    for row in jobs:
+        item=dict(row)
+        item["id"]=str(item["id"])
+        if item.get("build_proposal_id") is not None:
+            item["build_proposal_id"]=str(item["build_proposal_id"])
+        job_items.append(item)
+
+    reviews=(
+        list_shrimp_review_workspace(limit=200)
+        if db_state["available"]
+        else []
+    )
+    targets=(
+        list_publish_targets(active_only=False)
+        if db_state["available"]
+        else []
+    )
+
+    plans: list[dict[str, Any]]=[]
+    executions: list[dict[str, Any]]=[]
+    acceptances: list[dict[str, Any]]=[]
+    if db_state["available"]:
+        with engine.connect() as db:
+            plan_rows=db.execute(text("""
+              SELECT pp.id,pp.provider_job_id,pp.platform,pp.target_key,
+                     pp.plan_status,pp.dry_run_status,pp.execution_enabled,
+                     pp.publish_performed,pp.created_at,pp.authorized_at,
+                     pp.rejected_at,pt.display_name AS target_display_name
+              FROM shrimp_animation_publish_plans pp
+              JOIN shrimp_animation_publish_targets pt ON pt.id=pp.target_id
+              ORDER BY pp.created_at DESC,pp.id DESC
+              LIMIT 200
+            """)).mappings().all()
+            plans=[_control_center_row(row) for row in plan_rows]
+
+            execution_rows=db.execute(text("""
+              SELECT id,publish_plan_id,provider_job_id,platform,target_key,
+                     account_reference,execution_adapter,execution_status,
+                     upload_outcome,upload_write_count,publish_outcome,
+                     publish_write_count,external_publish_performed,
+                     source_stale,created_at,updated_at
+              FROM shrimp_animation_publish_executions
+              ORDER BY created_at DESC,id DESC
+              LIMIT 200
+            """)).mappings().all()
+            executions=[
+                _control_center_row(row)
+                for row in execution_rows
+            ]
+
+            acceptance_rows=db.execute(text("""
+              SELECT id,execution_id,acceptance_status,expected_mid,
+                     actual_mid,aid,bvid,archive_state,is_only_self,
+                     provider_read_back_verified,
+                     private_visibility_verified,cleanup_write_count,
+                     cleanup_outcome,cleanup_verified,cleanup_performed,
+                     production_account_touched,
+                     public_visibility_observed,created_at,updated_at,
+                     finished_at
+              FROM shrimp_animation_bilibili_live_acceptance_runs
+              ORDER BY created_at DESC,id DESC
+              LIMIT 100
+            """)).mappings().all()
+            acceptances=[
+                _control_center_row(row)
+                for row in acceptance_rows
+            ]
+
+    review_counts=_summary_counts(reviews,"review_status")
+    plan_counts=_summary_counts(plans,"plan_status")
+    execution_counts=_summary_counts(executions,"execution_status")
+    acceptance_counts=_summary_counts(
+        acceptances,
+        "acceptance_status",
+    )
+    stage_counts=_summary_counts(job_items,"current_stage")
+    job_status_counts=_summary_counts(job_items,"job_status")
+
+    readiness=_shrimp_bilibili_live_acceptance_readiness()
+
+    return {
+        "status":"READY" if db_state["available"] else "DEGRADED",
+        "mode":"READ_ONLY_CONTROL_CENTER",
+        "secrets_redacted":True,
+        "system":{
+            "vercel_env":(
+                (os.getenv("VERCEL_ENV") or "").strip().lower()
+                or "non-vercel"
+            ),
+            "database_available":bool(db_state["available"]),
+            "database_source":(
+                db_state.get("configuration",{}).get("database_source")
+            ),
+            "preview_isolated":bool(
+                db_state.get("configuration",{}).get("preview_isolated")
+            ),
+            "migration_status":migrations.get("status"),
+            "migration_latest":migrations.get("latest_version"),
+            "migration_expected_count":migrations.get("expected_count"),
+            "migration_applied_count":migrations.get("applied_count"),
+            "provider":"shrimp_animation",
+            "publisher_adapter":(
+                settings.shrimp_publish_execution_adapter.strip().upper()
+                or "MOCK"
+            ),
+        },
+        "pipeline":{
+            "total_jobs":len(job_items),
+            "stage_counts":stage_counts,
+            "job_status_counts":job_status_counts,
+            "recent_jobs":job_items[:12],
+        },
+        "review":{
+            "total":len(reviews),
+            "status_counts":review_counts,
+            "release_approved":review_counts.get("RELEASE_APPROVED",0),
+            "recent_episodes":reviews[:12],
+        },
+        "publishing":{
+            "target_count":len(targets),
+            "targets":targets,
+            "plan_count":len(plans),
+            "plan_status_counts":plan_counts,
+            "execution_count":len(executions),
+            "execution_status_counts":execution_counts,
+            "recent_plans":plans[:10],
+            "recent_executions":executions[:10],
+        },
+        "bilibili":{
+            "readiness":readiness,
+            "acceptance_count":len(acceptances),
+            "acceptance_status_counts":acceptance_counts,
+            "recent_acceptances":acceptances[:10],
+        },
+        "navigation":[
+            {"label":"Control Center","href":"/"},
+            {"label":"Animation Review","href":"/animation-review"},
+            {"label":"Publishing Authorization","href":"/animation-publishing"},
+            {"label":"Software Review","href":"/review"},
+            {"label":"API Docs","href":"/docs"},
+        ],
+    }
+
+
+@app.get("/v1/shrimp-animation/control-center/summary")
+def shrimp_animation_control_center_summary():
+    try:
+        return _shrimp_control_center_summary()
+    except DBAPIError as exc:
+        if is_database_unavailable(exc):
+            raise HTTPException(
+                status_code=503,
+                detail="Control Center database is unavailable",
+            ) from exc
+        raise
+
+
 def _require_deployment_key(provided: str | None) -> None:
     expected=settings.human_deployment_key.strip()
     if not expected:

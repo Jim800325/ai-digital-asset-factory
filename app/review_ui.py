@@ -9,6 +9,7 @@ REVIEW_HTML=STATIC_DIR/"review.html"
 AUDITS_HTML=STATIC_DIR/"audits.html"
 SHRIMP_REVIEW_HTML=STATIC_DIR/"shrimp-review.html"
 SHRIMP_PUBLISH_HTML=STATIC_DIR/"shrimp-publish.html"
+CONTROL_CENTER_HTML=STATIC_DIR/"control-center.html"
 
 router=APIRouter(include_in_schema=False)
 
@@ -40,6 +41,11 @@ def _html_file(path:Path):
 
 def _review_file():
     return _html_file(REVIEW_HTML)
+
+@router.get("/")
+def control_center_page():
+    return _html_file(CONTROL_CENTER_HTML)
+
 
 @router.get("/review")
 def review_workspace_page():
