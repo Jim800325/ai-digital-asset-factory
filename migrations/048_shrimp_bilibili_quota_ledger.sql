@@ -1,5 +1,16 @@
 -- Step 10B.7 — Reservation Lifecycle + Execution Claim + Quota Ledger
 
+DROP INDEX IF EXISTS uq_shrimp_bilibili_active_account_reservation;
+CREATE UNIQUE INDEX uq_shrimp_bilibili_active_account_reservation
+  ON shrimp_bilibili_publish_reservations(account_id)
+  WHERE reservation_status IN ('HELD','CONSUMED');
+
+DROP INDEX IF EXISTS uq_shrimp_bilibili_active_job_reservation;
+CREATE UNIQUE INDEX uq_shrimp_bilibili_active_job_reservation
+  ON shrimp_bilibili_publish_reservations(provider_job_id)
+  WHERE reservation_status IN ('HELD','CONSUMED','CLAIMED','PUBLISHED');
+
+
 ALTER TABLE shrimp_bilibili_publish_reservations
   DROP CONSTRAINT IF EXISTS shrimp_bilibili_publish_reservations_reservation_status_check;
 ALTER TABLE shrimp_bilibili_publish_reservations
