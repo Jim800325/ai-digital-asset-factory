@@ -42,6 +42,10 @@ def _slot_snapshot(slot:dict)->dict:
         "mid_status":slot["mid_status"],
         "publish_permission_status":slot["publish_permission_status"],
         "health_status":slot["health_status"],
+        "credential_version":int(slot.get("credential_version") or 1),
+        "degradation_status":slot.get("degradation_status") or "NORMAL",
+        "consecutive_failures":int(slot.get("consecutive_failures") or 0),
+        "selection_priority":int(slot.get("selection_priority") or 100),
         "provider_mid":slot.get("provider_mid"),
         "last_checked_at":(
             slot["last_checked_at"].isoformat()
