@@ -54,6 +54,40 @@ def _target_for_account(db, account_key:str, mid:str)->dict|None:
     }).mappings().one_or_none()
     return dict(row) if row else None
 
+def _account_quota_available(db, account:dict)->bool:
+    limit=int(account.get("daily_publish_limit") or 0)
+    if limit<=0:
+        return False
+    timezone_name=str(account.get("timezone") or "Asia/Shanghai")
+    from zoneinfo import ZoneInfo
+    local_now=datetime.now(timezone.utc).astimezone(ZoneInfo(timezone_name))
+    day_start=local_now.replace(hour=0,minute=0,second=0,microsecond=0)
+    day_end=day_start+timedelta(days=1)
+    published=int(db.execute(text("""
+      SELECT COUNT(*)
+      FROM shrimp_animation_publish_executions
+      WHERE platform='BILIBILI'
+        AND account_reference IN (:account_key,:mid,:mid_ref)
+        AND execution_status='PUBLISHED'
+        AND publish_attempted_at>=:day_start
+        AND publish_attempted_at<:day_end
+    """),{
+      "account_key":account["account_key"],
+      "mid":account["mid"],
+      "mid_ref":"MID:"+account["mid"],
+      "day_start":day_start.astimezone(timezone.utc),
+      "day_end":day_end.astimezone(timezone.utc),
+    }).scalar_one())
+    held=int(db.execute(text("""
+      SELECT COUNT(*)
+      FROM shrimp_bilibili_publish_reservations
+      WHERE account_id=:account_id
+        AND reservation_status='HELD'
+        AND expires_at>now()
+    """),{"account_id":account["id"]}).scalar_one())
+    return published+held < limit
+
+
 def create_pre_publish_reservation(
     provider_job_id,
     *,
@@ -91,6 +125,9 @@ def create_pre_publish_reservation(
                   WHERE account_key=:account_key
                   FOR UPDATE
                 """),{"account_key":candidate["account_key"]}).mappings().one()
+                if not _account_quota_available(db,dict(account)):
+                    continue
+
                 slot=db.execute(text("""
                   SELECT * FROM shrimp_bilibili_credential_slots
                   WHERE id=CAST(:slot_id AS uuid)
@@ -275,3 +312,31 @@ def consume_reservation(
     """),{"id":reservation_id,"plan_id":plan_id}).mappings().one_or_none()
     if updated is None:
         raise RuntimeError("Reservation could not be consumed")
+
+
+def rebind_pre_publish_reservation(
+    reservation_id,
+    *,
+    actor:str,
+)->dict:
+    current=get_reservation(reservation_id)
+    if current["reservation_status"]!="HELD":
+        raise RuntimeError("Only HELD reservations can be rebound")
+    if current["consumed_by_plan_id"] is not None:
+        raise RuntimeError(
+            "Consumed reservation cannot be rebound; create a new Step 9 Plan"
+        )
+    release_reservation(
+        reservation_id,
+        reason="FAILOVER_REBIND",
+        actor=actor,
+    )
+    result=create_pre_publish_reservation(
+        current["provider_job_id"],
+        actor=actor,
+        exclude_account_key=current["account_key"],
+    )
+    result["rebound_from_reservation_id"]=str(reservation_id)
+    result["rebound_from_account_key"]=current["account_key"]
+    result["requires_new_step9_plan"]=True
+    return result
