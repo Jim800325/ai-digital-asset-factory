@@ -131,6 +131,14 @@ from app.providers.animation.shrimp.bilibili_credentials import (
     set_credential_slot_status,
     set_slot_selection_priority,
 )
+from app.providers.animation.shrimp.bilibili_quota_ops import (
+    list_daily_quota_audits,
+    list_stuck_claims,
+    list_stuck_reconciliations,
+    quota_dashboard,
+    reconcile_stuck_claim,
+    run_daily_quota_audit,
+)
 from app.providers.animation.shrimp.bilibili_quota import (
     get_quota_usage,
     list_execution_claims,
@@ -348,6 +356,14 @@ class ShrimpPublishAuthorizationDecision(BaseModel):
     )
     plan_sha256: str = Field(min_length=64,max_length=64)
     dry_run_sha256: str = Field(min_length=64,max_length=64)
+
+class ShrimpBilibiliStuckReconcileAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(
+        default="shrimp-quota-ops-reconcile",
+        min_length=1,
+        max_length=200,
+    )
 
 class ShrimpPublishExecutionAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -902,6 +918,38 @@ def _require_preview_acceptance_key(provided: str | None) -> str:
         raise HTTPException(status_code=403,detail="Invalid preview acceptance key")
     return expected
 
+@app.post(
+    "/internal/shrimp-animation/bilibili-daily-quota-audit",
+    include_in_schema=False,
+)
+def shrimp_animation_bilibili_daily_quota_audit(
+    authorization: str | None = Header(default=None,alias="Authorization"),
+    x_shrimp_health_monitor_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Health-Monitor-Key",
+    ),
+):
+    provided=(x_shrimp_health_monitor_key or "").strip()
+    bearer=(authorization or "").strip()
+    expected=settings.shrimp_bilibili_health_monitor_key.strip()
+    cron=settings.cron_secret.strip()
+    manual_ok=bool(expected) and secrets.compare_digest(provided,expected)
+    cron_ok=bool(cron) and bearer.startswith("Bearer ") and secrets.compare_digest(
+        bearer[7:].strip(),cron
+    )
+    if not (manual_ok or cron_ok):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili quota audit authorization",
+        )
+    return {
+        "status":"AUDITED",
+        "accounts":run_daily_quota_audit(
+            actor="scheduled-bilibili-daily-quota-audit"
+        ),
+    }
+
+
 @app.post("/internal/shrimp-animation/bilibili-health-monitor", include_in_schema=False)
 def shrimp_animation_bilibili_health_monitor(
     authorization: str | None = Header(default=None,alias="Authorization"),
@@ -1234,6 +1282,51 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-quota-dashboard")
+def shrimp_animation_bilibili_quota_dashboard():
+    return quota_dashboard()
+
+
+@app.get("/v1/shrimp-animation/bilibili-stuck-claims")
+def shrimp_animation_bilibili_stuck_claims(limit: int = 100):
+    return list_stuck_claims(limit=limit)
+
+
+@app.post(
+    "/v1/shrimp-animation/bilibili-stuck-claims/{execution_id}/reconcile"
+)
+def shrimp_animation_bilibili_stuck_claim_reconcile(
+    execution_id: UUID,
+    payload: ShrimpBilibiliStuckReconcileAction,
+    x_shrimp_bilibili_live_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Bilibili-Live-Acceptance-Key",
+    ),
+):
+    _require_shrimp_bilibili_live_acceptance_key(
+        x_shrimp_bilibili_live_acceptance_key
+    )
+    try:
+        return reconcile_stuck_claim(
+            execution_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-stuck-reconciliations")
+def shrimp_animation_bilibili_stuck_reconciliations(limit: int = 100):
+    return list_stuck_reconciliations(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-daily-quota-audits")
+def shrimp_animation_bilibili_daily_quota_audits(limit: int = 100):
+    return list_daily_quota_audits(limit=limit)
 
 
 @app.get("/v1/shrimp-animation/bilibili-quota/{account_key}")
