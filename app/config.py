@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     shrimp_bilibili_incident_default_owner: str = "publisher-oncall"
     shrimp_bilibili_incident_secondary_owner: str = "publisher-backup"
     shrimp_bilibili_incident_ops_key: str = ""
+    shrimp_bilibili_reliability_window_days: int = 30
+    shrimp_bilibili_ack_slo_target_percent: float = 95.0
+    shrimp_bilibili_recovery_slo_target_percent: float = 95.0
+    shrimp_bilibili_ambiguity_target_percent: float = 5.0
+    shrimp_bilibili_recurrence_threshold: int = 2
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
