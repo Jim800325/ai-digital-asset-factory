@@ -1,7 +1,7 @@
 -- Step 10B.7 — Reservation Lifecycle + Execution Claim + Quota Ledger
 
 CREATE OR REPLACE FUNCTION expire_shrimp_bilibili_reservations()
-RETURNS integer AS $
+RETURNS integer AS $expire$
 DECLARE affected integer;
 BEGIN
   UPDATE shrimp_bilibili_publish_reservations r
@@ -24,7 +24,7 @@ BEGIN
   GET DIAGNOSTICS affected = ROW_COUNT;
   RETURN affected;
 END;
-$ LANGUAGE plpgsql;
+$expire$ LANGUAGE plpgsql;
 
 DROP INDEX IF EXISTS uq_shrimp_bilibili_active_account_reservation;
 CREATE UNIQUE INDEX uq_shrimp_bilibili_active_account_reservation
