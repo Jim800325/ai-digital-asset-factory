@@ -131,6 +131,18 @@ from app.providers.animation.shrimp.bilibili_credentials import (
     set_credential_slot_status,
     set_slot_selection_priority,
 )
+from app.providers.animation.shrimp.bilibili_incident_ops import (
+    acknowledge_incident,
+    add_corrective_action,
+    assign_incident_owner,
+    bootstrap_incident_operations,
+    evaluate_incident_slas,
+    incident_ops_summary,
+    list_corrective_actions,
+    list_incident_sla_events,
+    list_post_incident_reviews,
+    update_pir,
+)
 from app.providers.animation.shrimp.bilibili_incidents import (
     apply_approved_recovery,
     decide_recovery,
@@ -378,6 +390,24 @@ class ShrimpPublishAuthorizationDecision(BaseModel):
     plan_sha256: str = Field(min_length=64,max_length=64)
     dry_run_sha256: str = Field(min_length=64,max_length=64)
 
+class ShrimpBilibiliIncidentOwnerAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    owner_ref: str = Field(min_length=1,max_length=200)
+    actor: str = Field(default="shrimp-incident-ops",min_length=1,max_length=200)
+
+class ShrimpBilibiliPirComplete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    root_cause: str = Field(min_length=3,max_length=4000)
+    lessons_learned: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(default="shrimp-pir-reviewer",min_length=1,max_length=200)
+
+class ShrimpBilibiliCorrectiveActionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    description: str = Field(min_length=3,max_length=4000)
+    owner_ref: str = Field(min_length=1,max_length=200)
+    due_at: str | None = None
+    actor: str = Field(default="shrimp-pir-reviewer",min_length=1,max_length=200)
+
 class ShrimpBilibiliIncidentAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     actor: str = Field(default="shrimp-incident-api",min_length=1,max_length=200)
@@ -554,6 +584,24 @@ def _require_shrimp_bilibili_live_acceptance_key(
             status_code=403,
             detail="Invalid Shrimp Bilibili live acceptance key",
         )
+
+def _require_shrimp_bilibili_incident_ops_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_bilibili_incident_ops_key.strip()
+    if not expected:
+        raise HTTPException(status_code=503,detail="Bilibili incident ops gate is not configured")
+    forbidden=(
+        settings.shrimp_bilibili_recovery_approval_key.strip(),
+        settings.shrimp_bilibili_live_acceptance_key.strip(),
+        settings.shrimp_publish_authorization_key.strip(),
+        settings.shrimp_publish_execution_key.strip(),
+    )
+    if any(value and secrets.compare_digest(expected,value) for value in forbidden):
+        raise HTTPException(status_code=503,detail="Bilibili incident ops key must be independent")
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(status_code=403,detail="Invalid Bilibili incident ops key")
+
 
 def _require_shrimp_bilibili_recovery_approval_key(
     provided: str | None,
