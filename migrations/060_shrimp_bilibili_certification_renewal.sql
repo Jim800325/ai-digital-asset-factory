@@ -1,5 +1,8 @@
 -- Step 10B.19 — Certification Expiry + Baseline Renewal + Attestation History + Governance Re-Certification
 
+DROP TRIGGER IF EXISTS trg_prevent_bilibili_certification_mutation
+  ON shrimp_bilibili_post_restore_certifications;
+
 ALTER TABLE shrimp_bilibili_post_restore_certifications
   DROP CONSTRAINT IF EXISTS shrimp_bilibili_post_restore_certifications_certification_status_check;
 ALTER TABLE shrimp_bilibili_post_restore_certifications
@@ -235,7 +238,7 @@ FOR EACH ROW EXECUTE FUNCTION prevent_bilibili_recert_candidate_evidence_mutatio
 
 
 CREATE OR REPLACE FUNCTION prevent_bilibili_certification_mutation()
-RETURNS trigger AS $$
+RETURNS trigger AS $
 BEGIN
   IF OLD.certification_status IN (
        'CERTIFIED','EXPIRING','EXPIRED',
@@ -263,4 +266,8 @@ BEGIN
   END IF;
   RAISE EXCEPTION 'Post-restore reliability certification evidence is immutable';
 END;
-$$ LANGUAGE plpgsql;
+$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_prevent_bilibili_certification_mutation
+BEFORE UPDATE OR DELETE ON shrimp_bilibili_post_restore_certifications
+FOR EACH ROW EXECUTE FUNCTION prevent_bilibili_certification_mutation();
