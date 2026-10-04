@@ -1420,6 +1420,19 @@ def shrimp_animation_bilibili_recovery_decision(
     )
 
 
+@app.post("/v1/shrimp-animation/bilibili-recovery-approvals/{approval_id}/apply")
+def shrimp_animation_bilibili_recovery_apply(
+    approval_id: UUID,
+    payload: ShrimpBilibiliIncidentAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Live-Acceptance-Key"),
+):
+    _require_shrimp_bilibili_live_acceptance_key(x_key)
+    return apply_approved_recovery(
+        approval_id,
+        actor=payload.actor,
+    )
+
+
 @app.get("/v1/shrimp-animation/bilibili-operations-console")
 def shrimp_animation_bilibili_operations_console():
     return operations_console()
