@@ -195,6 +195,7 @@ def test_registered_account_defaults_and_policy_bind_into_publish_plan(
                 "default-b",
             ]
             assert stored["publish_metadata"]["category"] == "122"
+            assert stored["publish_metadata"]["copyright"] == "ORIGINAL"
             assert stored["plan_payload"]["account_profile_snapshot"][
                 "account_key"
             ] == "ci-bili-profile"
