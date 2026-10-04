@@ -10,7 +10,7 @@ function renderSystem(summary){
  pill.textContent=summary.status||"UNKNOWN";pill.className="pill "+statusClass(summary.status);
  const root=byId("systemMetrics");root.replaceChildren(
   metric("Database",sys.database_available?"AVAILABLE":"UNAVAILABLE"),
-  metric("Migrations",(sys.migration_applied_count??"—")+"/"+(sys.migration_expected_count??"—")),
+  metric("Migrations",(sys.migration_status||"UNKNOWN")+" · "+String(sys.migration_latest||"—").replace(".sql","").replace(/^\d+_/,"")),
   metric("Environment",(sys.vercel_env||"LOCAL").toUpperCase()),
   metric("Publisher",sys.publisher_adapter||"MOCK")
  );
@@ -29,10 +29,18 @@ function renderSide(providers,queue){
   const n=node("div","side-metric");n.append(node("span","",pair[0]),node("b","",pair[1]));root.appendChild(n);
  });
 }
+function isVisibleOpportunity(item){
+ const title=String(item.title||item.canonical_title||"");
+ const source=String(item.source_url||"");
+ return !title.startsWith("[TEST_ONLY]")
+  && !title.startsWith("[PREVIEW_ONLY]")
+  && !source.startsWith("vercel-preview://")
+  && !source.includes("example.invalid/");
+}
 function renderOpportunities(items){
  const root=byId("opportunityGrid");root.replaceChildren();
- if(!items.length){root.append(node("div","opportunity-card","当前暂无机会数据"));return}
- items.slice(0,6).forEach(item=>{
+ const visible=items.filter(isVisibleOpportunity);if(!visible.length){root.append(node("div","opportunity-card","当前暂无已验证的正式机会数据"));return}
+ visible.slice(0,6).forEach(item=>{
   const card=node("article","opportunity-card"),head=node("header"),left=node("div"),score=node("div","score",Math.round(Number(item.score||0)));
   left.append(node("div","kicker",item.asset_type||"OPPORTUNITY"),node("h3","",item.canonical_title||item.title||"Untitled"));
   head.append(left,score);card.append(head,node("p","",item.monetization_model||"等待研究验证"));
@@ -47,7 +55,7 @@ async function load(){
    api("/v1/shrimp-animation/control-center/summary"),
    api("/v1/side-business/providers?limit=100"),
    api("/v1/side-business/build-queue?limit=100"),
-   api("/v1/opportunities?limit=6")
+   api("/v1/opportunities?limit=30")
   ]);
   renderSystem(summary);renderPipeline(summary);renderSide(providers,queue);renderOpportunities(opps);
  }catch(err){
