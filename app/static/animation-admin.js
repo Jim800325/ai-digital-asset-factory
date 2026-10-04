@@ -5,7 +5,7 @@ const clear=n=>n.replaceChildren();
 const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null};
 function toast(msg,bad=false){const n=byId("toast");n.textContent=msg;n.className="toast"+(bad?" bad":"");n.classList.remove("hidden");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.add("hidden"),3200)}
 async function api(url,opts={}){const r=await fetch(url,{cache:"no-store",...opts,headers:{"Accept":"application/json",...(opts.headers||{})}});const b=await r.json().catch(()=>({detail:"Invalid response"}));if(!r.ok)throw new Error(b.detail||("HTTP "+r.status));return b}
-function pill(v){const s=String(v||"UNKNOWN").toUpperCase();const cls=/READY|SUCCESS|APPROVED|AUTHORIZED|PUBLISHED|CURRENT|ACTIVE|PASS|CONFIGURED/.test(s)?"good":/BLOCKED|FAILED|REJECTED|STALE|DISABLED|MISSING|INACTIVE/.test(s)?"bad":"warn";return el("span","pill "+cls,s)}
+function pill(v){const s=String(v||"UNKNOWN").toUpperCase();const cls=/READY|SUCCESS|APPROVED|AUTHORIZED|PUBLISHED|CURRENT|ACTIVE|PASS|CONFIGURED/.test(s)?"good":/BLOCKED|FAILED|REJECTED|STALE|DISABLED|MISSING|INACTIVE|EXPIRED|UNHEALTHY|MISMATCH|LOGGED_OUT|DENIED/.test(s)?"bad":"warn";return el("span","pill "+cls,s)}
 function row(root,key,value){const n=el("div","setting-row");n.append(el("span","setting-key",key),el("span","setting-value",value));root.appendChild(n)}
 function empty(tbody,cols,msg){const tr=document.createElement("tr"),td=el("td","empty-row",msg);td.colSpan=cols;tr.appendChild(td);tbody.appendChild(tr)}
 function currentPage(){const p=location.pathname;return p.includes("/accounts")?"accounts":p.includes("/jobs")?"jobs":p.includes("/executions")?"executions":"settings"}
