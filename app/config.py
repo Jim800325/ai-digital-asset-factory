@@ -116,6 +116,9 @@ class Settings(BaseSettings):
     shrimp_bilibili_observation_stage_minutes: int = 360
     shrimp_bilibili_observation_min_executions: int = 1
     shrimp_bilibili_restore_acceptance_key: str = ""
+    shrimp_bilibili_certification_valid_days: int = 30
+    shrimp_bilibili_certification_expiry_warning_days: int = 7
+    shrimp_bilibili_recertification_key: str = ""
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""

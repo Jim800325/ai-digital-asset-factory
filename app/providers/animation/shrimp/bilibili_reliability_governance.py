@@ -85,6 +85,40 @@ def _evidence_snapshot() -> dict:
         }
         if reopen is not None else None
     )
+    with engine.connect() as db:
+        lifecycle=db.execute(text("""
+          SELECT c.id,c.certification_key,c.certification_status,
+                 c.certification_sha256,c.baseline_sha256,
+                 c.valid_from,c.renewal_due_at,c.expires_at,
+                 c.attestation_sequence,
+                 EXISTS(
+                   SELECT 1
+                   FROM shrimp_bilibili_recertification_candidates r
+                   WHERE r.source_certification_id=c.id
+                     AND r.candidate_status='PENDING_APPROVAL'
+                 ) AS pending_recertification
+          FROM shrimp_bilibili_post_restore_certifications c
+          WHERE c.certification_status<>'SUPERSEDED'
+          ORDER BY c.certified_at DESC,c.id DESC
+          LIMIT 1
+        """)).mappings().one_or_none()
+    certification_lifecycle=(
+        {
+            "certification_id":str(lifecycle["id"]),
+            "certification_key":lifecycle["certification_key"],
+            "certification_status":lifecycle["certification_status"],
+            "certification_sha256":lifecycle["certification_sha256"],
+            "baseline_sha256":lifecycle["baseline_sha256"],
+            "valid_from":lifecycle["valid_from"].isoformat(),
+            "renewal_due_at":lifecycle["renewal_due_at"].isoformat(),
+            "expires_at":lifecycle["expires_at"].isoformat(),
+            "attestation_sequence":int(lifecycle["attestation_sequence"]),
+            "pending_recertification":bool(
+                lifecycle["pending_recertification"]
+            ),
+        }
+        if lifecycle is not None else None
+    )
     return {
         "scorecard": {
             "id": score.get("id") if score else None,
@@ -137,6 +171,7 @@ def _evidence_snapshot() -> dict:
         ],
         "post_unfreeze_observation":observation_signal,
         "post_restore_certification_reopen":certification_reopen,
+        "certification_lifecycle":certification_lifecycle,
         "observe_only": True,
     }
 
@@ -153,6 +188,11 @@ def _recommend(snapshot: dict) -> tuple[str,str]:
     )
     certification_reopen=bool(
         snapshot.get("post_restore_certification_reopen")
+    )
+    lifecycle=snapshot.get("certification_lifecycle") or {}
+    recertification_required=(
+        lifecycle.get("certification_status")
+        in {"EXPIRED","RECERTIFICATION_REQUIRED"}
     )
 
     critical_regression=any(x["severity"]=="CRITICAL" for x in regressions)
@@ -187,6 +227,7 @@ def _recommend(snapshot: dict) -> tuple[str,str]:
 
     caution=(
         certification_reopen
+        or recertification_required
         or burn["burn_status"]=="WATCH"
         or bool(regressions)
         or any(x["recurrence_status"]=="RECURRING" for x in recurrence)
@@ -198,6 +239,11 @@ def _recommend(snapshot: dict) -> tuple[str,str]:
             return (
                 "CAUTION",
                 "post-restore certification reopened; human governance review required",
+            )
+        if recertification_required:
+            return (
+                "CAUTION",
+                "reliability certification expired; governance re-certification required",
             )
         return "CAUTION","reliability evidence requires human caution review"
 

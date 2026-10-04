@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
@@ -28,17 +29,84 @@ def _ser(row: Any) -> dict:
     out=dict(row)
     for key in (
         "id","observation_session_id","restore_acceptance_id",
-        "certification_id","evaluation_id",
+        "certification_id","evaluation_id","previous_certification_id",
     ):
         if out.get(key) is not None:
             out[key]=str(out[key])
     for key in (
         "certified_at","superseded_at","evaluated_at",
-        "opened_at","closed_at",
+        "opened_at","closed_at","valid_from","expires_at","renewal_due_at",
     ):
         if out.get(key) is not None:
             out[key]=out[key].isoformat()
     return out
+
+
+def _certification_validity(now: datetime | None = None) -> tuple[datetime,datetime,datetime]:
+    current=now or datetime.now(timezone.utc)
+    valid_days=max(2,int(settings.shrimp_bilibili_certification_valid_days))
+    warning_days=max(
+        1,
+        min(
+            valid_days-1,
+            int(settings.shrimp_bilibili_certification_expiry_warning_days),
+        ),
+    )
+    expires=current+timedelta(days=valid_days)
+    renewal_due=expires-timedelta(days=warning_days)
+    return current,renewal_due,expires
+
+
+def _append_attestation(
+    db,
+    *,
+    certification_id,
+    attestation_type:str,
+    attestation_sequence:int,
+    attestation_status:str,
+    evidence_snapshot:dict,
+    actor:str,
+    previous_attestation_id=None,
+) -> dict:
+    evidence_sha=_sha(evidence_snapshot)
+    material={
+        "certification_id":str(certification_id),
+        "previous_attestation_id":(
+            str(previous_attestation_id) if previous_attestation_id else None
+        ),
+        "attestation_type":attestation_type,
+        "attestation_sequence":int(attestation_sequence),
+        "attestation_status":attestation_status,
+        "evidence_sha256":evidence_sha,
+    }
+    row=db.execute(text("""
+      INSERT INTO shrimp_bilibili_reliability_attestations(
+        certification_id,previous_attestation_id,attestation_type,
+        attestation_sequence,attestation_status,evidence_snapshot,
+        evidence_sha256,attestation_sha256,actor)
+      VALUES(
+        :certification_id,:previous_attestation_id,:attestation_type,
+        :sequence,:status,CAST(:snapshot AS jsonb),
+        :evidence_sha,:attestation_sha,:actor)
+      ON CONFLICT (attestation_sha256) DO NOTHING
+      RETURNING *
+    """),{
+        "certification_id":certification_id,
+        "previous_attestation_id":previous_attestation_id,
+        "attestation_type":attestation_type,
+        "sequence":int(attestation_sequence),
+        "status":attestation_status,
+        "snapshot":canonical_json(evidence_snapshot),
+        "evidence_sha":evidence_sha,
+        "attestation_sha":_sha(material),
+        "actor":actor[:200],
+    }).mappings().one_or_none()
+    if row is None:
+        row=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_reliability_attestations
+          WHERE attestation_sha256=:sha
+        """),{"sha":_sha(material)}).mappings().one()
+    return _ser(row)
 
 
 def _latest_global_reliability() -> tuple[dict|None,dict|None,list[dict],list[dict]]:
@@ -298,14 +366,41 @@ def generate_certification(
         existing=db.execute(text("""
           SELECT * FROM shrimp_bilibili_post_restore_certifications
           WHERE observation_session_id=:session_id
+          ORDER BY certified_at DESC,id DESC
+          LIMIT 1
         """),{"session_id":session_id}).mappings().one_or_none()
         if existing is not None:
             return _ser(existing)
 
+        previous=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_post_restore_certifications
+          WHERE certification_status IN (
+            'CERTIFIED','EXPIRING','EXPIRED',
+            'RECERTIFICATION_REQUIRED','REOPEN_RECOMMENDED'
+          )
+          ORDER BY certified_at DESC,id DESC
+          LIMIT 1
+        """)).mappings().one_or_none()
+        previous_id=previous["id"] if previous is not None else None
+        sequence=(
+            int(previous["attestation_sequence"])+1
+            if previous is not None else 1
+        )
+        previous_attestation=db.execute(text("""
+          SELECT id
+          FROM shrimp_bilibili_reliability_attestations
+          ORDER BY created_at DESC,id DESC
+          LIMIT 1
+        """)).scalar_one_or_none()
+        valid_from,renewal_due,expires_at=_certification_validity()
+
         db.execute(text("""
           UPDATE shrimp_bilibili_post_restore_certifications
           SET certification_status='SUPERSEDED',superseded_at=now()
-          WHERE certification_status IN ('CERTIFIED','REOPEN_RECOMMENDED')
+          WHERE certification_status IN (
+            'CERTIFIED','EXPIRING','EXPIRED',
+            'RECERTIFICATION_REQUIRED','REOPEN_RECOMMENDED'
+          )
         """))
         db.execute(text("""
           UPDATE shrimp_bilibili_certification_reopen_events
@@ -318,12 +413,14 @@ def generate_certification(
             certification_key,observation_session_id,restore_acceptance_id,
             certification_status,certification_snapshot,stability_baseline,
             promoted_slo,reopen_policy,certification_sha256,baseline_sha256,
-            generated_by)
+            valid_from,renewal_due_at,expires_at,previous_certification_id,
+            attestation_sequence,generated_by)
           VALUES(
             :key,:session_id,:acceptance_id,'CERTIFIED',
             CAST(:snapshot AS jsonb),CAST(:baseline AS jsonb),
             CAST(:slo AS jsonb),CAST(:reopen AS jsonb),
-            :cert_sha,:baseline_sha,:actor)
+            :cert_sha,:baseline_sha,:valid_from,:renewal_due,:expires_at,
+            :previous_id,:sequence,:actor)
           RETURNING *
         """),{
             "key":cert_key,
@@ -335,8 +432,50 @@ def generate_certification(
             "reopen":canonical_json(reopen),
             "cert_sha":cert_sha,
             "baseline_sha":baseline_sha,
+            "valid_from":valid_from,
+            "renewal_due":renewal_due,
+            "expires_at":expires_at,
+            "previous_id":previous_id,
+            "sequence":sequence,
             "actor":actor[:200],
         }).mappings().one()
+        if previous is not None:
+            previous_superseded=_append_attestation(
+                db,
+                certification_id=previous["id"],
+                previous_attestation_id=previous_attestation,
+                attestation_type="SUPERSEDED",
+                attestation_sequence=int(previous["attestation_sequence"]),
+                attestation_status="SUPERSEDED",
+                evidence_snapshot={
+                    "source_certification_id":str(previous["id"]),
+                    "new_certification_id":str(row["id"]),
+                    "new_certification_key":row["certification_key"],
+                    "reason":"NEW_RESTORE_CERTIFICATION",
+                },
+                actor=actor,
+            )
+            previous_attestation=previous_superseded["id"]
+        _append_attestation(
+            db,
+            certification_id=row["id"],
+            previous_attestation_id=previous_attestation,
+            attestation_type="INITIAL_CERTIFICATION",
+            attestation_sequence=sequence,
+            attestation_status="VALID",
+            evidence_snapshot={
+                "certification_key":row["certification_key"],
+                "certification_sha256":row["certification_sha256"],
+                "baseline_sha256":row["baseline_sha256"],
+                "valid_from":valid_from.isoformat(),
+                "renewal_due_at":renewal_due.isoformat(),
+                "expires_at":expires_at.isoformat(),
+                "previous_certification_id":(
+                    str(previous_id) if previous_id else None
+                ),
+            },
+            actor=actor,
+        )
     return _ser(row)
 
 
@@ -407,7 +546,9 @@ def evaluate_certification(*,actor:str)->dict:
     with engine.connect() as db:
         cert=db.execute(text("""
           SELECT * FROM shrimp_bilibili_post_restore_certifications
-          WHERE certification_status IN ('CERTIFIED','REOPEN_RECOMMENDED')
+          WHERE certification_status IN (
+            'CERTIFIED','EXPIRING','REOPEN_RECOMMENDED'
+          )
           ORDER BY certified_at DESC
           LIMIT 1
         """)).mappings().one_or_none()
@@ -459,8 +600,38 @@ def evaluate_certification(*,actor:str)->dict:
             db.execute(text("""
               UPDATE shrimp_bilibili_post_restore_certifications
               SET certification_status='REOPEN_RECOMMENDED'
-              WHERE id=:id AND certification_status='CERTIFIED'
+              WHERE id=:id AND certification_status IN ('CERTIFIED','EXPIRING')
             """),{"id":cert["id"]})
+            existing_attestation=db.execute(text("""
+              SELECT id
+              FROM shrimp_bilibili_reliability_attestations
+              WHERE certification_id=:id
+                AND attestation_type='REOPEN_RECOMMENDED'
+              ORDER BY created_at DESC
+              LIMIT 1
+            """),{"id":cert["id"]}).scalar_one_or_none()
+            if existing_attestation is None:
+                previous_attestation=db.execute(text("""
+                  SELECT id
+                  FROM shrimp_bilibili_reliability_attestations
+                  ORDER BY created_at DESC,id DESC
+                  LIMIT 1
+                """)).scalar_one_or_none()
+                _append_attestation(
+                    db,
+                    certification_id=cert["id"],
+                    previous_attestation_id=previous_attestation,
+                    attestation_type="REOPEN_RECOMMENDED",
+                    attestation_sequence=int(cert.get("attestation_sequence") or 1),
+                    attestation_status="REOPENED",
+                    evidence_snapshot={
+                        "certification_key":cert["certification_key"],
+                        "evaluation_sha256":row["evaluation_sha256"],
+                        "trigger_codes":triggers,
+                        "current_evidence_sha256":evidence_sha,
+                    },
+                    actor=actor,
+                )
             event_material={
                 "certification_id":str(cert["id"]),
                 "evaluation_id":str(row["id"]),
@@ -593,7 +764,9 @@ def certification_dashboard()->dict:
     certifications=list_certifications(limit=100)
     current=next((
         x for x in certifications
-        if x["certification_status"] in {"CERTIFIED","REOPEN_RECOMMENDED"}
+        if x["certification_status"] in {
+            "CERTIFIED","EXPIRING","REOPEN_RECOMMENDED"
+        }
     ),None)
     return {
         "current_certification":current,
