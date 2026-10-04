@@ -384,7 +384,7 @@
         </section>
 
         <section class="panel-card">
-          <div class="section-title-row"><div><div class="card-kicker">SAFE UNFREEZE</div><h2>Recovery Evidence Gate</h2></div><span class="safe-badge">CAUTION/FROZEN → NORMAL only</span></div>
+          <div class="section-title-row"><div><div class="card-kicker">SAFE UNFREEZE</div><h2>Recovery Evidence Gate</h2></div><span class="safe-badge">CAUTION/FROZEN → OBSERVATION 25%</span></div>
           <div id="restoreEvidenceSummary" class="settings-list"></div>
           <div id="restoreEvidenceChecks" class="settings-list"></div>
           <div id="restorePlanActions" class="form-actions"></div>
@@ -398,6 +398,25 @@
         <section class="panel-card">
           <div class="section-title-row"><div><div class="card-kicker">RESTORE APPROVALS</div><h2>Two-Person Restore Audit</h2></div><span class="safe-badge">Actors must differ</span></div>
           <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Plan</th><th>Stage</th><th>Decision</th><th>Actor</th><th>Reason</th><th>Decided</th></tr></thead><tbody id="restoreApprovalRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">POST-UNFREEZE OBSERVATION</div><h2>Gradual Exposure Ramp</h2></div><span class="safe-badge">25 → 50 → 75 → 100</span></div>
+          <div id="observationSummary" class="settings-list"></div>
+          <div id="observationHealthChecks" class="settings-list"></div>
+          <div class="notice">Ramp 只在阶段时间、真实 Bilibili execution 数和全部健康证据满足时推进；恶化只生成 REFREEZE_RECOMMENDED，不自动冻结。</div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">RAMP HISTORY</div><h2>Observation Evaluations</h2></div><span class="safe-badge">Immutable evidence</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Stage</th><th>Quota</th><th>Decision</th><th>Elapsed</th><th>Executions</th><th>Evidence</th><th>Evaluated</th></tr></thead><tbody id="observationEvaluationRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">RESTORE ACCEPTANCE</div><h2>Observation 100% → NORMAL</h2></div><span class="safe-badge">Independent acceptance gate</span></div>
+          <div id="restoreAcceptanceSummary" class="settings-list"></div>
+          <div id="restoreAcceptanceActions" class="form-actions"></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Session</th><th>Status</th><th>Stage</th><th>Quota</th><th>Accepted By</th><th>Accepted</th></tr></thead><tbody id="restoreAcceptanceRows"></tbody></table></div>
         </section>
 
         <section class="panel-card">
@@ -417,7 +436,7 @@
           <div class="card-kicker">SECRET MANAGEMENT</div><h2>敏感凭证管理原则</h2>
           <p class="muted">以下变量只应通过 Vercel Preview Environment Variables 设置，不在本后台保存明文。</p>
           <div class="env-chip-grid">
-            <code>SHRIMP_BILIBILI_SESSDATA</code><code>SHRIMP_BILIBILI_BILI_JCT</code><code>SHRIMP_BILIBILI_DEDE_USER_ID</code><code>SHRIMP_BILIBILI_DEDE_USER_ID_CKMD5</code><code>SHRIMP_PUBLISH_AUTHORIZATION_KEY</code><code>SHRIMP_PUBLISH_EXECUTION_KEY</code><code>SHRIMP_BILIBILI_LIVE_ACCEPTANCE_KEY</code><code>SHRIMP_BILIBILI_INCIDENT_OPS_KEY</code><code>SHRIMP_BILIBILI_RECOVERY_APPROVAL_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_GOVERNANCE_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_POLICY_APPLY_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_RESTORE_APPROVAL_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_RESTORE_APPLY_KEY</code>
+            <code>SHRIMP_BILIBILI_SESSDATA</code><code>SHRIMP_BILIBILI_BILI_JCT</code><code>SHRIMP_BILIBILI_DEDE_USER_ID</code><code>SHRIMP_BILIBILI_DEDE_USER_ID_CKMD5</code><code>SHRIMP_PUBLISH_AUTHORIZATION_KEY</code><code>SHRIMP_PUBLISH_EXECUTION_KEY</code><code>SHRIMP_BILIBILI_LIVE_ACCEPTANCE_KEY</code><code>SHRIMP_BILIBILI_INCIDENT_OPS_KEY</code><code>SHRIMP_BILIBILI_RECOVERY_APPROVAL_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_GOVERNANCE_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_POLICY_APPLY_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_RESTORE_APPROVAL_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_RESTORE_APPLY_KEY</code><code>SHRIMP_BILIBILI_RESTORE_ACCEPTANCE_KEY</code>
           </div>
         </section>
       </section>

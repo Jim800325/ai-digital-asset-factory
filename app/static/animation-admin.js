@@ -2,7 +2,7 @@
 const byId=id=>document.getElementById(id);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const clear=n=>n.replaceChildren();
-const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null,reliabilityTrend:null,governance:null,policyChange:null,safeUnfreeze:null};
+const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null,reliabilityTrend:null,governance:null,policyChange:null,safeUnfreeze:null,observation:null};
 function toast(msg,bad=false){const n=byId("toast");n.textContent=msg;n.className="toast"+(bad?" bad":"");n.classList.remove("hidden");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.add("hidden"),3200)}
 async function api(url,opts={}){const r=await fetch(url,{cache:"no-store",...opts,headers:{"Accept":"application/json",...(opts.headers||{})}});const b=await r.json().catch(()=>({detail:"Invalid response"}));if(!r.ok)throw new Error(b.detail||("HTTP "+r.status));return b}
 function pill(v){const s=String(v||"UNKNOWN").toUpperCase();const cls=/READY|SUCCESS|APPROVED|AUTHORIZED|PUBLISHED|CURRENT|ACTIVE|PASS|CONFIGURED/.test(s)?"good":/BLOCKED|FAILED|REJECTED|STALE|DISABLED|MISSING|INACTIVE|EXPIRED|UNHEALTHY|MISMATCH|LOGGED_OUT|DENIED/.test(s)?"bad":"warn";return el("span","pill "+cls,s)}
@@ -472,6 +472,21 @@ async function secondRestoreDecision(plan,decision){
     await load();
   }catch(e){toast("第二位审批失败："+e.message,true)}
 }
+async function acceptRestoreObservation(session){
+  const key=prompt("输入独立 Restore Acceptance Key：");
+  if(!key)return;
+  const actor=prompt("Restore Acceptance Actor：","shrimp-restore-acceptance");
+  if(!actor)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-post-unfreeze-observation/sessions/"+encodeURIComponent(session.id)+"/accept",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Restore-Acceptance-Key":key},
+      body:JSON.stringify({actor})
+    });
+    toast("Restore Acceptance 已完成：OBSERVATION 100% → NORMAL");
+    await load();
+  }catch(e){toast("Restore Acceptance 失败："+e.message,true)}
+}
 function renderGovernance(){
   const data=state.governance||{},review=data.current_review||null;
   const badge=byId("governanceRecommendationBadge");
@@ -586,11 +601,55 @@ function renderGovernance(){
   const restoreApprovals=Array.isArray(restoreData.approvals)?restoreData.approvals:[];
   if(!restoreApprovals.length)empty(restoreApprovalBody,6,"尚无 Restore Approval");
   restoreApprovals.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.restore_key||String(x.plan_id||"").slice(0,12)),el("td","",x.approval_stage||"—"));const dec=document.createElement("td");dec.appendChild(pill(x.decision));tr.appendChild(dec);tr.append(el("td","",x.actor||"—"),el("td","",x.reason||"—"),el("td","",x.decided_at?new Date(x.decided_at).toLocaleString():"—"));restoreApprovalBody.appendChild(tr)});
+
+  const obs=state.observation||{},session=obs.current_session||null,health=obs.current_health||{};
+  const obsSummary=byId("observationSummary");clear(obsSummary);
+  row(obsSummary,"Session Status",session?.session_status||"NO ACTIVE SESSION");
+  row(obsSummary,"Stage",session?session.current_stage+"/4":"—");
+  row(obsSummary,"Quota",session?(session.current_quota_percent+"%"):"—");
+  row(obsSummary,"Stage Minimum",obs.stage_minutes!=null?(obs.stage_minutes+" min"):"—");
+  row(obsSummary,"Min Executions",obs.min_executions_per_stage??"—");
+  row(obsSummary,"Stage Executions",health.stage?.observed_execution_count??"—");
+  row(obsSummary,"Auto Refreeze",obs.auto_refreeze_execution?"ENABLED":"DISABLED");
+  if(session?.refreeze_recommendation==="REFREEZE_RECOMMENDED"){
+    row(obsSummary,"Refreeze Recommendation",session.refreeze_reason||"REFREEZE_RECOMMENDED");
+  }
+
+  const healthRoot=byId("observationHealthChecks");clear(healthRoot);
+  const healthChecks=health.checks||{};
+  if(!Object.keys(healthChecks).length)row(healthRoot,"Health Evidence","No active observation");
+  else Object.entries(healthChecks).forEach(([k,v])=>row(healthRoot,k,v?"PASS":"BLOCKED"));
+
+  const evalBody=byId("observationEvaluationRows");clear(evalBody);
+  const evaluations=Array.isArray(obs.evaluations)?obs.evaluations:[];
+  if(!evaluations.length)empty(evalBody,7,"尚无 Observation Evaluation");
+  evaluations.slice(0,100).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","",x.stage_before||"—"),el("td","",(x.quota_before??"—")+"%"));const d=document.createElement("td");d.appendChild(pill(x.decision));tr.appendChild(d);tr.append(el("td","",(x.stage_elapsed_minutes??0)+" min"),el("td","",x.observed_execution_count??0),el("td","mono",String(x.health_evidence_sha256||"").slice(0,12)+"…"),el("td","",x.evaluated_at?new Date(x.evaluated_at).toLocaleString():"—"));evalBody.appendChild(tr)});
+
+  const acceptanceSummary=byId("restoreAcceptanceSummary");clear(acceptanceSummary);
+  row(acceptanceSummary,"Required",obs.restore_acceptance_required?"YES":"NO");
+  row(acceptanceSummary,"Current Session",session?.session_status||"—");
+  row(acceptanceSummary,"Current Quota",session?(session.current_quota_percent+"%"):"—");
+  row(acceptanceSummary,"Human Refreeze Gate",obs.human_governance_required_for_refreeze?"REQUIRED":"UNKNOWN");
+
+  const acceptanceActions=byId("restoreAcceptanceActions");clear(acceptanceActions);
+  if(session?.session_status==="READY_FOR_ACCEPTANCE"){
+    const b=el("button","button danger","ACCEPT RESTORE → NORMAL");
+    b.type="button";
+    b.addEventListener("click",()=>acceptRestoreObservation(session));
+    acceptanceActions.appendChild(b);
+  }else{
+    acceptanceActions.appendChild(el("span","muted","只有完成 100% Observation 后才允许 Restore Acceptance"));
+  }
+
+  const acceptanceBody=byId("restoreAcceptanceRows");clear(acceptanceBody);
+  const acceptances=Array.isArray(obs.acceptances)?obs.acceptances:[];
+  if(!acceptances.length)empty(acceptanceBody,6,"尚无 Restore Acceptance");
+  acceptances.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",String(x.session_id||"").slice(0,12)+"…"));const st=document.createElement("td");st.appendChild(pill(x.acceptance_status));tr.appendChild(st);tr.append(el("td","",x.current_stage??"—"),el("td","",(x.current_quota_percent??"—")+"%"),el("td","",x.accepted_by||"—"),el("td","",x.accepted_at?new Date(x.accepted_at).toLocaleString():"—"));acceptanceBody.appendChild(tr)});
 }
 
 function renderSettings(){const s=state.summary||{},sys=s.system||{},r=s.bilibili?.readiness||{},c=r.checks||{};const groups=[["runtimeSettings",[["Vercel Env",sys.vercel_env||"—"],["Database",sys.database_available?"AVAILABLE":"UNAVAILABLE"],["Database Source",sys.database_source||"—"],["Preview Isolated",sys.preview_isolated?"YES":"NO"],["Migrations",sys.migration_status||"—"]]],["publisherSettings",[["Adapter",sys.publisher_adapter||"—"],["Executor",c.publish_executor_enabled?"ENABLED":"DISABLED"],["Step 9 Gate",c.publish_authorization_gate?"READY":"BLOCKED"],["Step 10 Gate",c.publish_execution_gate?"READY":"BLOCKED"]]],["bilibiliSettings",[["Account Profiles",state.accounts.length],["Controlled Adapter",c.bilibili_controlled_adapter?"READY":"BLOCKED"],["Live Acceptance",c.bilibili_live_acceptance_enabled?"ENABLED":"DISABLED"],["Cookie Bundle",c.bilibili_cookie_credentials_present?"CONFIGURED":"MISSING"]]],["securitySettings",[["Secrets Redacted",r.secrets_redacted?"YES":"NO"],["Account Allowlist",c.sacrificial_account_allowlist_present?"SET":"MISSING"],["Account Denylist",c.real_account_denylist_present?"SET":"MISSING"],["Target Allowlist",c.sacrificial_target_allowlist_present?"SET":"MISSING"],["Target Denylist",c.real_target_denylist_present?"SET":"MISSING"]]]];groups.forEach(([id,items])=>{const root=byId(id);clear(root);items.forEach(([k,v])=>row(root,k,v))})}
 async function load(){byId("refreshButton").disabled=true;try{
-  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability,reliabilityTrend,governance,policyChange,safeUnfreeze]=await Promise.all([
+  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability,reliabilityTrend,governance,policyChange,safeUnfreeze,observation]=await Promise.all([
     api("/v1/shrimp-animation/control-center/summary"),
     api("/v1/shrimp-animation/publish-targets"),
     api("/v1/shrimp-animation/bilibili-accounts"),
@@ -614,11 +673,12 @@ async function load(){byId("refreshButton").disabled=true;try{
     api("/v1/shrimp-animation/bilibili-reliability-trend-dashboard"),
     api("/v1/shrimp-animation/bilibili-reliability-governance"),
     api("/v1/shrimp-animation/bilibili-reliability-policy-change"),
-    api("/v1/shrimp-animation/bilibili-reliability-safe-unfreeze")
+    api("/v1/shrimp-animation/bilibili-reliability-safe-unfreeze"),
+    api("/v1/shrimp-animation/bilibili-post-unfreeze-observation")
   ]);
   let selection=null;
   try{selection=await api("/v1/shrimp-animation/bilibili-account-selection/healthy")}catch(_){}
-  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};state.reliabilityTrend=reliabilityTrend||{};state.governance=governance||{};state.policyChange=policyChange||{};state.safeUnfreeze=safeUnfreeze||{};
+  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};state.reliabilityTrend=reliabilityTrend||{};state.governance=governance||{};state.policyChange=policyChange||{};state.safeUnfreeze=safeUnfreeze||{};state.observation=observation||{};
   renderAccounts();renderJobs();renderExecutions();renderQuota();renderOperations();renderReliability();renderGovernance();renderSettings();
 }catch(e){toast("载入失败："+e.message,true)}finally{byId("refreshButton").disabled=false}}
 byId("accountForm").addEventListener("submit",async e=>{

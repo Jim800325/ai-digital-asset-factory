@@ -120,7 +120,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "057_shrimp_bilibili_reliability_safe_unfreeze.sql", expected
+          assert expected[-1] == "058_shrimp_bilibili_post_unfreeze_observation.sql", expected
           print("migrations:", actual)
           PY
 

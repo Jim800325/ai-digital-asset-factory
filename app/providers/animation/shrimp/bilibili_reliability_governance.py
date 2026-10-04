@@ -36,6 +36,30 @@ def _evidence_snapshot() -> dict:
     regressions=dashboard.get("open_regressions") or []
     recurrences=dashboard.get("recurrence_clusters") or []
     recommendations=dashboard.get("recommendations") or []
+    with engine.connect() as db:
+        observation=db.execute(text("""
+          SELECT id,session_status,current_stage,current_quota_percent,
+                 refreeze_recommendation,refreeze_reason,
+                 latest_evidence_sha256
+          FROM shrimp_bilibili_post_unfreeze_observation_sessions
+          WHERE session_status IN (
+            'ACTIVE','REFREEZE_RECOMMENDED','READY_FOR_ACCEPTANCE'
+          )
+          ORDER BY created_at DESC
+          LIMIT 1
+        """)).mappings().one_or_none()
+    observation_signal=(
+        {
+            "session_id":str(observation["id"]),
+            "session_status":observation["session_status"],
+            "current_stage":int(observation["current_stage"]),
+            "current_quota_percent":int(observation["current_quota_percent"]),
+            "refreeze_recommendation":observation["refreeze_recommendation"],
+            "refreeze_reason":observation["refreeze_reason"],
+            "latest_evidence_sha256":observation["latest_evidence_sha256"],
+        }
+        if observation is not None else None
+    )
     return {
         "scorecard": {
             "id": score.get("id") if score else None,
@@ -86,6 +110,7 @@ def _evidence_snapshot() -> dict:
             }
             for x in recommendations
         ],
+        "post_unfreeze_observation":observation_signal,
         "observe_only": True,
     }
 
@@ -96,6 +121,10 @@ def _recommend(snapshot: dict) -> tuple[str,str]:
     regressions=snapshot["open_regressions"]
     recurrence=snapshot["recurrence_clusters"]
     policies=snapshot["policy_recommendations"]
+    observation=snapshot.get("post_unfreeze_observation") or {}
+    observation_refreeze=(
+        observation.get("refreeze_recommendation")=="REFREEZE_RECOMMENDED"
+    )
 
     critical_regression=any(x["severity"]=="CRITICAL" for x in regressions)
     critical_policy=any(x["priority"]=="CRITICAL" for x in policies)
@@ -107,8 +136,19 @@ def _recommend(snapshot: dict) -> tuple[str,str]:
     low_score=score["reliability_score"] is not None and score["reliability_score"]<60
     fast_burn=burn["burn_status"] in {"FAST_BURN","EXHAUSTED"}
 
-    if fast_burn or critical_regression or critical_policy or recurring_critical or low_score:
+    if (
+        observation_refreeze
+        or fast_burn
+        or critical_regression
+        or critical_policy
+        or recurring_critical
+        or low_score
+    ):
         reasons=[]
+        if observation_refreeze:
+            reasons.append(
+                "post-unfreeze observation recommends refreeze"
+            )
         if fast_burn: reasons.append("error budget fast burn")
         if critical_regression: reasons.append("critical reliability regression")
         if critical_policy: reasons.append("critical policy recommendation")

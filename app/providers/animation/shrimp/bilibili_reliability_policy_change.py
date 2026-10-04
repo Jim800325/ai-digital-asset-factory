@@ -381,6 +381,21 @@ def decide_change_plan(
             "actor":actor.strip()[:200],
         })
         db.execute(text("""
+          UPDATE shrimp_bilibili_post_unfreeze_observation_sessions
+          SET session_status='STALE'
+          WHERE session_status IN (
+            'ACTIVE','REFREEZE_RECOMMENDED','READY_FOR_ACCEPTANCE'
+          )
+        """))
+        db.execute(text("""
+          UPDATE shrimp_bilibili_restore_acceptances a
+          SET acceptance_status='STALE'
+          FROM shrimp_bilibili_post_unfreeze_observation_sessions s
+          WHERE a.session_id=s.id
+            AND s.session_status='STALE'
+            AND a.acceptance_status='PENDING'
+        """))
+        db.execute(text("""
           UPDATE shrimp_bilibili_reliability_change_plans
           SET plan_status='APPLIED',applied_at=now()
           WHERE id=:id
