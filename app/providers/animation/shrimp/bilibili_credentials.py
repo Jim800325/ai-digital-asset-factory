@@ -430,16 +430,20 @@ def select_healthy_sacrificial_account()->dict|None:
         rows=db.execute(text("""
           SELECT a.*,cs.id AS credential_slot_id,cs.slot_key,
                  cs.env_prefix,cs.health_status,cs.last_checked_at,
-                 cs.health_evidence_sha256
+                 cs.health_evidence_sha256,cs.degradation_status,
+                 cs.selection_priority,cs.credential_version
           FROM shrimp_bilibili_accounts a
           JOIN shrimp_bilibili_credential_slots cs ON cs.account_id=a.id
           WHERE a.account_status='ACTIVE'
             AND cs.slot_status='ACTIVE'
             AND cs.health_status='HEALTHY'
+            AND cs.degradation_status='NORMAL'
             AND cs.last_checked_at >= (
               now() - (:max_age * interval '1 minute')
             )
-          ORDER BY cs.last_checked_at DESC NULLS LAST,a.account_key
+          ORDER BY cs.selection_priority ASC,
+                   cs.last_checked_at DESC NULLS LAST,
+                   a.account_key
         """),{
           "max_age":max(
             1,
@@ -461,11 +465,14 @@ def select_healthy_sacrificial_account()->dict|None:
             "credential_slot_id":str(item["credential_slot_id"]),
             "credential_slot_key":item["slot_key"],
             "health_status":item["health_status"],
+            "credential_version":int(item["credential_version"]),
+            "selection_priority":int(item["selection_priority"]),
+            "degradation_status":item["degradation_status"],
             "last_checked_at":(
                 item["last_checked_at"].isoformat()
                 if item.get("last_checked_at") else None
             ),
-            "selection_reason":"LATEST_HEALTHY_SACRIFICIAL_ACCOUNT",
+            "selection_reason":"PRIORITY_HEALTHY_SACRIFICIAL_ACCOUNT",
             "secrets_redacted":True,
         }
     return None
