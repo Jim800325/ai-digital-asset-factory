@@ -102,6 +102,13 @@ class Settings(BaseSettings):
     shrimp_bilibili_recovery_slo_target_percent: float = 95.0
     shrimp_bilibili_ambiguity_target_percent: float = 5.0
     shrimp_bilibili_recurrence_threshold: int = 2
+    shrimp_bilibili_burn_short_window_hours: int = 6
+    shrimp_bilibili_burn_long_window_hours: int = 24
+    shrimp_bilibili_burn_watch_threshold: float = 1.0
+    shrimp_bilibili_burn_fast_threshold: float = 2.0
+    shrimp_bilibili_regression_score_drop_points: float = 8.0
+    shrimp_bilibili_regression_rate_drop_percent: float = 10.0
+    shrimp_bilibili_regression_ambiguity_increase_percent: float = 5.0
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
