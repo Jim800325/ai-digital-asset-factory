@@ -464,6 +464,7 @@ def trend_dashboard()->dict:
         "latest_global_scorecard":latest_global,
         "latest_global_burn":latest_burn,
         "trend_points":trends,
+        "burn_evaluations":burns,
         "open_regressions":regressions,
         "recommendations":list_policy_recommendations(limit=100),
         "recurrence_clusters":recurrences,
