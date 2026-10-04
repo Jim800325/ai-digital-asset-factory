@@ -1370,6 +1370,26 @@ def shrimp_animation_review_decision(
 
 
 
+@app.get("/v1/shrimp-animation/bilibili-incidents")
+def shrimp_animation_bilibili_incidents(status: str | None = None, limit: int = 100):
+    return list_incidents(status=status,limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-incidents/{incident_id}/timeline")
+def shrimp_animation_bilibili_incident_timeline(incident_id: UUID):
+    return incident_timeline(incident_id)
+
+
+@app.get("/v1/shrimp-animation/bilibili-recovery-approvals")
+def shrimp_animation_bilibili_recovery_approvals(limit: int = 100):
+    return list_recovery_approvals(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-notifications")
+def shrimp_animation_bilibili_notifications(limit: int = 100):
+    return list_notifications(limit=limit)
+
+
 @app.get("/v1/shrimp-animation/bilibili-operations-console")
 def shrimp_animation_bilibili_operations_console():
     return operations_console()
