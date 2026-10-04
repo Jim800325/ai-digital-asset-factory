@@ -65,19 +65,7 @@ def _ledger_entry(
         "payload":payload,
     }
     entry_sha=_sha256(material)
-    row=db.execute(text("""
-      INSERT INTO shrimp_bilibili_quota_ledger(
-        account_id,reservation_id,execution_claim_id,execution_id,
-        entry_type,quota_units,local_quota_date,account_timezone,
-        source_sha256,entry_payload,entry_sha256,created_by)
-      VALUES(
-        :account_id,:reservation_id,:claim_id,:execution_id,
-        :entry_type,:quota_units,:local_date,:timezone,
-        :source_sha,CAST(:payload AS jsonb),:entry_sha,:actor)
-      ON CONFLICT (entry_sha256) DO UPDATE
-      SET entry_sha256=EXCLUDED.entry_sha256
-      RETURNING *
-    """),{
+    params={
       "account_id":account["id"],
       "reservation_id":reservation_id,
       "claim_id":claim_id,
@@ -90,7 +78,24 @@ def _ledger_entry(
       "payload":canonical_json(payload),
       "entry_sha":entry_sha,
       "actor":(actor or "shrimp-quota-ledger")[:200],
-    }).mappings().one()
+    }
+    row=db.execute(text("""
+      INSERT INTO shrimp_bilibili_quota_ledger(
+        account_id,reservation_id,execution_claim_id,execution_id,
+        entry_type,quota_units,local_quota_date,account_timezone,
+        source_sha256,entry_payload,entry_sha256,created_by)
+      VALUES(
+        :account_id,:reservation_id,:claim_id,:execution_id,
+        :entry_type,:quota_units,:local_date,:timezone,
+        :source_sha,CAST(:payload AS jsonb),:entry_sha,:actor)
+      ON CONFLICT (entry_sha256) DO NOTHING
+      RETURNING *
+    """),params).mappings().one_or_none()
+    if row is None:
+        row=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_quota_ledger
+          WHERE entry_sha256=:entry_sha
+        """),{"entry_sha":entry_sha}).mappings().one()
     return _serialize(row)
 
 def claim_reservation_for_execution(
@@ -430,3 +435,19 @@ def list_execution_claims(*,limit:int=100)->list[dict]:
           LIMIT :limit
         """),{"limit":max(1,min(int(limit),500))}).mappings().all()
     return [_serialize(x) for x in rows]
+
+
+def get_quota_usage(account_key:str)->dict:
+    with engine.connect() as db:
+        account=db.execute(text("""
+          SELECT id,account_key,mid,timezone,daily_publish_limit
+          FROM shrimp_bilibili_accounts
+          WHERE account_key=:account_key
+        """),{"account_key":account_key}).mappings().one_or_none()
+        if account is None:
+            raise LookupError("Bilibili account not found")
+        usage=quota_usage_for_account(db,dict(account))
+    return {
+      "account_key":account_key,
+      **usage,
+    }
