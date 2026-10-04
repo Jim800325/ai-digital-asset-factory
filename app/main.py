@@ -159,7 +159,6 @@ from app.providers.animation.shrimp.bilibili_incidents import (
     sync_critical_incidents,
 )
 from app.providers.animation.shrimp.bilibili_certification_trust_audit import (
-    generate_audit_proof,
     list_audit_proofs,
     list_integrity_audits,
     list_renewal_escalations,
@@ -2082,9 +2081,12 @@ def shrimp_animation_bilibili_certification_audit_proofs(limit: int = 100):
 @app.get("/v1/shrimp-animation/bilibili-certification-audit-proof/latest")
 def shrimp_animation_bilibili_certification_audit_proof_latest():
     proofs=list_audit_proofs(limit=1)
-    if proofs:
-        return proofs[0]
-    return generate_audit_proof(actor="shrimp-certification-audit-proof-api")
+    if not proofs:
+        raise HTTPException(
+            status_code=404,
+            detail="No certification audit proof has been generated yet",
+        )
+    return proofs[0]
 
 
 @app.get("/v1/shrimp-animation/bilibili-certification-renewal")
