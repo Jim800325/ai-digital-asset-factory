@@ -5,11 +5,5 @@
       "maxDuration": 300
     }
   },
-  "buildCommand": "python -m scripts.step4a_recover_build",
-  "crons": [
-    {
-      "path": "/internal/shrimp-animation/bilibili-health-monitor",
-      "schedule": "0 */6 * * *"
-    }
-  ]
+  "buildCommand": "python -m scripts.step4a_recover_build"
 }
