@@ -18,6 +18,7 @@
       <a data-page="accounts" href="/animation/accounts">Bilibili 账号</a>
       <a data-page="jobs" href="/animation/jobs">任务中心</a>
       <a data-page="executions" href="/animation/executions">发布执行</a>
+      <a data-page="quota" href="/animation/quota">额度运营</a>
       <a data-page="settings" href="/animation/settings">系统设置</a>
       <a href="/animation-review">Human Review</a>
       <a href="/animation-publishing">Publishing</a>
@@ -156,6 +157,52 @@
         <section class="panel-card">
           <div class="section-title-row"><div><div class="card-kicker">CONTROLLED PUBLISHER</div><h2>发布执行中心</h2></div><span class="safe-badge">Exactly-once budgets</span></div>
           <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Platform</th><th>Target</th><th>Status</th><th>Upload</th><th>Publish</th><th>Source</th><th>Open</th></tr></thead><tbody id="executionRows"></tbody></table></div>
+        </section>
+      </section>
+
+      <section id="quotaPage" class="admin-page hidden">
+        <div class="hero-grid">
+          <article class="hero-card primary">
+            <div class="card-kicker">QUOTA OPERATIONS</div>
+            <div class="hero-head"><div><h2>账号日额度与占用</h2><p class="muted">Ledger 驱动的发布额度、Reservation、Execution Claim 与可用额度。</p></div><span id="quotaStuckBadge" class="pill warn">0 STUCK</span></div>
+            <div id="quotaMetrics" class="metric-grid"></div>
+          </article>
+          <article class="hero-card">
+            <div class="card-kicker">SAFETY</div>
+            <h2>异常占用处理</h2>
+            <div class="notice warn">PUBLISH_UNKNOWN / UPLOAD_UNKNOWN 只能执行 provider read-back reconciliation。结果仍不明确时继续占用 Claim，不提供强制释放。</div>
+          </article>
+        </div>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">ACCOUNT QUOTA</div><h2>账号额度</h2></div><span class="safe-badge">Local-date ledger</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Account</th><th>Local Date</th><th>Daily Limit</th><th>Published</th><th>Held</th><th>Claimed</th><th>Available</th></tr></thead><tbody id="quotaAccountRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">STUCK CLAIMS</div><h2>异常占用</h2></div><span id="stuckThresholdLabel" class="safe-badge">Threshold</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Account</th><th>Target</th><th>Execution</th><th>Status</th><th>Claimed At</th><th>Writes</th><th>建议动作</th><th>操作</th></tr></thead><tbody id="stuckClaimRows"></tbody></table></div>
+        </section>
+
+        <div class="split-grid">
+          <section class="panel-card">
+            <div class="section-title-row"><div><div class="card-kicker">RESERVATIONS</div><h2>Reservation Lifecycle</h2></div></div>
+            <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Account</th><th>Target</th><th>Status</th><th>Expires</th></tr></thead><tbody id="reservationRows"></tbody></table></div>
+          </section>
+          <section class="panel-card">
+            <div class="section-title-row"><div><div class="card-kicker">EXECUTION CLAIMS</div><h2>Claim Lifecycle</h2></div></div>
+            <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Account</th><th>Target</th><th>Status</th><th>Claimed</th></tr></thead><tbody id="claimRows"></tbody></table></div>
+          </section>
+        </div>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">DAILY RESET AUDIT</div><h2>每日额度边界审计</h2></div><span class="safe-badge">Append-only snapshots</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Account</th><th>Date</th><th>Status</th><th>Prev Published</th><th>Published</th><th>Carry Claims</th><th>Carry Reservations</th><th>Available</th></tr></thead><tbody id="dailyAuditRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">QUOTA LEDGER</div><h2>不可变账本</h2></div><span class="safe-badge">No UPDATE / DELETE</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Time</th><th>Account</th><th>Type</th><th>Units</th><th>Local Date</th><th>SHA</th></tr></thead><tbody id="quotaLedgerRows"></tbody></table></div>
         </section>
       </section>
 
