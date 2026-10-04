@@ -131,6 +131,21 @@ from app.providers.animation.shrimp.bilibili_credentials import (
     set_credential_slot_status,
     set_slot_selection_priority,
 )
+from app.providers.animation.shrimp.bilibili_incident_ops import (
+    acknowledge_incident,
+    add_corrective_action,
+    assign_incident_owner,
+    complete_corrective_action,
+    configure_oncall_route,
+    bootstrap_incident_operations,
+    evaluate_incident_slas,
+    incident_ops_summary,
+    list_corrective_actions,
+    list_oncall_routes,
+    list_incident_sla_events,
+    list_post_incident_reviews,
+    update_pir,
+)
 from app.providers.animation.shrimp.bilibili_incidents import (
     apply_approved_recovery,
     decide_recovery,
@@ -378,6 +393,36 @@ class ShrimpPublishAuthorizationDecision(BaseModel):
     plan_sha256: str = Field(min_length=64,max_length=64)
     dry_run_sha256: str = Field(min_length=64,max_length=64)
 
+class ShrimpBilibiliOncallRouteUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    severity: Literal["WARNING","CRITICAL"]
+    owner_ref: str = Field(min_length=1,max_length=200)
+    secondary_owner_ref: str | None = Field(default=None,max_length=200)
+    actor: str = Field(default="shrimp-incident-ops",min_length=1,max_length=200)
+
+class ShrimpBilibiliCorrectiveActionComplete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    completion_evidence: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(default="shrimp-pir-reviewer",min_length=1,max_length=200)
+
+class ShrimpBilibiliIncidentOwnerAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    owner_ref: str = Field(min_length=1,max_length=200)
+    actor: str = Field(default="shrimp-incident-ops",min_length=1,max_length=200)
+
+class ShrimpBilibiliPirComplete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    root_cause: str = Field(min_length=3,max_length=4000)
+    lessons_learned: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(default="shrimp-pir-reviewer",min_length=1,max_length=200)
+
+class ShrimpBilibiliCorrectiveActionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    description: str = Field(min_length=3,max_length=4000)
+    owner_ref: str = Field(min_length=1,max_length=200)
+    due_at: str | None = None
+    actor: str = Field(default="shrimp-pir-reviewer",min_length=1,max_length=200)
+
 class ShrimpBilibiliIncidentAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     actor: str = Field(default="shrimp-incident-api",min_length=1,max_length=200)
@@ -554,6 +599,24 @@ def _require_shrimp_bilibili_live_acceptance_key(
             status_code=403,
             detail="Invalid Shrimp Bilibili live acceptance key",
         )
+
+def _require_shrimp_bilibili_incident_ops_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_bilibili_incident_ops_key.strip()
+    if not expected:
+        raise HTTPException(status_code=503,detail="Bilibili incident ops gate is not configured")
+    forbidden=(
+        settings.shrimp_bilibili_recovery_approval_key.strip(),
+        settings.shrimp_bilibili_live_acceptance_key.strip(),
+        settings.shrimp_publish_authorization_key.strip(),
+        settings.shrimp_publish_execution_key.strip(),
+    )
+    if any(value and secrets.compare_digest(expected,value) for value in forbidden):
+        raise HTTPException(status_code=503,detail="Bilibili incident ops key must be independent")
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(status_code=403,detail="Invalid Bilibili incident ops key")
+
 
 def _require_shrimp_bilibili_recovery_approval_key(
     provided: str | None,
@@ -1017,12 +1080,20 @@ def shrimp_animation_bilibili_recovery_policy(
                 "operations_path":"/animation/operations",
             },
         )
+    incident_ops=bootstrap_incident_operations(
+        actor="scheduled-bilibili-incident-ops"
+    )
+    sla=evaluate_incident_slas(
+        actor="scheduled-bilibili-sla"
+    )
     notifications=deliver_notifications(
         actor="scheduled-bilibili-notifications"
     )
     return {
         "policy":policy,
         "incidents":incidents,
+        "incident_ops":incident_ops,
+        "sla":sla,
         "notifications":notifications,
     }
 
@@ -1391,6 +1462,138 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-incident-ops-summary")
+def shrimp_animation_bilibili_incident_ops_summary():
+    return incident_ops_summary()
+
+
+@app.get("/v1/shrimp-animation/bilibili-oncall-routes")
+def shrimp_animation_bilibili_oncall_routes(limit: int = 100):
+    return list_oncall_routes(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-incident-sla-events")
+def shrimp_animation_bilibili_incident_sla_events(limit: int = 100):
+    return list_incident_sla_events(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-post-incident-reviews")
+def shrimp_animation_bilibili_post_incident_reviews(limit: int = 100):
+    return list_post_incident_reviews(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-corrective-actions")
+def shrimp_animation_bilibili_corrective_actions(limit: int = 100):
+    return list_corrective_actions(limit=limit)
+
+
+@app.post("/v1/shrimp-animation/bilibili-incidents/{incident_id}/acknowledge")
+def shrimp_animation_bilibili_incident_acknowledge(
+    incident_id: UUID,
+    payload: ShrimpBilibiliIncidentAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Incident-Ops-Key"),
+):
+    _require_shrimp_bilibili_incident_ops_key(x_key)
+    try:
+        return acknowledge_incident(incident_id,actor=payload.actor)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-incidents/{incident_id}/owner")
+def shrimp_animation_bilibili_incident_owner(
+    incident_id: UUID,
+    payload: ShrimpBilibiliIncidentOwnerAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Incident-Ops-Key"),
+):
+    _require_shrimp_bilibili_incident_ops_key(x_key)
+    try:
+        return assign_incident_owner(
+            incident_id,
+            owner_ref=payload.owner_ref,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-incidents/{incident_id}/pir/complete")
+def shrimp_animation_bilibili_pir_complete(
+    incident_id: UUID,
+    payload: ShrimpBilibiliPirComplete,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Incident-Ops-Key"),
+):
+    _require_shrimp_bilibili_incident_ops_key(x_key)
+    try:
+        return update_pir(
+            incident_id,
+            root_cause=payload.root_cause,
+            lessons_learned=payload.lessons_learned,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-incidents/{incident_id}/corrective-actions")
+def shrimp_animation_bilibili_corrective_action_create(
+    incident_id: UUID,
+    payload: ShrimpBilibiliCorrectiveActionCreate,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Incident-Ops-Key"),
+):
+    _require_shrimp_bilibili_incident_ops_key(x_key)
+    try:
+        return add_corrective_action(
+            incident_id,
+            description=payload.description,
+            owner_ref=payload.owner_ref,
+            due_at=payload.due_at,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-oncall-routes")
+def shrimp_animation_bilibili_oncall_route_update(
+    payload: ShrimpBilibiliOncallRouteUpdate,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Incident-Ops-Key"),
+):
+    _require_shrimp_bilibili_incident_ops_key(x_key)
+    try:
+        return configure_oncall_route(
+            severity=payload.severity,
+            owner_ref=payload.owner_ref,
+            secondary_owner_ref=payload.secondary_owner_ref,
+            actor=payload.actor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-corrective-actions/{action_id}/complete")
+def shrimp_animation_bilibili_corrective_action_complete(
+    action_id: UUID,
+    payload: ShrimpBilibiliCorrectiveActionComplete,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Incident-Ops-Key"),
+):
+    _require_shrimp_bilibili_incident_ops_key(x_key)
+    try:
+        return complete_corrective_action(
+            action_id,
+            completion_evidence=payload.completion_evidence,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
 @app.get("/v1/shrimp-animation/bilibili-incidents")

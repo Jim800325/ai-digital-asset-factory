@@ -2,7 +2,7 @@
 const byId=id=>document.getElementById(id);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const clear=n=>n.replaceChildren();
-const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[]};
+const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[]};
 function toast(msg,bad=false){const n=byId("toast");n.textContent=msg;n.className="toast"+(bad?" bad":"");n.classList.remove("hidden");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.add("hidden"),3200)}
 async function api(url,opts={}){const r=await fetch(url,{cache:"no-store",...opts,headers:{"Accept":"application/json",...(opts.headers||{})}});const b=await r.json().catch(()=>({detail:"Invalid response"}));if(!r.ok)throw new Error(b.detail||("HTTP "+r.status));return b}
 function pill(v){const s=String(v||"UNKNOWN").toUpperCase();const cls=/READY|SUCCESS|APPROVED|AUTHORIZED|PUBLISHED|CURRENT|ACTIVE|PASS|CONFIGURED/.test(s)?"good":/BLOCKED|FAILED|REJECTED|STALE|DISABLED|MISSING|INACTIVE|EXPIRED|UNHEALTHY|MISMATCH|LOGGED_OUT|DENIED/.test(s)?"bad":"warn";return el("span","pill "+cls,s)}
@@ -177,11 +177,91 @@ async function showIncidentTimeline(x){
     alert(lines.join("\n")||"暂无 Timeline Event");
   }catch(e){toast("Timeline 读取失败："+e.message,true)}
 }
+async function acknowledgeIncident(x){
+  const key=prompt("输入独立 Incident Ops Key：");
+  if(!key)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-incidents/"+encodeURIComponent(x.id)+"/acknowledge",{method:"POST",headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Incident-Ops-Key":key},body:JSON.stringify({actor:"shrimp-control-center-v0.5"})});
+    toast("Incident 已 ACK");await load();
+  }catch(e){toast("ACK 失败："+e.message,true)}
+}
+async function assignIncidentOwner(x){
+  const owner=prompt("新的 Owner：",x.owner_ref||"");
+  if(!owner)return;
+  const key=prompt("输入独立 Incident Ops Key：");
+  if(!key)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-incidents/"+encodeURIComponent(x.id)+"/owner",{method:"POST",headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Incident-Ops-Key":key},body:JSON.stringify({owner_ref:owner,actor:"shrimp-control-center-v0.5"})});
+    toast("Owner 已更新");await load();
+  }catch(e){toast("Owner 更新失败："+e.message,true)}
+}
+async function completePir(x){
+  const root=prompt("Root Cause：",x.root_cause||"");
+  if(!root)return;
+  const lessons=prompt("Lessons Learned：",x.lessons_learned||"");
+  if(!lessons)return;
+  const key=prompt("输入独立 Incident Ops Key：");
+  if(!key)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-incidents/"+encodeURIComponent(x.incident_id)+"/pir/complete",{method:"POST",headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Incident-Ops-Key":key},body:JSON.stringify({root_cause:root,lessons_learned:lessons,actor:"shrimp-control-center-v0.5"})});
+    toast("PIR 已完成");await load();
+  }catch(e){toast("PIR 完成失败："+e.message,true)}
+}
+async function addCorrectiveActionForPir(x){
+  const desc=prompt("Corrective Action：");
+  if(!desc)return;
+  const owner=prompt("Action Owner：",x.owner_ref||"publisher-oncall");
+  if(!owner)return;
+  const due=prompt("Due At (ISO，可留空)：","");
+  const key=prompt("输入独立 Incident Ops Key：");
+  if(!key)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-incidents/"+encodeURIComponent(x.incident_id)+"/corrective-actions",{method:"POST",headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Incident-Ops-Key":key},body:JSON.stringify({description:desc,owner_ref:owner,due_at:due||null,actor:"shrimp-control-center-v0.5"})});
+    toast("Corrective Action 已添加");await load();
+  }catch(e){toast("Action 添加失败："+e.message,true)}
+}
+async function configureOncallRoute(x){
+  const owner=prompt("Primary Owner：",x.owner_ref||"");
+  if(!owner)return;
+  const backup=prompt("Backup Owner：",x.secondary_owner_ref||"");
+  const key=prompt("输入独立 Incident Ops Key：");
+  if(!key)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-oncall-routes",{method:"POST",headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Incident-Ops-Key":key},body:JSON.stringify({severity:x.severity,owner_ref:owner,secondary_owner_ref:backup||null,actor:"shrimp-control-center-v0.5"})});
+    toast("On-Call Route 已更新");await load();
+  }catch(e){toast("Route 更新失败："+e.message,true)}
+}
+async function completeCorrectiveAction(x){
+  const evidence=prompt("Completion Evidence：",x.completion_evidence||"");
+  if(!evidence)return;
+  const key=prompt("输入独立 Incident Ops Key：");
+  if(!key)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-corrective-actions/"+encodeURIComponent(x.id)+"/complete",{method:"POST",headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Incident-Ops-Key":key},body:JSON.stringify({completion_evidence:evidence,actor:"shrimp-control-center-v0.5"})});
+    toast("Corrective Action 已完成");await load();
+  }catch(e){toast("Action 完成失败："+e.message,true)}
+}
 function renderOperations(){
   const ops=state.operations||{},summary=ops.summary||{},escalations=ops.open_escalations||[],circuits=ops.circuits||[],runs=ops.recovery_runs||[];
   const incidentBody=byId("incidentRows");clear(incidentBody);
-  if(!state.incidents.length)empty(incidentBody,7,"当前没有 Publisher Incident");
-  state.incidents.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.incident_key||String(x.id).slice(0,12)),el("td","mono",x.account_key||"—"));const sev=document.createElement("td");sev.appendChild(pill(x.severity));tr.appendChild(sev);const st=document.createElement("td");st.appendChild(pill(x.incident_status));tr.appendChild(st);tr.append(el("td","",x.opened_at?new Date(x.opened_at).toLocaleString():"—"),el("td","mono",String(x.evidence_sha256||"").slice(0,12)+"…"));const opsCell=document.createElement("td");const timeline=el("button","button ghost small","Timeline");timeline.type="button";timeline.addEventListener("click",()=>showIncidentTimeline(x));opsCell.appendChild(timeline);if(x.incident_status==="OPEN"){const req=el("button","button ghost small","Request Recovery");req.type="button";req.addEventListener("click",()=>requestIncidentRecovery(x));opsCell.appendChild(req)}tr.appendChild(opsCell);incidentBody.appendChild(tr)});
+  if(!state.incidents.length)empty(incidentBody,10,"当前没有 Publisher Incident");
+  state.incidents.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.incident_key||String(x.id).slice(0,12)),el("td","mono",x.account_key||"—"));const sev=document.createElement("td");sev.appendChild(pill(x.severity));tr.appendChild(sev);const st=document.createElement("td");st.appendChild(pill(x.incident_status));tr.appendChild(st);const ack=document.createElement("td");ack.appendChild(pill(x.acknowledgement_status||"UNACKNOWLEDGED"));tr.appendChild(ack);tr.append(el("td","",x.owner_ref||"—"));const sla=document.createElement("td");sla.appendChild(pill(x.sla_status||"WITHIN_SLA"));tr.appendChild(sla);const pir=document.createElement("td");pir.appendChild(pill(x.pir_status||"NOT_REQUIRED"));tr.appendChild(pir);tr.append(el("td","",x.recovery_due_at?new Date(x.recovery_due_at).toLocaleString():"—"));const opsCell=document.createElement("td");const timeline=el("button","button ghost small","Timeline");timeline.type="button";timeline.addEventListener("click",()=>showIncidentTimeline(x));opsCell.appendChild(timeline);if(x.acknowledgement_status!=="ACKNOWLEDGED"&&x.incident_status!=="RESOLVED"){const ackBtn=el("button","button ghost small","ACK");ackBtn.type="button";ackBtn.addEventListener("click",()=>acknowledgeIncident(x));opsCell.appendChild(ackBtn)}if(x.incident_status!=="RESOLVED"){const ownerBtn=el("button","button ghost small","Owner");ownerBtn.type="button";ownerBtn.addEventListener("click",()=>assignIncidentOwner(x));opsCell.appendChild(ownerBtn)}if(x.incident_status==="OPEN"){const req=el("button","button ghost small","Request Recovery");req.type="button";req.addEventListener("click",()=>requestIncidentRecovery(x));opsCell.appendChild(req)}tr.appendChild(opsCell);incidentBody.appendChild(tr)});
+
+  const routeBody=byId("oncallRouteRows");clear(routeBody);
+  if(!state.oncallRoutes.length)empty(routeBody,5,"尚无 On-Call Route");
+  state.oncallRoutes.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","",x.severity||"—"),el("td","",x.owner_ref||"—"),el("td","",x.secondary_owner_ref||"—"));const st=document.createElement("td");st.appendChild(pill(x.route_status));tr.appendChild(st);const opsCell=document.createElement("td");const b=el("button","button ghost small","Edit Route");b.type="button";b.addEventListener("click",()=>configureOncallRoute(x));opsCell.appendChild(b);tr.appendChild(opsCell);routeBody.appendChild(tr)});
+
+  const slaBody=byId("incidentSlaRows");clear(slaBody);
+  if(!state.slaEvents.length)empty(slaBody,5,"尚无 SLA Event");
+  state.slaEvents.slice(0,80).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.incident_key||"—"),el("td","",x.event_type||"—"),el("td","",(x.previous_status||"—")+" → "+(x.next_status||"—")),el("td","",x.due_at?new Date(x.due_at).toLocaleString():"—"),el("td","",x.observed_at?new Date(x.observed_at).toLocaleString():"—"));slaBody.appendChild(tr)});
+
+  const pirBody=byId("pirRows");clear(pirBody);
+  if(!state.pirs.length)empty(pirBody,5,"尚无 PIR");
+  state.pirs.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.incident_key||"—"));const st=document.createElement("td");st.appendChild(pill(x.review_status));tr.appendChild(st);tr.append(el("td","",x.owner_ref||"—"),el("td","",x.completed_at?new Date(x.completed_at).toLocaleString():"—"));const opsCell=document.createElement("td");if(x.review_status!=="COMPLETED"){const done=el("button","button ghost small","Complete PIR");done.type="button";done.addEventListener("click",()=>completePir(x));opsCell.appendChild(done)}const add=el("button","button ghost small","Add Action");add.type="button";add.addEventListener("click",()=>addCorrectiveActionForPir(x));opsCell.appendChild(add);tr.appendChild(opsCell);pirBody.appendChild(tr)});
+
+  const caBody=byId("correctiveActionRows");clear(caBody);
+  if(!state.correctiveActions.length)empty(caBody,6,"尚无 Corrective Action");
+  state.correctiveActions.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.incident_key||"—"),el("td","",x.action_key+" · "+x.description),el("td","",x.owner_ref||"—"));const st=document.createElement("td");st.appendChild(pill(x.action_status));tr.appendChild(st);tr.append(el("td","",x.due_at?new Date(x.due_at).toLocaleString():"—"));const opsCell=document.createElement("td");if(x.action_status!=="COMPLETED"&&x.action_status!=="CANCELLED"){const b=el("button","button ghost small","Complete");b.type="button";b.addEventListener("click",()=>completeCorrectiveAction(x));opsCell.appendChild(b)}else{opsCell.appendChild(el("span","muted","—"))}tr.appendChild(opsCell);caBody.appendChild(tr)});
 
   const approvalBody=byId("recoveryApprovalRows");clear(approvalBody);
   if(!state.approvals.length)empty(approvalBody,7,"当前没有 Recovery Approval");
@@ -191,9 +271,10 @@ function renderOperations(){
   if(!state.notifications.length)empty(notificationBody,7,"当前没有 Operations Notification");
   state.notifications.slice(0,80).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","",x.created_at?new Date(x.created_at).toLocaleString():"—"),el("td","mono",x.incident_key||"—"),el("td","",x.notification_type||"—"));const sev=document.createElement("td");sev.appendChild(pill(x.severity));tr.appendChild(sev);tr.append(el("td","",x.destination_type||"—"));const st=document.createElement("td");st.appendChild(pill(x.delivery_status));tr.appendChild(st);tr.append(el("td","",x.attempt_count??0));notificationBody.appendChild(tr)});
 
-  byId("operationsRiskBadge").textContent=(summary.critical_escalations||0)+" CRITICAL";
+  const io=state.incidentOps||{};
+  byId("operationsRiskBadge").textContent=((summary.critical_escalations||0)+(io.sla_breached||0))+" CRITICAL";
   const metrics=byId("operationsMetrics");clear(metrics);
-  [["Critical",summary.critical_escalations||0],["Warnings",summary.warning_escalations||0],["Open Circuits",summary.open_circuits||0],["Recovery Pending",summary.recovery_pending||0]].forEach(([k,v])=>{const card=el("div","metric-card");card.append(el("div","metric-label",k),el("div","metric-value small",v));metrics.appendChild(card)});
+  [["Active Incidents",io.active_incidents||0],["Unacknowledged",io.unacknowledged||0],["SLA Breached",io.sla_breached||0],["PIR Required",io.pir_required||0]].forEach(([k,v])=>{const card=el("div","metric-card");card.append(el("div","metric-label",k),el("div","metric-value small",v));metrics.appendChild(card)});
 
   const escBody=byId("escalationRows");clear(escBody);
   if(!escalations.length)empty(escBody,8,"当前没有 Open Claim Escalation");
@@ -239,7 +320,7 @@ async function evaluateCircuit(x){
 }
 function renderSettings(){const s=state.summary||{},sys=s.system||{},r=s.bilibili?.readiness||{},c=r.checks||{};const groups=[["runtimeSettings",[["Vercel Env",sys.vercel_env||"—"],["Database",sys.database_available?"AVAILABLE":"UNAVAILABLE"],["Database Source",sys.database_source||"—"],["Preview Isolated",sys.preview_isolated?"YES":"NO"],["Migrations",sys.migration_status||"—"]]],["publisherSettings",[["Adapter",sys.publisher_adapter||"—"],["Executor",c.publish_executor_enabled?"ENABLED":"DISABLED"],["Step 9 Gate",c.publish_authorization_gate?"READY":"BLOCKED"],["Step 10 Gate",c.publish_execution_gate?"READY":"BLOCKED"]]],["bilibiliSettings",[["Account Profiles",state.accounts.length],["Controlled Adapter",c.bilibili_controlled_adapter?"READY":"BLOCKED"],["Live Acceptance",c.bilibili_live_acceptance_enabled?"ENABLED":"DISABLED"],["Cookie Bundle",c.bilibili_cookie_credentials_present?"CONFIGURED":"MISSING"]]],["securitySettings",[["Secrets Redacted",r.secrets_redacted?"YES":"NO"],["Account Allowlist",c.sacrificial_account_allowlist_present?"SET":"MISSING"],["Account Denylist",c.real_account_denylist_present?"SET":"MISSING"],["Target Allowlist",c.sacrificial_target_allowlist_present?"SET":"MISSING"],["Target Denylist",c.real_target_denylist_present?"SET":"MISSING"]]]];groups.forEach(([id,items])=>{const root=byId(id);clear(root);items.forEach(([k,v])=>row(root,k,v))})}
 async function load(){byId("refreshButton").disabled=true;try{
-  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications]=await Promise.all([
+  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions]=await Promise.all([
     api("/v1/shrimp-animation/control-center/summary"),
     api("/v1/shrimp-animation/publish-targets"),
     api("/v1/shrimp-animation/bilibili-accounts"),
@@ -253,11 +334,16 @@ async function load(){byId("refreshButton").disabled=true;try{
     api("/v1/shrimp-animation/bilibili-circuit-events?limit=100"),
     api("/v1/shrimp-animation/bilibili-incidents?limit=100"),
     api("/v1/shrimp-animation/bilibili-recovery-approvals?limit=100"),
-    api("/v1/shrimp-animation/bilibili-notifications?limit=100")
+    api("/v1/shrimp-animation/bilibili-notifications?limit=100"),
+    api("/v1/shrimp-animation/bilibili-incident-ops-summary"),
+    api("/v1/shrimp-animation/bilibili-oncall-routes?limit=100"),
+    api("/v1/shrimp-animation/bilibili-incident-sla-events?limit=100"),
+    api("/v1/shrimp-animation/bilibili-post-incident-reviews?limit=100"),
+    api("/v1/shrimp-animation/bilibili-corrective-actions?limit=100")
   ]);
   let selection=null;
   try{selection=await api("/v1/shrimp-animation/bilibili-account-selection/healthy")}catch(_){}
-  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];
+  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];
   renderAccounts();renderJobs();renderExecutions();renderQuota();renderOperations();renderSettings();
 }catch(e){toast("载入失败："+e.message,true)}finally{byId("refreshButton").disabled=false}}
 byId("accountForm").addEventListener("submit",async e=>{

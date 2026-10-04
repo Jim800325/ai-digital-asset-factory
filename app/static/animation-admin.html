@@ -223,8 +223,30 @@
 
         <section class="panel-card">
           <div class="section-title-row"><div><div class="card-kicker">PUBLISHER INCIDENTS</div><h2>Incident Timeline / Recovery Approval</h2></div><span class="safe-badge">Human gated recovery</span></div>
-          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Incident</th><th>Account</th><th>Severity</th><th>Status</th><th>Opened</th><th>Evidence</th><th>操作</th></tr></thead><tbody id="incidentRows"></tbody></table></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Incident</th><th>Account</th><th>Severity</th><th>Status</th><th>ACK</th><th>Owner</th><th>SLA</th><th>PIR</th><th>Recovery Due</th><th>操作</th></tr></thead><tbody id="incidentRows"></tbody></table></div>
         </section>
+
+        <div class="split-grid">
+          <section class="panel-card">
+            <div class="section-title-row"><div><div class="card-kicker">ON-CALL ROUTING</div><h2>值班路由</h2></div><span class="safe-badge">Responsibility only</span></div>
+            <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Severity</th><th>Owner</th><th>Backup</th><th>Status</th><th>操作</th></tr></thead><tbody id="oncallRouteRows"></tbody></table></div>
+          </section>
+          <section class="panel-card">
+            <div class="section-title-row"><div><div class="card-kicker">RECOVERY SLA</div><h2>SLA Events</h2></div><span class="safe-badge">ACK / Recovery deadlines</span></div>
+            <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Incident</th><th>Event</th><th>State</th><th>Due</th><th>Observed</th></tr></thead><tbody id="incidentSlaRows"></tbody></table></div>
+          </section>
+        </div>
+
+        <div class="split-grid">
+          <section class="panel-card">
+            <div class="section-title-row"><div><div class="card-kicker">POST-INCIDENT REVIEW</div><h2>PIR / Root Cause</h2></div><span class="safe-badge">Governance only</span></div>
+            <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Incident</th><th>Status</th><th>Owner</th><th>Completed</th><th>操作</th></tr></thead><tbody id="pirRows"></tbody></table></div>
+          </section>
+          <section class="panel-card">
+            <div class="section-title-row"><div><div class="card-kicker">CORRECTIVE ACTIONS</div><h2>纠正措施</h2></div><span class="safe-badge">Tracked to closure</span></div>
+            <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Incident</th><th>Action</th><th>Owner</th><th>Status</th><th>Due</th><th>操作</th></tr></thead><tbody id="correctiveActionRows"></tbody></table></div>
+          </section>
+        </div>
 
         <section class="panel-card">
           <div class="section-title-row"><div><div class="card-kicker">RECOVERY APPROVALS</div><h2>人工恢复审批</h2></div><span class="safe-badge">Independent approval key</span></div>
