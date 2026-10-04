@@ -331,6 +331,16 @@ def run_credential_health_check(
               last_error_type=:failure_type,
               last_error_sha256=:failure_sha,
               health_evidence_sha256=:evidence_sha,
+              consecutive_failures=CASE
+                WHEN :health_status='HEALTHY' THEN 0
+                ELSE consecutive_failures+1
+              END,
+              degradation_status=CASE
+                WHEN :health_status='HEALTHY' THEN 'NORMAL'
+                WHEN consecutive_failures+1 >= :failure_threshold
+                  THEN 'QUARANTINED'
+                ELSE 'DEGRADED'
+              END,
               updated_by=:actor
           WHERE id=:id
         """),{
@@ -347,6 +357,10 @@ def run_credential_health_check(
           "failure_sha":failure_sha,
           "evidence_sha":evidence_sha,
           "actor":(actor or "shrimp-credential-health")[:200],
+          "failure_threshold":max(
+            1,
+            int(settings.shrimp_bilibili_health_failure_threshold),
+          ),
         })
         check=db.execute(text("""
           INSERT INTO shrimp_bilibili_health_checks(
