@@ -546,6 +546,49 @@ def list_reopen_events(*,limit:int=100)->list[dict]:
     return [_ser(x) for x in rows]
 
 
+def run_certification_cycle(*,actor:str)->dict:
+    generated=None
+    with engine.connect() as db:
+        accepted=db.execute(text("""
+          SELECT s.id
+          FROM shrimp_bilibili_post_unfreeze_observation_sessions s
+          JOIN shrimp_bilibili_restore_acceptances a ON a.session_id=s.id
+          LEFT JOIN shrimp_bilibili_post_restore_certifications c
+            ON c.observation_session_id=s.id
+          WHERE s.session_status='ACCEPTED'
+            AND a.acceptance_status='ACCEPTED'
+            AND c.id IS NULL
+          ORDER BY s.completed_at DESC NULLS LAST,s.created_at DESC
+          LIMIT 1
+        """)).scalar_one_or_none()
+    if accepted is not None:
+        try:
+            generated=generate_certification(
+                accepted,
+                actor=actor+"-certification",
+            )
+        except RuntimeError as exc:
+            generated={"status":"NOT_ELIGIBLE","reason":str(exc)}
+
+    evaluation=None
+    with engine.connect() as db:
+        active=db.execute(text("""
+          SELECT id FROM shrimp_bilibili_post_restore_certifications
+          WHERE certification_status IN ('CERTIFIED','REOPEN_RECOMMENDED')
+          ORDER BY certified_at DESC
+          LIMIT 1
+        """)).scalar_one_or_none()
+    if active is not None:
+        evaluation=evaluate_certification(actor=actor+"-reopen-evaluator")
+
+    return {
+        "generated":generated,
+        "evaluation":evaluation,
+        "automatic_policy_change":False,
+        "provider_write_count":0,
+    }
+
+
 def certification_dashboard()->dict:
     certifications=list_certifications(limit=100)
     current=next((
