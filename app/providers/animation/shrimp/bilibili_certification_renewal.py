@@ -302,6 +302,21 @@ def evaluate_certification_expiry(*,actor:str)->dict:
             "provider_write_count":0,
         }
     cert=dict(source)
+    _mark_attestation_once(
+        certification=cert,
+        attestation_type="INITIAL_CERTIFICATION",
+        status="VALID",
+        actor=actor,
+        evidence={
+            "certification_key":cert["certification_key"],
+            "certification_sha256":cert["certification_sha256"],
+            "baseline_sha256":cert["baseline_sha256"],
+            "valid_from":cert["valid_from"].isoformat(),
+            "renewal_due_at":cert["renewal_due_at"].isoformat(),
+            "expires_at":cert["expires_at"].isoformat(),
+            "backfilled":True,
+        },
+    )
     action="VALID"
     notification=None
 
