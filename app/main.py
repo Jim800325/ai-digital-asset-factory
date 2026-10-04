@@ -554,6 +554,24 @@ def _require_shrimp_bilibili_live_acceptance_key(
             detail="Invalid Shrimp Bilibili live acceptance key",
         )
 
+def _require_shrimp_bilibili_recovery_approval_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_bilibili_recovery_approval_key.strip()
+    if not expected:
+        raise HTTPException(status_code=503,detail="Bilibili recovery approval gate is not configured")
+    forbidden=(
+        settings.shrimp_human_review_key.strip(),
+        settings.shrimp_publish_authorization_key.strip(),
+        settings.shrimp_publish_execution_key.strip(),
+        settings.shrimp_bilibili_live_acceptance_key.strip(),
+    )
+    if any(value and secrets.compare_digest(expected,value) for value in forbidden):
+        raise HTTPException(status_code=503,detail="Bilibili recovery approval key must be independent")
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(status_code=403,detail="Invalid Bilibili recovery approval key")
+
+
 def _shrimp_bilibili_live_acceptance_readiness() -> dict[str, Any]:
     vercel_env=(os.getenv("VERCEL_ENV") or "").strip().lower()
     try:
