@@ -2,7 +2,7 @@
 const byId=id=>document.getElementById(id);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const clear=n=>n.replaceChildren();
-const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null};
+const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null,reliabilityTrend:null};
 function toast(msg,bad=false){const n=byId("toast");n.textContent=msg;n.className="toast"+(bad?" bad":"");n.classList.remove("hidden");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.add("hidden"),3200)}
 async function api(url,opts={}){const r=await fetch(url,{cache:"no-store",...opts,headers:{"Accept":"application/json",...(opts.headers||{})}});const b=await r.json().catch(()=>({detail:"Invalid response"}));if(!r.ok)throw new Error(b.detail||("HTTP "+r.status));return b}
 function pill(v){const s=String(v||"UNKNOWN").toUpperCase();const cls=/READY|SUCCESS|APPROVED|AUTHORIZED|PUBLISHED|CURRENT|ACTIVE|PASS|CONFIGURED/.test(s)?"good":/BLOCKED|FAILED|REJECTED|STALE|DISABLED|MISSING|INACTIVE|EXPIRED|UNHEALTHY|MISMATCH|LOGGED_OUT|DENIED/.test(s)?"bad":"warn";return el("span","pill "+cls,s)}
@@ -348,6 +348,27 @@ function renderReliability(){
   if(!scorecards.length)empty(scoreBody,9,"尚无 Scorecard Snapshot");
   scorecards.slice(0,80).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.scope_type==="GLOBAL"?"GLOBAL":(x.account_key||"ACCOUNT")),el("td","",x.reliability_score??"—"));const gr=document.createElement("td");gr.appendChild(pill(x.reliability_grade||"—"));tr.appendChild(gr);tr.append(el("td","",x.incident_count??0),el("td","",x.ack_slo_breach_count??0),el("td","",x.recovery_slo_breach_count??0),el("td","",x.circuit_open_count??0),el("td","",(x.ambiguity_rate_percent??0)+"%"),el("td","",x.generated_at?new Date(x.generated_at).toLocaleString():"—"));scoreBody.appendChild(tr)});
 
+  const trendData=state.reliabilityTrend||{};
+  const trendBody=byId("reliabilityTrendRows");clear(trendBody);
+  const trendPoints=Array.isArray(trendData.trend_points)?trendData.trend_points:[];
+  if(!trendPoints.length)empty(trendBody,8,"尚无 Reliability Trend");
+  trendPoints.slice(0,120).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","",x.bucket_type+" · "+(x.bucket_start?new Date(x.bucket_start).toLocaleDateString():"—")),el("td","mono",x.scope_type==="GLOBAL"?"GLOBAL":(x.account_key||"ACCOUNT")),el("td","",x.reliability_score??"—"),el("td","",(x.ack_success_rate??0)+"%"),el("td","",(x.recovery_success_rate??0)+"%"),el("td","",(x.ambiguity_rate_percent??0)+"%"),el("td","",x.circuit_open_count??0),el("td","",x.recurring_root_cause_count??0));trendBody.appendChild(tr)});
+
+  const burnBody=byId("burnRateRows");clear(burnBody);
+  const burns=Array.isArray(trendData.burn_evaluations)?trendData.burn_evaluations:[];
+  if(!burns.length)empty(burnBody,7,"尚无 Burn Rate Evaluation");
+  burns.slice(0,80).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.scope_type==="GLOBAL"?"GLOBAL":(x.account_key||"ACCOUNT")));const st=document.createElement("td");st.appendChild(pill(x.burn_status));tr.appendChild(st);tr.append(el("td","",x.ack_short_burn_rate??0),el("td","",x.ack_long_burn_rate??0),el("td","",x.recovery_short_burn_rate??0),el("td","",x.recovery_long_burn_rate??0),el("td","",x.evaluated_at?new Date(x.evaluated_at).toLocaleString():"—"));burnBody.appendChild(tr)});
+
+  const regBody=byId("regressionRows");clear(regBody);
+  const regressions=Array.isArray(trendData.open_regressions)?trendData.open_regressions:[];
+  if(!regressions.length)empty(regBody,7,"当前没有 Reliability Regression");
+  regressions.forEach(x=>{const tr=document.createElement("tr");const sev=document.createElement("td");sev.appendChild(pill(x.severity));tr.appendChild(sev);tr.append(el("td","mono",x.scope_type==="GLOBAL"?"GLOBAL":(x.account_key||"ACCOUNT")),el("td","",x.metric_key||"—"),el("td","",x.baseline_value??"—"),el("td","",x.current_value??"—"),el("td","",x.absolute_delta??"—"),el("td","",x.detected_at?new Date(x.detected_at).toLocaleString():"—"));regBody.appendChild(tr)});
+
+  const policyBody=byId("policyRecommendationRows");clear(policyBody);
+  const recommendations=Array.isArray(trendData.recommendations)?trendData.recommendations:[];
+  if(!recommendations.length)empty(policyBody,5,"当前没有 Reliability Policy Recommendation");
+  recommendations.forEach(x=>{const tr=document.createElement("tr");const p=document.createElement("td");p.appendChild(pill(x.priority));tr.appendChild(p);tr.append(el("td","",x.category||"—"),el("td","",x.title||"—"),el("td","",x.recommendation_text||"—"),el("td","",x.generated_at?new Date(x.generated_at).toLocaleString():"—"));policyBody.appendChild(tr)});
+
   const recurrenceBody=byId("recurrenceRows");clear(recurrenceBody);
   const clusters=Array.isArray(data.recurrence_clusters)?data.recurrence_clusters:[];
   if(!clusters.length)empty(recurrenceBody,8,"尚无已完成 PIR 的 Root Cause recurrence");
@@ -356,7 +377,7 @@ function renderReliability(){
 
 function renderSettings(){const s=state.summary||{},sys=s.system||{},r=s.bilibili?.readiness||{},c=r.checks||{};const groups=[["runtimeSettings",[["Vercel Env",sys.vercel_env||"—"],["Database",sys.database_available?"AVAILABLE":"UNAVAILABLE"],["Database Source",sys.database_source||"—"],["Preview Isolated",sys.preview_isolated?"YES":"NO"],["Migrations",sys.migration_status||"—"]]],["publisherSettings",[["Adapter",sys.publisher_adapter||"—"],["Executor",c.publish_executor_enabled?"ENABLED":"DISABLED"],["Step 9 Gate",c.publish_authorization_gate?"READY":"BLOCKED"],["Step 10 Gate",c.publish_execution_gate?"READY":"BLOCKED"]]],["bilibiliSettings",[["Account Profiles",state.accounts.length],["Controlled Adapter",c.bilibili_controlled_adapter?"READY":"BLOCKED"],["Live Acceptance",c.bilibili_live_acceptance_enabled?"ENABLED":"DISABLED"],["Cookie Bundle",c.bilibili_cookie_credentials_present?"CONFIGURED":"MISSING"]]],["securitySettings",[["Secrets Redacted",r.secrets_redacted?"YES":"NO"],["Account Allowlist",c.sacrificial_account_allowlist_present?"SET":"MISSING"],["Account Denylist",c.real_account_denylist_present?"SET":"MISSING"],["Target Allowlist",c.sacrificial_target_allowlist_present?"SET":"MISSING"],["Target Denylist",c.real_target_denylist_present?"SET":"MISSING"]]]];groups.forEach(([id,items])=>{const root=byId(id);clear(root);items.forEach(([k,v])=>row(root,k,v))})}
 async function load(){byId("refreshButton").disabled=true;try{
-  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability]=await Promise.all([
+  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability,reliabilityTrend]=await Promise.all([
     api("/v1/shrimp-animation/control-center/summary"),
     api("/v1/shrimp-animation/publish-targets"),
     api("/v1/shrimp-animation/bilibili-accounts"),
@@ -376,11 +397,12 @@ async function load(){byId("refreshButton").disabled=true;try{
     api("/v1/shrimp-animation/bilibili-incident-sla-events?limit=100"),
     api("/v1/shrimp-animation/bilibili-post-incident-reviews?limit=100"),
     api("/v1/shrimp-animation/bilibili-corrective-actions?limit=100"),
-    api("/v1/shrimp-animation/bilibili-reliability-dashboard")
+    api("/v1/shrimp-animation/bilibili-reliability-dashboard"),
+    api("/v1/shrimp-animation/bilibili-reliability-trend-dashboard")
   ]);
   let selection=null;
   try{selection=await api("/v1/shrimp-animation/bilibili-account-selection/healthy")}catch(_){}
-  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};
+  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};state.reliabilityTrend=reliabilityTrend||{};
   renderAccounts();renderJobs();renderExecutions();renderQuota();renderOperations();renderReliability();renderSettings();
 }catch(e){toast("载入失败："+e.message,true)}finally{byId("refreshButton").disabled=false}}
 byId("accountForm").addEventListener("submit",async e=>{
