@@ -581,8 +581,38 @@ def evaluate_certification(*,actor:str)->dict:
             db.execute(text("""
               UPDATE shrimp_bilibili_post_restore_certifications
               SET certification_status='REOPEN_RECOMMENDED'
-              WHERE id=:id AND certification_status='CERTIFIED'
+              WHERE id=:id AND certification_status IN ('CERTIFIED','EXPIRING')
             """),{"id":cert["id"]})
+            existing_attestation=db.execute(text("""
+              SELECT id
+              FROM shrimp_bilibili_reliability_attestations
+              WHERE certification_id=:id
+                AND attestation_type='REOPEN_RECOMMENDED'
+              ORDER BY created_at DESC
+              LIMIT 1
+            """),{"id":cert["id"]}).scalar_one_or_none()
+            if existing_attestation is None:
+                previous_attestation=db.execute(text("""
+                  SELECT id
+                  FROM shrimp_bilibili_reliability_attestations
+                  ORDER BY created_at DESC,id DESC
+                  LIMIT 1
+                """)).scalar_one_or_none()
+                _append_attestation(
+                    db,
+                    certification_id=cert["id"],
+                    previous_attestation_id=previous_attestation,
+                    attestation_type="REOPEN_RECOMMENDED",
+                    attestation_sequence=int(cert.get("attestation_sequence") or 1),
+                    attestation_status="REOPENED",
+                    evidence_snapshot={
+                        "certification_key":cert["certification_key"],
+                        "evaluation_sha256":row["evaluation_sha256"],
+                        "trigger_codes":triggers,
+                        "current_evidence_sha256":evidence_sha,
+                    },
+                    actor=actor,
+                )
             event_material={
                 "certification_id":str(cert["id"]),
                 "evaluation_id":str(row["id"]),
