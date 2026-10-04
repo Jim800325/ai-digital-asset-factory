@@ -885,6 +885,7 @@ def decide_publish_authorization(
     decision_sha = None
 
     with engine.begin() as db:
+        db.execute(text("SELECT expire_shrimp_bilibili_reservations()"))
         row = _current_authorization_snapshot(db, plan_id)
         if row is None:
             raise LookupError("Publisher Plan not found")
