@@ -448,11 +448,13 @@ def second_restore_apply(
         }
         db.execute(text("""
           INSERT INTO shrimp_bilibili_reliability_policy_control_events(
-            plan_id,event_type,previous_snapshot,next_snapshot,event_sha256,actor)
+            plan_id,restore_plan_id,event_type,
+            previous_snapshot,next_snapshot,event_sha256,actor)
           VALUES(
-            NULL,'SAFE_UNFREEZE_APPLIED',
+            NULL,:restore_plan_id,'SAFE_UNFREEZE_APPLIED',
             CAST(:before AS jsonb),CAST(:after AS jsonb),:sha,:actor)
         """),{
+            "restore_plan_id":plan_id,
             "before":canonical_json(before),"after":canonical_json(after),
             "sha":_sha(event),"actor":actor.strip()[:200],
         })
