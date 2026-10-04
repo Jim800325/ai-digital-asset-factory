@@ -33,6 +33,29 @@ CREATE TABLE IF NOT EXISTS shrimp_bilibili_signing_key_events (
 CREATE INDEX IF NOT EXISTS idx_shrimp_bilibili_signing_key_events
   ON shrimp_bilibili_signing_key_events(key_id,effective_at DESC,recorded_at DESC);
 
+
+
+CREATE TABLE IF NOT EXISTS shrimp_bilibili_signing_trust_roots (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  root_version integer NOT NULL UNIQUE,
+  previous_root_id uuid
+    REFERENCES shrimp_bilibili_signing_trust_roots(id) ON DELETE RESTRICT,
+  root_threshold integer NOT NULL,
+  authorized_key_fingerprints jsonb NOT NULL,
+  root_snapshot jsonb NOT NULL,
+  root_sha256 char(64) NOT NULL UNIQUE,
+  generated_by text NOT NULL,
+  generated_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (root_version>=1),
+  CHECK (root_threshold>=1),
+  CHECK (jsonb_typeof(authorized_key_fingerprints)='array'),
+  CHECK (jsonb_typeof(root_snapshot)='object'),
+  CHECK (char_length(root_sha256)=64)
+);
+
+CREATE INDEX IF NOT EXISTS idx_shrimp_bilibili_signing_trust_roots
+  ON shrimp_bilibili_signing_trust_roots(root_version DESC);
+
 CREATE OR REPLACE FUNCTION prevent_bilibili_signing_key_mutation()
 RETURNS trigger AS $signing_key$
 BEGIN
@@ -58,3 +81,17 @@ DROP TRIGGER IF EXISTS trg_prevent_bilibili_signing_key_event_mutation
 CREATE TRIGGER trg_prevent_bilibili_signing_key_event_mutation
 BEFORE UPDATE OR DELETE ON shrimp_bilibili_signing_key_events
 FOR EACH ROW EXECUTE FUNCTION prevent_bilibili_signing_key_event_mutation();
+
+
+CREATE OR REPLACE FUNCTION prevent_bilibili_signing_trust_root_mutation()
+RETURNS trigger AS $signing_trust_root$
+BEGIN
+  RAISE EXCEPTION 'Signing trust root is immutable';
+END;
+$signing_trust_root$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_prevent_bilibili_signing_trust_root_mutation
+  ON shrimp_bilibili_signing_trust_roots;
+CREATE TRIGGER trg_prevent_bilibili_signing_trust_root_mutation
+BEFORE UPDATE OR DELETE ON shrimp_bilibili_signing_trust_roots
+FOR EACH ROW EXECUTE FUNCTION prevent_bilibili_signing_trust_root_mutation();
