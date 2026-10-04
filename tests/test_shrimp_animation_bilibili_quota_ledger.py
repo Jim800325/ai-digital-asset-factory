@@ -5,6 +5,7 @@ import tempfile
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from app.build_proposals import decide_build_proposal, ensure_build_proposal
 from app.config import settings
 from app.db import engine
 from app.main import app
@@ -14,7 +15,7 @@ from app.providers.animation.shrimp.bilibili_credentials import (
 )
 from app.providers.animation.shrimp.bilibili_quota import settle_cleanup
 from tests.test_shrimp_animation_provider_step4 import (
-    _create_proposal,
+    _cleanup_registry,
     _seed_registry,
 )
 from tests.test_shrimp_animation_provider_step8 import _build_review_ready_job
@@ -33,6 +34,59 @@ class HealthyProbe:
             "level":6,
             "publish_probe_ok":True,
         }
+
+
+def _create_named_proposal(suffix: str):
+    fingerprint=f"shrimp-ledger-{suffix}"
+    with engine.begin() as db:
+        opportunity_id=db.execute(text("""
+          INSERT INTO digital_asset_opportunities(
+            fingerprint,title,asset_type,problem,target_customer,
+            monetization_model,source_url,score,status,
+            research_validation_score,build_readiness)
+          VALUES(
+            :fingerprint,'CI Ledger Opportunity','CONTENT_IP',
+            'ledger lifecycle acceptance',
+            'short-form animation creators',
+            'content licensing',
+            :source_url,95,'CANDIDATE',100,'BUILD_READY')
+          RETURNING id
+        """),{
+          "fingerprint":fingerprint,
+          "source_url":f"https://ledger.test/{suffix}",
+        }).scalar_one()
+        db.execute(text("""
+          INSERT INTO research_reports(
+            opportunity_id,report_status,problem,buyer,
+            existing_alternatives,evidence,monetization,
+            build_complexity,risks,why_now,generator_version,observe_only)
+          VALUES(
+            :id,'GENERATED','ledger lifecycle acceptance',
+            'short-form animation creators','manual publishing',
+            'CI evidence','content licensing','medium',
+            'quota drift','auditable quota prevents collisions',
+            'ledger-ci',true)
+        """),{"id":opportunity_id})
+        db.execute(text("""
+          INSERT INTO research_validations(
+            opportunity_id,validation_status,buyer_status,
+            competitors_status,pricing_status,willingness_to_pay_status,
+            market_gap_status,completeness_score,validation_gate_passed,
+            build_readiness,validator_version,observe_only)
+          VALUES(
+            :id,'CURRENT','VALIDATED','VALIDATED','VALIDATED',
+            'VALIDATED','VALIDATED',100,true,'BUILD_READY',
+            'ledger-ci',true)
+        """),{"id":opportunity_id})
+    proposal=ensure_build_proposal(opportunity_id)
+    approved=decide_build_proposal(
+        proposal["proposal_id"],
+        decision="APPROVE",
+        reason="quota ledger acceptance",
+        actor="ci-ledger-human",
+    )
+    assert approved["proposal_status"]=="APPROVED"
+    return opportunity_id,proposal["proposal_id"]
 
 
 def _prepare_account(client, monkeypatch):
@@ -127,6 +181,8 @@ def _routed_plan(client, job_id):
 
 
 def test_reservation_claim_publish_and_quota_ledger(monkeypatch):
+    opportunity1=None
+    opportunity2=None
     monkeypatch.setattr(settings,"shrimp_human_review_key","ci-ledger-review-key")
     monkeypatch.setattr(settings,"shrimp_publish_authorization_key","ci-ledger-publish-key")
     monkeypatch.setattr(settings,"shrimp_publish_execution_key","ci-ledger-execution-key")
@@ -140,7 +196,7 @@ def test_reservation_claim_publish_and_quota_ledger(monkeypatch):
     _prepare_account(client,monkeypatch)
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        _,proposal1=_create_proposal()
+        opportunity1,proposal1=_create_named_proposal("reject")
         reject_job,_,_=_build_review_ready_job(
             proposal1,reusable,temp_dir=temp_dir,requested_by="ci-ledger-reject"
         )
@@ -170,7 +226,7 @@ def test_reservation_claim_publish_and_quota_ledger(monkeypatch):
         ).json()
         assert "PLAN_RELEASED" in {x["entry_type"] for x in ledger}
 
-        _,proposal2=_create_proposal()
+        opportunity2,proposal2=_create_named_proposal("publish")
         publish_job,_,_=_build_review_ready_job(
             proposal2,reusable,temp_dir=temp_dir,requested_by="ci-ledger-publish"
         )
@@ -238,3 +294,46 @@ def test_reservation_claim_publish_and_quota_ledger(monkeypatch):
         ).json()
         types={x["entry_type"] for x in ledger}
         assert {"CLAIM_CREATED","PUBLISH_COMMITTED","CLEANUP_SETTLED"} <= types
+
+    with engine.begin() as db:
+        db.execute(text(
+            "ALTER TABLE shrimp_bilibili_quota_ledger "
+            "DISABLE TRIGGER trg_prevent_bilibili_quota_ledger_update"
+        ))
+        db.execute(text("""
+          DELETE FROM shrimp_bilibili_quota_ledger
+          WHERE account_id=(
+            SELECT id FROM shrimp_bilibili_accounts
+            WHERE account_key='ci-ledger-account'
+          )
+        """))
+        db.execute(text(
+            "ALTER TABLE shrimp_bilibili_quota_ledger "
+            "ENABLE TRIGGER trg_prevent_bilibili_quota_ledger_update"
+        ))
+        for opportunity_id in (opportunity1,opportunity2):
+            if opportunity_id is not None:
+                db.execute(text("""
+                  DELETE FROM digital_asset_opportunities
+                  WHERE id=:id
+                """),{"id":opportunity_id})
+        db.execute(text(
+            "DELETE FROM shrimp_animation_publish_targets "
+            "WHERE target_key='ci-ledger-target'"
+        ))
+        db.execute(text("""
+          DELETE FROM shrimp_bilibili_health_checks
+          WHERE account_id=(
+            SELECT id FROM shrimp_bilibili_accounts
+            WHERE account_key='ci-ledger-account'
+          )
+        """))
+        db.execute(text(
+            "DELETE FROM shrimp_bilibili_credential_slots "
+            "WHERE slot_key='ci-ledger-slot'"
+        ))
+        db.execute(text(
+            "DELETE FROM shrimp_bilibili_accounts "
+            "WHERE account_key='ci-ledger-account'"
+        ))
+    _cleanup_registry()
