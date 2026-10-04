@@ -120,6 +120,16 @@ def test_registered_account_defaults_and_policy_bind_into_publish_plan(
         "shrimp_publish_authorization_key",
         "ci-account-manager-key",
     )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_publish_execution_allowed_account_refs",
+        "ci-bili-profile,991234567,MID:991234567",
+    )
+    monkeypatch.setattr(
+        settings,
+        "shrimp_publish_execution_denied_account_refs",
+        "prod-real-bilibili",
+    )
     client=TestClient(app)
     try:
         register_shrimp_animation_provider()
