@@ -172,3 +172,263 @@ def incident_timeline(incident_id)->list[dict]:
           ORDER BY created_at,id
         """),{"incident_id":incident_id}).mappings().all()
     return [_serialize(x) for x in rows]
+
+
+def _recovery_snapshot(db, incident:dict)->dict:
+    circuit=db.execute(text("""
+      SELECT * FROM shrimp_bilibili_account_circuit_breakers
+      WHERE account_id=:account_id
+    """),{"account_id":incident["account_id"]}).mappings().one_or_none()
+    slot=db.execute(text("""
+      SELECT slot_key,slot_status,health_status,degradation_status,
+             mid_status,publish_permission_status,health_evidence_sha256,
+             last_checked_at
+      FROM shrimp_bilibili_credential_slots
+      WHERE account_id=:account_id
+      LIMIT 1
+    """),{"account_id":incident["account_id"]}).mappings().one_or_none()
+    ambiguous=int(db.execute(text("""
+      SELECT COUNT(*)
+      FROM shrimp_bilibili_execution_claims c
+      JOIN shrimp_animation_publish_executions e ON e.id=c.execution_id
+      WHERE c.account_id=:account_id
+        AND c.claim_status='CLAIMED'
+        AND e.execution_status IN (
+          'UPLOADING','UPLOAD_UNKNOWN','PUBLISHING','PUBLISH_UNKNOWN'
+        )
+    """),{"account_id":incident["account_id"]}).scalar_one())
+    return {
+        "incident_id":str(incident["id"]),
+        "account_id":str(incident["account_id"]),
+        "incident_evidence_sha256":incident["evidence_sha256"],
+        "circuit":{
+            "id":str(circuit["id"]) if circuit else None,
+            "status":circuit["circuit_status"] if circuit else "CLOSED",
+            "state_version":int(circuit["state_version"]) if circuit else 0,
+            "last_evidence_sha256":(
+                circuit["last_evidence_sha256"] if circuit else None
+            ),
+        },
+        "slot":{
+            "slot_key":slot["slot_key"] if slot else None,
+            "slot_status":slot["slot_status"] if slot else None,
+            "health_status":slot["health_status"] if slot else None,
+            "degradation_status":slot["degradation_status"] if slot else None,
+            "mid_status":slot["mid_status"] if slot else None,
+            "publish_permission_status":(
+                slot["publish_permission_status"] if slot else None
+            ),
+            "health_evidence_sha256":(
+                slot["health_evidence_sha256"] if slot else None
+            ),
+            "last_checked_at":(
+                slot["last_checked_at"].isoformat()
+                if slot and slot["last_checked_at"] else None
+            ),
+        },
+        "active_ambiguous_claim_count":ambiguous,
+    }
+
+def request_recovery(incident_id, *, actor:str)->dict:
+    with engine.begin() as db:
+        incident=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_incidents
+          WHERE id=CAST(:id AS uuid)
+          FOR UPDATE
+        """),{"id":incident_id}).mappings().one_or_none()
+        if incident is None:
+            raise LookupError("Bilibili publisher incident not found")
+        if incident["incident_status"]=="RESOLVED":
+            raise RuntimeError("Resolved incident cannot request recovery")
+        snapshot=_recovery_snapshot(db,dict(incident))
+        circuit_id=snapshot["circuit"]["id"]
+        if not circuit_id:
+            raise RuntimeError("Incident account has no Circuit Breaker")
+        sha=_sha256(snapshot)
+        existing=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_recovery_approvals
+          WHERE incident_id=:incident_id
+            AND request_status='PENDING'
+          FOR UPDATE
+        """),{"incident_id":incident["id"]}).mappings().one_or_none()
+        if existing is not None:
+            return _serialize(existing)
+        row=db.execute(text("""
+          INSERT INTO shrimp_bilibili_recovery_approvals(
+            incident_id,account_id,circuit_breaker_id,
+            evidence_snapshot,evidence_sha256,requested_by)
+          VALUES(
+            :incident_id,:account_id,CAST(:circuit_id AS uuid),
+            CAST(:snapshot AS jsonb),:sha,:actor)
+          RETURNING *
+        """),{
+          "incident_id":incident["id"],
+          "account_id":incident["account_id"],
+          "circuit_id":circuit_id,
+          "snapshot":canonical_json(snapshot),
+          "sha":sha,
+          "actor":actor[:200],
+        }).mappings().one()
+        db.execute(text("""
+          UPDATE shrimp_bilibili_incidents
+          SET incident_status='RECOVERY_REVIEW'
+          WHERE id=:id
+        """),{"id":incident["id"]})
+        _timeline(
+            db,
+            incident_id=incident["id"],
+            event_type="RECOVERY_REQUESTED",
+            source_type="RECOVERY_APPROVAL",
+            source_id=str(row["id"]),
+            payload=snapshot,
+            actor=actor,
+        )
+    return _serialize(row)
+
+def decide_recovery(
+    approval_id,
+    *,
+    decision:str,
+    reason:str,
+    actor:str,
+)->dict:
+    choice=decision.upper()
+    if choice not in {"APPROVE","REJECT"}:
+        raise ValueError("decision must be APPROVE or REJECT")
+    with engine.begin() as db:
+        approval=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_recovery_approvals
+          WHERE id=CAST(:id AS uuid)
+          FOR UPDATE
+        """),{"id":approval_id}).mappings().one_or_none()
+        if approval is None:
+            raise LookupError("Recovery approval not found")
+        if approval["request_status"]!="PENDING":
+            raise RuntimeError("Recovery approval is not PENDING")
+        incident=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_incidents
+          WHERE id=:id FOR UPDATE
+        """),{"id":approval["incident_id"]}).mappings().one()
+        current=_recovery_snapshot(db,dict(incident))
+        if _sha256(current)!=approval["evidence_sha256"]:
+            db.execute(text("""
+              UPDATE shrimp_bilibili_recovery_approvals
+              SET request_status='STALE',
+                  decision_reason='Evidence drifted',
+                  decision_by=:actor,decided_at=now()
+              WHERE id=:id
+            """),{"id":approval["id"],"actor":actor[:200]})
+            raise RuntimeError("Recovery evidence drifted; request a new approval")
+        status="APPROVED" if choice=="APPROVE" else "REJECTED"
+        updated=db.execute(text("""
+          UPDATE shrimp_bilibili_recovery_approvals
+          SET request_status=:status,decision=:decision,
+              decision_reason=:reason,decision_by=:actor,decided_at=now()
+          WHERE id=:id
+          RETURNING *
+        """),{
+          "id":approval["id"],
+          "status":status,
+          "decision":choice,
+          "reason":reason[:4000],
+          "actor":actor[:200],
+        }).mappings().one()
+        _timeline(
+            db,
+            incident_id=approval["incident_id"],
+            event_type=(
+                "RECOVERY_APPROVED" if choice=="APPROVE"
+                else "RECOVERY_REJECTED"
+            ),
+            source_type="RECOVERY_APPROVAL",
+            source_id=str(approval["id"]),
+            payload={
+                "decision":choice,
+                "reason":reason,
+                "evidence_sha256":approval["evidence_sha256"],
+            },
+            actor=actor,
+        )
+    return _serialize(updated)
+
+def apply_approved_recovery(approval_id, *, actor:str)->dict:
+    with engine.connect() as db:
+        approval=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_recovery_approvals
+          WHERE id=CAST(:id AS uuid)
+        """),{"id":approval_id}).mappings().one_or_none()
+    if approval is None:
+        raise LookupError("Recovery approval not found")
+    if approval["request_status"]!="APPROVED":
+        raise RuntimeError("Recovery approval is not APPROVED")
+
+    # Temporarily mark Incident resolved only after circuit evidence evaluation.
+    result=evaluate_account_circuit(
+        approval["account_id"],
+        actor=actor+"-evidence-review",
+    )
+    if result["circuit_status"]!="CLOSED":
+        raise RuntimeError(
+            "Approved recovery cannot close Circuit with current evidence"
+        )
+
+    with engine.begin() as db:
+        incident=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_incidents
+          WHERE id=:id FOR UPDATE
+        """),{"id":approval["incident_id"]}).mappings().one()
+        current=_recovery_snapshot(db,dict(incident))
+        if _sha256(current)!=approval["evidence_sha256"]:
+            db.execute(text("""
+              UPDATE shrimp_bilibili_recovery_approvals
+              SET request_status='STALE'
+              WHERE id=:id
+            """),{"id":approval["id"]})
+            raise RuntimeError("Recovery evidence drifted after approval")
+        db.execute(text("""
+          UPDATE shrimp_bilibili_recovery_approvals
+          SET request_status='APPLIED'
+          WHERE id=:id
+        """),{"id":approval["id"]})
+        db.execute(text("""
+          UPDATE shrimp_bilibili_incidents
+          SET incident_status='RESOLVED',resolved_at=now(),
+              resolution_summary='Approved evidence-based recovery applied'
+          WHERE id=:id
+        """),{"id":approval["incident_id"]})
+        _timeline(
+            db,
+            incident_id=approval["incident_id"],
+            event_type="RECOVERY_APPLIED",
+            source_type="RECOVERY_APPROVAL",
+            source_id=str(approval["id"]),
+            payload={"circuit_status":"CLOSED"},
+            actor=actor,
+        )
+        _timeline(
+            db,
+            incident_id=approval["incident_id"],
+            event_type="INCIDENT_RESOLVED",
+            source_type="INCIDENT",
+            source_id=str(approval["incident_id"]),
+            payload={"resolution":"EVIDENCE_BASED_RECOVERY"},
+            actor=actor,
+        )
+    return {
+        "status":"APPLIED",
+        "incident_id":str(approval["incident_id"]),
+        "circuit_status":"CLOSED",
+        "secrets_redacted":True,
+    }
+
+def list_recovery_approvals(*,limit:int=100)->list[dict]:
+    with engine.connect() as db:
+        rows=db.execute(text("""
+          SELECT r.*,i.incident_key,a.account_key
+          FROM shrimp_bilibili_recovery_approvals r
+          JOIN shrimp_bilibili_incidents i ON i.id=r.incident_id
+          JOIN shrimp_bilibili_accounts a ON a.id=r.account_id
+          ORDER BY r.requested_at DESC,r.id DESC
+          LIMIT :limit
+        """),{"limit":max(1,min(int(limit),500))}).mappings().all()
+    return [_serialize(x) for x in rows]
