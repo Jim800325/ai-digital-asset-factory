@@ -36,15 +36,24 @@ CREATE INDEX IF NOT EXISTS idx_shrimp_bilibili_certification_session
 CREATE INDEX IF NOT EXISTS idx_shrimp_bilibili_certification_acceptance
   ON shrimp_bilibili_post_restore_certifications(restore_acceptance_id,certified_at DESC);
 
-UPDATE shrimp_bilibili_post_restore_certifications
-SET valid_from=COALESCE(valid_from,certified_at),
-    expires_at=COALESCE(expires_at,certified_at + interval '30 days'),
-    renewal_due_at=COALESCE(renewal_due_at,certified_at + interval '23 days'),
-    attestation_sequence=COALESCE(attestation_sequence,1)
-WHERE valid_from IS NULL
-   OR expires_at IS NULL
-   OR renewal_due_at IS NULL
-   OR attestation_sequence IS NULL;
+WITH ranked AS (
+  SELECT id,
+         ROW_NUMBER() OVER (ORDER BY certified_at,id)::integer AS sequence
+  FROM shrimp_bilibili_post_restore_certifications
+)
+UPDATE shrimp_bilibili_post_restore_certifications c
+SET valid_from=COALESCE(c.valid_from,c.certified_at),
+    expires_at=COALESCE(c.expires_at,c.certified_at + interval '30 days'),
+    renewal_due_at=COALESCE(c.renewal_due_at,c.certified_at + interval '23 days'),
+    attestation_sequence=COALESCE(c.attestation_sequence,ranked.sequence)
+FROM ranked
+WHERE c.id=ranked.id
+  AND (
+    c.valid_from IS NULL
+    OR c.expires_at IS NULL
+    OR c.renewal_due_at IS NULL
+    OR c.attestation_sequence IS NULL
+  );
 
 ALTER TABLE shrimp_bilibili_post_restore_certifications
   ALTER COLUMN valid_from SET NOT NULL;
