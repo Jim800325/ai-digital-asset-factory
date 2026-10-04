@@ -98,6 +98,9 @@ jobs:
       - name: Check Shrimp publishing UI JavaScript
         run: node --check app/static/shrimp-publish.js
 
+      - name: Check Shrimp Control Center JavaScript
+        run: node --check app/static/control-center.js
+
       - name: Apply all repository migrations
         run: python -m app.migrate
 
