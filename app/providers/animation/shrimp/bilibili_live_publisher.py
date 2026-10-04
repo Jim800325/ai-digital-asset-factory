@@ -25,13 +25,24 @@ class BilibiliLivePublisherAdapter:
     kind = "BILIBILI_CONTROLLED"
     platform = "BILIBILI"
 
-    def __init__(self) -> None:
-        self._csrf = settings.shrimp_bilibili_bili_jct.strip()
-        self._sessdata = settings.shrimp_bilibili_sessdata.strip()
-        self._dede_user_id = settings.shrimp_bilibili_dede_user_id.strip()
+    def __init__(self, credentials: dict[str, str] | None = None) -> None:
+        creds = dict(credentials or {})
+        self._csrf = (
+            creds.get("bili_jct")
+            or settings.shrimp_bilibili_bili_jct
+        ).strip()
+        self._sessdata = (
+            creds.get("sessdata")
+            or settings.shrimp_bilibili_sessdata
+        ).strip()
+        self._dede_user_id = (
+            creds.get("dede_user_id")
+            or settings.shrimp_bilibili_dede_user_id
+        ).strip()
         self._dede_user_id_ckmd5 = (
-            settings.shrimp_bilibili_dede_user_id_ckmd5.strip()
-        )
+            creds.get("dede_user_id_ckmd5")
+            or settings.shrimp_bilibili_dede_user_id_ckmd5
+        ).strip()
         if not self._csrf or not self._sessdata or not self._dede_user_id:
             raise RuntimeError(
                 "Bilibili live publisher credentials are not configured"
@@ -92,6 +103,57 @@ class BilibiliLivePublisherAdapter:
             raise RuntimeError(
                 "Bilibili controlled target account_reference must be numeric MID"
             )
+
+    def probe_account(self, *, expected_mid: str) -> dict[str, Any]:
+        clean_mid = str(expected_mid or "").strip()
+        if not clean_mid or not clean_mid.isdigit():
+            raise RuntimeError("Bilibili health probe requires numeric expected MID")
+        with self._client(timeout=15.0) as client:
+            payload = self._response_json(
+                client.get("https://api.bilibili.com/x/web-interface/nav")
+            )
+            if payload.get("code") != 0 or not isinstance(
+                payload.get("data"), dict
+            ):
+                raise RuntimeError(
+                    "Bilibili login health probe failed: "
+                    + json.dumps(
+                        self._safe_error_payload(payload),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                )
+            data = payload["data"]
+            mid = str(data.get("mid") or "")
+            is_login = bool(data.get("isLogin"))
+            if not mid:
+                raise RuntimeError("Bilibili health probe returned no MID")
+            if self._dede_user_id != mid:
+                raise RuntimeError(
+                    "Configured DedeUserID does not match authenticated MID"
+                )
+
+            publish_probe_ok = False
+            if is_login and mid == clean_mid:
+                preupload = self._response_json(
+                    client.get(
+                        "https://member.bilibili.com/preupload",
+                        params={"r": "probe"},
+                    )
+                )
+                publish_probe_ok = isinstance(
+                    preupload.get("lines"), list
+                ) and bool(preupload.get("lines"))
+
+            return {
+                "mid": mid,
+                "uname": str(data.get("uname") or ""),
+                "is_login": is_login,
+                "level": int(
+                    data.get("level_info", {}).get("current_level") or 0
+                ),
+                "publish_probe_ok": publish_probe_ok,
+            }
 
     def preflight(self, execution: dict[str, Any]) -> dict[str, Any]:
         self.validate_target(execution)
