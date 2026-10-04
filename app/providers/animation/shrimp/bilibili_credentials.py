@@ -428,3 +428,35 @@ def get_slot_for_account(db,account_id)->dict|None:
       LIMIT 1
     """),{"account_id":account_id}).mappings().one_or_none()
     return dict(row) if row else None
+
+def credential_slot_snapshot(slot:dict)->dict:
+    return _slot_snapshot(slot)
+
+def resolve_credential_slot_for_account(db,account_id)->dict|None:
+    return get_slot_for_account(db,account_id)
+
+def build_adapter_for_execution(execution:dict):
+    with engine.connect() as db:
+        row=db.execute(text("""
+          SELECT cs.*
+          FROM shrimp_animation_publish_plans pp
+          JOIN shrimp_bilibili_credential_slots cs
+            ON cs.id=pp.credential_slot_id
+          WHERE pp.id=CAST(:plan_id AS uuid)
+        """),{"plan_id":execution["publish_plan_id"]}).mappings().one_or_none()
+    if row is None:
+        return BilibiliLivePublisherAdapter()
+    slot=dict(row)
+    if slot["slot_status"]!="ACTIVE":
+        raise RuntimeError("Bound Bilibili credential slot is INACTIVE")
+    if slot["health_status"]!="HEALTHY":
+        raise RuntimeError("Bound Bilibili credential slot is not HEALTHY")
+    if slot["mid_status"]!="MATCH":
+        raise RuntimeError("Bound Bilibili credential slot MID is not verified")
+    if slot["publish_permission_status"]!="ALLOWED":
+        raise RuntimeError(
+            "Bound Bilibili credential slot lacks publish permission"
+        )
+    return BilibiliLivePublisherAdapter(
+        credentials=resolve_slot_credentials(slot)
+    )
