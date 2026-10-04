@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS shrimp_bilibili_credential_slots (
   CHECK (slot_key ~ '^[A-Za-z0-9_.-]{3,120}$'),
   CHECK (env_prefix ~ '^[A-Z][A-Z0-9_]{2,120}$'),
   CHECK (slot_status IN ('ACTIVE','INACTIVE')),
-  CHECK (credential_status IN ('UNKNOWN','CONFIGURED','MISSING')),
+  CHECK (credential_status IN ('UNKNOWN','CONFIGURED','MISSING','EXPIRED')),
   CHECK (login_status IN ('UNKNOWN','LOGGED_IN','LOGGED_OUT','ERROR')),
   CHECK (mid_status IN ('UNKNOWN','MATCH','MISMATCH','ERROR')),
   CHECK (publish_permission_status IN ('UNKNOWN','ALLOWED','DENIED','ERROR')),
