@@ -131,6 +131,15 @@ from app.providers.animation.shrimp.bilibili_credentials import (
     set_credential_slot_status,
     set_slot_selection_priority,
 )
+from app.providers.animation.shrimp.bilibili_recovery_policy import (
+    evaluate_account_circuit,
+    list_circuit_breakers,
+    list_circuit_events,
+    list_claim_escalations,
+    list_recovery_policy_runs,
+    operations_console,
+    run_recovery_policy,
+)
 from app.providers.animation.shrimp.bilibili_quota_ops import (
     list_daily_quota_audits,
     list_stuck_claims,
@@ -356,6 +365,14 @@ class ShrimpPublishAuthorizationDecision(BaseModel):
     )
     plan_sha256: str = Field(min_length=64,max_length=64)
     dry_run_sha256: str = Field(min_length=64,max_length=64)
+
+class ShrimpBilibiliCircuitEvaluateAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(
+        default="shrimp-circuit-evaluate",
+        min_length=1,
+        max_length=200,
+    )
 
 class ShrimpBilibiliStuckReconcileAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -919,6 +936,36 @@ def _require_preview_acceptance_key(provided: str | None) -> str:
     return expected
 
 @app.post(
+    "/internal/shrimp-animation/bilibili-recovery-policy",
+    include_in_schema=False,
+)
+def shrimp_animation_bilibili_recovery_policy(
+    authorization: str | None = Header(default=None,alias="Authorization"),
+    x_shrimp_health_monitor_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Health-Monitor-Key",
+    ),
+):
+    provided=(x_shrimp_health_monitor_key or "").strip()
+    bearer=(authorization or "").strip()
+    expected=settings.shrimp_bilibili_health_monitor_key.strip()
+    cron=settings.cron_secret.strip()
+    manual_ok=bool(expected) and secrets.compare_digest(provided,expected)
+    cron_ok=bool(cron) and bearer.startswith("Bearer ") and secrets.compare_digest(
+        bearer[7:].strip(),cron
+    )
+    if not (manual_ok or cron_ok):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili recovery policy authorization",
+        )
+    return run_recovery_policy(
+        actor="scheduled-bilibili-recovery-policy",
+        auto_readback=True,
+    )
+
+
+@app.post(
     "/internal/shrimp-animation/bilibili-daily-quota-audit",
     include_in_schema=False,
 )
@@ -1282,6 +1329,61 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-operations-console")
+def shrimp_animation_bilibili_operations_console():
+    return operations_console()
+
+
+@app.get("/v1/shrimp-animation/bilibili-claim-escalations")
+def shrimp_animation_bilibili_claim_escalations(
+    status: str | None = None,
+    limit: int = 100,
+):
+    return list_claim_escalations(status=status,limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-circuit-breakers")
+def shrimp_animation_bilibili_circuit_breakers(limit: int = 100):
+    return list_circuit_breakers(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-circuit-events")
+def shrimp_animation_bilibili_circuit_events(limit: int = 100):
+    return list_circuit_events(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-recovery-policy-runs")
+def shrimp_animation_bilibili_recovery_policy_runs(limit: int = 100):
+    return list_recovery_policy_runs(limit=limit)
+
+
+@app.post(
+    "/v1/shrimp-animation/bilibili-accounts/{account_key}/circuit/evaluate"
+)
+def shrimp_animation_bilibili_circuit_evaluate(
+    account_key: str,
+    payload: ShrimpBilibiliCircuitEvaluateAction,
+    x_shrimp_bilibili_live_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Bilibili-Live-Acceptance-Key",
+    ),
+):
+    _require_shrimp_bilibili_live_acceptance_key(
+        x_shrimp_bilibili_live_acceptance_key
+    )
+    with engine.connect() as db:
+        account_id=db.execute(text("""
+          SELECT id FROM shrimp_bilibili_accounts
+          WHERE account_key=:account_key
+        """),{"account_key":account_key}).scalar_one_or_none()
+    if account_id is None:
+        raise HTTPException(status_code=404,detail="Bilibili account not found")
+    return evaluate_account_circuit(
+        account_id,
+        actor=payload.actor,
+    )
 
 
 @app.get("/v1/shrimp-animation/bilibili-quota-dashboard")

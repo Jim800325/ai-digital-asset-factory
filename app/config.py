@@ -84,6 +84,11 @@ class Settings(BaseSettings):
     shrimp_bilibili_health_monitor_key: str = ""
     shrimp_bilibili_reservation_ttl_minutes: int = 15
     shrimp_bilibili_stuck_claim_minutes: int = 30
+    shrimp_bilibili_claim_warning_minutes: int = 45
+    shrimp_bilibili_claim_critical_minutes: int = 120
+    shrimp_bilibili_circuit_ambiguity_threshold: int = 3
+    shrimp_bilibili_circuit_provider_failure_threshold: int = 3
+    shrimp_bilibili_circuit_cooldown_minutes: int = 60
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""

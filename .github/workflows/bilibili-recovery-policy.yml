@@ -1,0 +1,24 @@
+name: Bilibili Recovery Policy
+
+on:
+  schedule:
+    - cron: "11,41 * * * *"
+  workflow_dispatch:
+
+jobs:
+  recovery-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run protected Bilibili recovery policy
+        env:
+          MONITOR_URL: ${{ secrets.SHRIMP_BILIBILI_HEALTH_MONITOR_URL }}
+          MONITOR_KEY: ${{ secrets.SHRIMP_BILIBILI_HEALTH_MONITOR_KEY }}
+        run: |
+          if [ -z "$MONITOR_URL" ] || [ -z "$MONITOR_KEY" ]; then
+            echo "Bilibili recovery policy secrets are not configured; skipping."
+            exit 0
+          fi
+          curl --fail --silent --show-error \
+            --request POST \
+            --header "X-Shrimp-Health-Monitor-Key: $MONITOR_KEY" \
+            "$MONITOR_URL/internal/shrimp-animation/bilibili-recovery-policy"
