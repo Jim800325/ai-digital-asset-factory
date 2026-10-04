@@ -12,6 +12,7 @@ from app.config import settings
 from app.db import engine
 from app.providers.animation.models import canonical_json
 from app.providers.animation.shrimp.bilibili_credentials import (
+    credential_slot_is_fresh,
     select_failover_sacrificial_accounts,
 )
 
@@ -280,6 +281,9 @@ def validate_reservation_for_plan(
         raise RuntimeError("Reservation belongs to a different provider job")
     if result["reservation_status"]!="HELD":
         raise RuntimeError("Reservation is not HELD")
+    current_selection_sha=_sha256(dict(result["selection_snapshot"] or {}))
+    if current_selection_sha!=result["selection_sha256"]:
+        raise RuntimeError("Reservation selection snapshot drifted")
     if result["expires_at"]<=datetime.now(timezone.utc):
         raise RuntimeError("Reservation expired")
     if result["account_status"]!="ACTIVE":
@@ -288,6 +292,13 @@ def validate_reservation_for_plan(
         raise RuntimeError("Reserved credential slot is not ACTIVE")
     if result["health_status"]!="HEALTHY":
         raise RuntimeError("Reserved credential slot is not HEALTHY")
+    if not credential_slot_is_fresh(result):
+        raise RuntimeError("Reserved credential health evidence is stale")
+    expected_version=int(
+        dict(result["selection_snapshot"] or {}).get("credential_version") or 0
+    )
+    if expected_version!=int(result["credential_version"]):
+        raise RuntimeError("Reserved credential version drifted")
     if result["degradation_status"]!="NORMAL":
         raise RuntimeError("Reserved credential slot is degraded")
     if result["target_status"]!="ACTIVE":
