@@ -59,7 +59,7 @@ ALTER TABLE shrimp_bilibili_reliability_policy_control_events
   ON DELETE RESTRICT;
 
 CREATE OR REPLACE FUNCTION prevent_bilibili_restore_plan_evidence_mutation()
-RETURNS trigger AS $
+RETURNS trigger AS $restore_plan$
 BEGIN
   IF OLD.plan_status IN ('PENDING_FIRST_APPROVAL','PENDING_SECOND_APPROVAL')
      AND NEW.plan_status IN (
@@ -80,7 +80,7 @@ BEGIN
   END IF;
   RAISE EXCEPTION 'Reliability restore plan evidence is immutable';
 END;
-$ LANGUAGE plpgsql;
+$restore_plan$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_prevent_bilibili_restore_plan_evidence_mutation
   ON shrimp_bilibili_reliability_restore_plans;
