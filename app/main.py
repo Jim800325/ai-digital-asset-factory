@@ -117,6 +117,10 @@ from app.providers.animation.shrimp.publisher_execution import (
     reconcile_published_media,
     upload_publish_media,
 )
+from app.providers.animation.shrimp.bilibili_live_acceptance import (
+    get_bilibili_live_acceptance,
+    run_bilibili_live_acceptance,
+)
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
@@ -346,6 +350,168 @@ def _require_shrimp_publish_execution_key(
             detail="Invalid Shrimp publish execution key",
         )
 
+def _shrimp_bilibili_live_acceptance_key_independent() -> bool:
+    expected=settings.shrimp_bilibili_live_acceptance_key.strip()
+    if not expected:
+        return False
+    earlier_keys=(
+        settings.human_approval_key.strip(),
+        settings.human_release_key.strip(),
+        settings.human_deployment_key.strip(),
+        settings.human_production_execution_key.strip(),
+        settings.preview_acceptance_key.strip(),
+        settings.shrimp_human_review_key.strip(),
+        settings.shrimp_publish_authorization_key.strip(),
+        settings.shrimp_publish_execution_key.strip(),
+    )
+    return all(
+        not value or not secrets.compare_digest(expected,value)
+        for value in earlier_keys
+    )
+
+def _require_shrimp_bilibili_live_acceptance_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_bilibili_live_acceptance_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Shrimp Bilibili live acceptance gate is not configured",
+        )
+    if not _shrimp_bilibili_live_acceptance_key_independent():
+        raise HTTPException(
+            status_code=503,
+            detail="Shrimp Bilibili live acceptance key must be independent",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Shrimp Bilibili live acceptance key",
+        )
+
+def _shrimp_bilibili_live_acceptance_readiness() -> dict[str, Any]:
+    vercel_env=(os.getenv("VERCEL_ENV") or "").strip().lower()
+    try:
+        db_selection=database_selection()
+        preview_isolated=bool(db_selection.get("preview_isolated"))
+        database_source=str(db_selection.get("source") or "")
+    except RuntimeError:
+        preview_isolated=False
+        database_source="UNAVAILABLE"
+
+    publish_auth_gate=(
+        bool(settings.shrimp_publish_authorization_key.strip())
+        and _shrimp_publish_key_independent()
+    )
+    publish_execution_gate=(
+        bool(settings.shrimp_publish_execution_key.strip())
+        and _shrimp_publish_execution_key_independent()
+    )
+    live_gate=(
+        bool(settings.shrimp_bilibili_live_acceptance_key.strip())
+        and _shrimp_bilibili_live_acceptance_key_independent()
+    )
+    cookies_present=all((
+        settings.shrimp_bilibili_sessdata.strip(),
+        settings.shrimp_bilibili_bili_jct.strip(),
+        settings.shrimp_bilibili_dede_user_id.strip(),
+    ))
+    adapter=(
+        settings.shrimp_publish_execution_adapter.strip().upper()
+        or "MOCK"
+    )
+    allowed_accounts=(
+        settings.shrimp_publish_execution_allowed_account_ref_list
+    )
+    denied_accounts=(
+        settings.shrimp_publish_execution_denied_account_ref_list
+    )
+    allowed_targets=(
+        settings.shrimp_publish_execution_allowed_target_key_list
+    )
+    denied_targets=(
+        settings.shrimp_publish_execution_denied_target_key_list
+    )
+
+    counts={
+        "release_approved_episodes":0,
+        "active_bilibili_targets":0,
+        "authorized_bilibili_plans":0,
+        "bilibili_controlled_executions":0,
+        "runnable_bilibili_executions":0,
+    }
+    try:
+        with engine.connect() as db:
+            counts["release_approved_episodes"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_animation_jobs
+              WHERE review_status='RELEASE_APPROVED'
+            """)).scalar_one()
+            counts["active_bilibili_targets"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_animation_publish_targets
+              WHERE platform='BILIBILI'
+                AND target_status='ACTIVE'
+                AND account_reference IS NOT NULL
+            """)).scalar_one()
+            counts["authorized_bilibili_plans"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_animation_publish_plans
+              WHERE platform='BILIBILI'
+                AND plan_status='PUBLISH_AUTHORIZED'
+            """)).scalar_one()
+            counts["bilibili_controlled_executions"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_animation_publish_executions
+              WHERE platform='BILIBILI'
+                AND execution_adapter='BILIBILI_CONTROLLED'
+            """)).scalar_one()
+            counts["runnable_bilibili_executions"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_animation_publish_executions
+              WHERE platform='BILIBILI'
+                AND execution_adapter='BILIBILI_CONTROLLED'
+                AND source_stale=false
+                AND execution_status IN (
+                  'SNAPSHOT_CREATED','UPLOAD_UNKNOWN','UPLOADED',
+                  'PUBLISH_UNKNOWN','PUBLISHED'
+                )
+            """)).scalar_one()
+    except Exception:
+        counts={key:None for key in counts}
+
+    checks={
+        "vercel_preview":vercel_env=="preview",
+        "preview_database_isolated":preview_isolated,
+        "publish_authorization_gate":publish_auth_gate,
+        "publish_execution_gate":publish_execution_gate,
+        "publish_executor_enabled":settings.shrimp_publish_executor_enabled,
+        "bilibili_controlled_adapter":adapter=="BILIBILI_CONTROLLED",
+        "bilibili_live_acceptance_gate":live_gate,
+        "bilibili_live_acceptance_enabled":
+            settings.shrimp_bilibili_live_acceptance_enabled,
+        "bilibili_cookie_credentials_present":cookies_present,
+        "sacrificial_account_allowlist_present":bool(allowed_accounts),
+        "real_account_denylist_present":bool(denied_accounts),
+        "sacrificial_target_allowlist_present":bool(allowed_targets),
+        "real_target_denylist_present":bool(denied_targets),
+        "allowlist_denylist_disjoint":
+            not bool(set(allowed_accounts)&set(denied_accounts))
+            and not bool(set(allowed_targets)&set(denied_targets)),
+        "runnable_bilibili_execution_present":
+            bool(counts["runnable_bilibili_executions"]),
+    }
+    blockers=[key for key,value in checks.items() if not value]
+    return {
+        "status":"READY" if not blockers else "BLOCKED",
+        "vercel_env":vercel_env or "non-vercel",
+        "database_source":database_source,
+        "checks":checks,
+        "counts":counts,
+        "blockers":blockers,
+        "secrets_redacted":True,
+    }
+
 def _require_deployment_key(provided: str | None) -> None:
     expected=settings.human_deployment_key.strip()
     if not expected:
@@ -452,6 +618,22 @@ def health():
             settings.shrimp_publish_execution_adapter.strip().upper()
             or "MOCK"
         ),
+        "shrimp_bilibili_live_acceptance_gate":(
+            "DISABLED"
+            if not settings.shrimp_bilibili_live_acceptance_key.strip()
+            else (
+                "ENABLED"
+                if _shrimp_bilibili_live_acceptance_key_independent()
+                else "MISCONFIGURED"
+            )
+        ),
+        "shrimp_bilibili_live_acceptance_enabled":
+            settings.shrimp_bilibili_live_acceptance_enabled,
+        "shrimp_bilibili_cookie_credentials_present":all((
+            settings.shrimp_bilibili_sessdata.strip(),
+            settings.shrimp_bilibili_bili_jct.strip(),
+            settings.shrimp_bilibili_dede_user_id.strip(),
+        )),
         "production_execution_gate":(
             "DISABLED"
             if not settings.human_production_execution_key.strip()
@@ -974,6 +1156,58 @@ def shrimp_animation_publish_execution_publish_reconcile(
         raise HTTPException(status_code=404,detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-live-acceptance/readiness")
+def shrimp_animation_bilibili_live_acceptance_readiness():
+    return _shrimp_bilibili_live_acceptance_readiness()
+
+
+@app.post(
+    "/v1/shrimp-animation/publish-executions/"
+    "{execution_id}/bilibili-live-acceptance"
+)
+def shrimp_animation_bilibili_live_acceptance_run(
+    execution_id: UUID,
+    payload: ShrimpPublishExecutionAction,
+    x_shrimp_bilibili_live_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Bilibili-Live-Acceptance-Key",
+    ),
+):
+    _require_shrimp_bilibili_live_acceptance_key(
+        x_shrimp_bilibili_live_acceptance_key
+    )
+    if not settings.shrimp_bilibili_live_acceptance_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Shrimp Bilibili live acceptance is disabled",
+        )
+    try:
+        return run_bilibili_live_acceptance(
+            execution_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get(
+    "/v1/shrimp-animation/publish-executions/"
+    "{execution_id}/bilibili-live-acceptance"
+)
+def shrimp_animation_bilibili_live_acceptance_get(
+    execution_id: UUID,
+):
+    result=get_bilibili_live_acceptance(execution_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Bilibili live acceptance run not found",
+        )
+    return result
 
 
 @app.get("/v1/animation/registry")
