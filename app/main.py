@@ -158,6 +158,14 @@ from app.providers.animation.shrimp.bilibili_incidents import (
     request_recovery,
     sync_critical_incidents,
 )
+from app.providers.animation.shrimp.bilibili_certification_renewal import (
+    decide_recertification,
+    evaluate_certification_expiry,
+    list_attestations,
+    list_recertification_candidates,
+    list_recertification_decisions,
+    renewal_dashboard,
+)
 from app.providers.animation.shrimp.bilibili_post_restore_certification import (
     certification_dashboard,
     evaluate_certification,
@@ -484,6 +492,17 @@ class ShrimpBilibiliCorrectiveActionCreate(BaseModel):
     due_at: str | None = None
     actor: str = Field(default="shrimp-pir-reviewer",min_length=1,max_length=200)
 
+class ShrimpBilibiliRecertificationDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["APPROVE","REJECT"]
+    reason: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(
+        default="shrimp-recertification-governance",
+        min_length=1,
+        max_length=200,
+    )
+    candidate_sha256: str = Field(min_length=64,max_length=64)
+
 class ShrimpBilibiliRestoreAcceptanceAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     actor: str = Field(
@@ -719,6 +738,44 @@ def _require_shrimp_bilibili_live_acceptance_key(
             status_code=403,
             detail="Invalid Shrimp Bilibili live acceptance key",
         )
+
+def _require_shrimp_bilibili_recertification_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_bilibili_recertification_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Bilibili re-certification governance gate is not configured",
+        )
+    forbidden=(
+        settings.shrimp_bilibili_restore_acceptance_key.strip(),
+        settings.shrimp_bilibili_reliability_restore_approval_key.strip(),
+        settings.shrimp_bilibili_reliability_restore_apply_key.strip(),
+        settings.shrimp_bilibili_reliability_policy_apply_key.strip(),
+        settings.shrimp_bilibili_reliability_governance_key.strip(),
+        settings.shrimp_bilibili_health_monitor_key.strip(),
+        settings.shrimp_bilibili_incident_ops_key.strip(),
+        settings.shrimp_bilibili_recovery_approval_key.strip(),
+        settings.shrimp_bilibili_live_acceptance_key.strip(),
+        settings.shrimp_publish_authorization_key.strip(),
+        settings.shrimp_publish_execution_key.strip(),
+        settings.shrimp_human_review_key.strip(),
+    )
+    if any(
+        value and secrets.compare_digest(expected,value)
+        for value in forbidden
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Bilibili re-certification key must be independent",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili re-certification key",
+        )
+
 
 def _require_shrimp_bilibili_restore_acceptance_key(
     provided: str | None,
@@ -1426,6 +1483,38 @@ def shrimp_animation_bilibili_reliability_governance_review_generate(
 
 
 @app.post(
+    "/internal/shrimp-animation/bilibili-certification-renewal-cycle",
+    include_in_schema=False,
+)
+def shrimp_animation_bilibili_certification_renewal_cycle(
+    authorization: str | None = Header(default=None,alias="Authorization"),
+    x_shrimp_health_monitor_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Health-Monitor-Key",
+    ),
+):
+    provided=(x_shrimp_health_monitor_key or "").strip()
+    bearer=(authorization or "").strip()
+    expected=settings.shrimp_bilibili_health_monitor_key.strip()
+    cron=settings.cron_secret.strip()
+    manual_ok=bool(expected) and secrets.compare_digest(provided,expected)
+    cron_ok=bool(cron) and bearer.startswith("Bearer ") and secrets.compare_digest(
+        bearer[7:].strip(),cron
+    )
+    if not (manual_ok or cron_ok):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili certification renewal authorization",
+        )
+    return {
+        "status":"EVALUATED",
+        "result":evaluate_certification_expiry(
+            actor="scheduled-bilibili-certification-renewal"
+        ),
+    }
+
+
+@app.post(
     "/internal/shrimp-animation/bilibili-post-restore-certification-cycle",
     include_in_schema=False,
 )
@@ -1927,6 +2016,54 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-certification-renewal")
+def shrimp_animation_bilibili_certification_renewal():
+    return renewal_dashboard()
+
+
+@app.get("/v1/shrimp-animation/bilibili-recertification-candidates")
+def shrimp_animation_bilibili_recertification_candidates(limit: int = 100):
+    return list_recertification_candidates(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-recertification-decisions")
+def shrimp_animation_bilibili_recertification_decisions(limit: int = 100):
+    return list_recertification_decisions(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-reliability-attestations")
+def shrimp_animation_bilibili_reliability_attestations(limit: int = 200):
+    return list_attestations(limit=limit)
+
+
+@app.post(
+    "/v1/shrimp-animation/bilibili-recertification-candidates/{candidate_id}/decision"
+)
+def shrimp_animation_bilibili_recertification_decision(
+    candidate_id: UUID,
+    payload: ShrimpBilibiliRecertificationDecision,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Bilibili-Recertification-Key",
+    ),
+):
+    _require_shrimp_bilibili_recertification_key(x_key)
+    try:
+        return decide_recertification(
+            candidate_id,
+            decision=payload.decision,
+            reason=payload.reason,
+            actor=payload.actor,
+            candidate_sha256=payload.candidate_sha256,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
 
 
 @app.get("/v1/shrimp-animation/bilibili-post-restore-certification")
