@@ -175,8 +175,8 @@ def generate_restore_plan(*,actor:str)->dict:
 
     proposed={
         **current,
-        "automation_exposure":"NORMAL",
-        "quota_multiplier_percent":100,
+        "automation_exposure":"OBSERVATION",
+        "quota_multiplier_percent":25,
         "new_reservation_allowed":True,
         "control_version":int(current["control_version"])+1,
     }
@@ -200,7 +200,8 @@ def generate_restore_plan(*,actor:str)->dict:
         "recovery_evidence_sha256":evidence_sha,
         "runtime_effects":{
             "new_reservations":"ALLOWED_AFTER_APPLY",
-            "quota_multiplier_percent":100,
+            "quota_multiplier_percent":25,
+            "post_unfreeze_state":"OBSERVATION_STAGE_1",
             "existing_claims":"UNCHANGED",
             "existing_reservations":"UNCHANGED",
             "circuit_state":"UNCHANGED",
@@ -460,8 +461,8 @@ def second_restore_apply(
         proposed=dict(locked["proposed_control_snapshot"])
         updated=db.execute(text("""
           UPDATE shrimp_bilibili_reliability_policy_controls
-          SET automation_exposure='NORMAL',
-              quota_multiplier_percent=100,
+          SET automation_exposure='OBSERVATION',
+              quota_multiplier_percent=25,
               new_reservation_allowed=true,
               control_version=:version,
               source_plan_id=NULL,
@@ -491,6 +492,17 @@ def second_restore_apply(
             "restore_plan_id":plan_id,
             "before":canonical_json(before),"after":canonical_json(after),
             "sha":_sha(event),"actor":actor.strip()[:200],
+        })
+        db.execute(text("""
+          INSERT INTO shrimp_bilibili_post_unfreeze_observation_sessions(
+            restore_plan_id,session_status,current_stage,current_quota_percent,
+            stage_started_at,observation_started_at,created_by)
+          VALUES(
+            :restore_plan_id,'ACTIVE',1,25,now(),now(),:actor)
+          ON CONFLICT (restore_plan_id) DO NOTHING
+        """),{
+            "restore_plan_id":plan_id,
+            "actor":actor.strip()[:200],
         })
         db.execute(text("""
           UPDATE shrimp_bilibili_reliability_restore_plans
