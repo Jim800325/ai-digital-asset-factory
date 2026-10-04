@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     shrimp_bilibili_default_tid: int = 122
     shrimp_bilibili_live_acceptance_max_media_bytes: int = 52428800
     shrimp_bilibili_health_max_age_minutes: int = 360
+    shrimp_bilibili_preflight_recheck_max_age_minutes: int = 5
+    shrimp_bilibili_health_failure_threshold: int = 3
+    shrimp_bilibili_health_monitor_key: str = ""
+    cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""

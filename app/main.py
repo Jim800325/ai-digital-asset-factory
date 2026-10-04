@@ -123,8 +123,13 @@ from app.providers.animation.shrimp.bilibili_credentials import (
     list_credential_slots,
     list_health_checks,
     run_credential_health_check,
+    run_health_monitor,
+    list_health_monitor_runs,
+    rotate_credential_slot,
+    select_failover_sacrificial_accounts,
     select_healthy_sacrificial_account,
     set_credential_slot_status,
+    set_slot_selection_priority,
 )
 from app.providers.animation.shrimp.bilibili_accounts import (
     create_bilibili_account,
@@ -217,6 +222,17 @@ class ShrimpHumanReviewDecision(BaseModel):
         default_factory=list,
         max_length=20,
     )
+
+class ShrimpBilibiliCredentialRotation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_env_prefix: str = Field(min_length=3,max_length=121)
+    reason: str = Field(min_length=3,max_length=1000)
+    actor: str = Field(default="shrimp-credential-rotation",min_length=1,max_length=200)
+
+class ShrimpBilibiliSlotPriorityUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    selection_priority: int = Field(ge=1,le=10000)
+    actor: str = Field(default="shrimp-slot-priority",min_length=1,max_length=200)
 
 class ShrimpBilibiliCredentialSlotCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -857,6 +873,24 @@ def _require_preview_acceptance_key(provided: str | None) -> str:
         raise HTTPException(status_code=403,detail="Invalid preview acceptance key")
     return expected
 
+@app.post("/internal/shrimp-animation/bilibili-health-monitor", include_in_schema=False)
+def shrimp_animation_bilibili_health_monitor(
+    authorization: str | None = Header(default=None,alias="Authorization"),
+    x_shrimp_health_monitor_key: str | None = Header(default=None,alias="X-Shrimp-Health-Monitor-Key"),
+):
+    provided=(x_shrimp_health_monitor_key or "").strip()
+    bearer=(authorization or "").strip()
+    expected=settings.shrimp_bilibili_health_monitor_key.strip()
+    cron=settings.cron_secret.strip()
+    manual_ok=bool(expected) and secrets.compare_digest(provided,expected)
+    cron_ok=bool(cron) and bearer.startswith("Bearer ") and secrets.compare_digest(
+        bearer[7:].strip(),cron
+    )
+    if not (manual_ok or cron_ok):
+        raise HTTPException(status_code=403,detail="Invalid Bilibili health monitor authorization")
+    return run_health_monitor(actor="scheduled-bilibili-health-monitor")
+
+
 @app.get("/health")
 def health():
     db_state=database_health()
@@ -1171,6 +1205,63 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.post("/v1/shrimp-animation/bilibili-credential-slots/{slot_key}/rotate")
+def shrimp_animation_bilibili_credential_rotate(
+    slot_key: str,
+    payload: ShrimpBilibiliCredentialRotation,
+    x_shrimp_publish_key: str | None = Header(default=None,alias="X-Shrimp-Publish-Key"),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    try:
+        return rotate_credential_slot(
+            slot_key,
+            new_env_prefix=payload.new_env_prefix,
+            reason=payload.reason,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.patch("/v1/shrimp-animation/bilibili-credential-slots/{slot_key}/priority")
+def shrimp_animation_bilibili_credential_priority(
+    slot_key: str,
+    payload: ShrimpBilibiliSlotPriorityUpdate,
+    x_shrimp_publish_key: str | None = Header(default=None,alias="X-Shrimp-Publish-Key"),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    try:
+        return set_slot_selection_priority(
+            slot_key,
+            selection_priority=payload.selection_priority,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-account-selection/failover")
+def shrimp_animation_bilibili_failover_selection(
+    limit: int = 5,
+    exclude_account_key: str | None = None,
+):
+    return select_failover_sacrificial_accounts(
+        limit=limit,
+        exclude_account_key=exclude_account_key,
+    )
+
+
+@app.get("/v1/shrimp-animation/bilibili-health-monitor/runs")
+def shrimp_animation_bilibili_health_monitor_runs(limit: int = 20):
+    return list_health_monitor_runs(limit=limit)
 
 
 @app.post("/v1/shrimp-animation/bilibili-credential-slots", status_code=201)

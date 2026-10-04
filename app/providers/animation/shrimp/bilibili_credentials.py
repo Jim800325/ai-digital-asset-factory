@@ -42,6 +42,10 @@ def _slot_snapshot(slot:dict)->dict:
         "mid_status":slot["mid_status"],
         "publish_permission_status":slot["publish_permission_status"],
         "health_status":slot["health_status"],
+        "credential_version":int(slot.get("credential_version") or 1),
+        "degradation_status":slot.get("degradation_status") or "NORMAL",
+        "consecutive_failures":int(slot.get("consecutive_failures") or 0),
+        "selection_priority":int(slot.get("selection_priority") or 100),
         "provider_mid":slot.get("provider_mid"),
         "last_checked_at":(
             slot["last_checked_at"].isoformat()
@@ -327,6 +331,16 @@ def run_credential_health_check(
               last_error_type=:failure_type,
               last_error_sha256=:failure_sha,
               health_evidence_sha256=:evidence_sha,
+              consecutive_failures=CASE
+                WHEN :health_status='HEALTHY' THEN 0
+                ELSE consecutive_failures+1
+              END,
+              degradation_status=CASE
+                WHEN :health_status='HEALTHY' THEN 'NORMAL'
+                WHEN consecutive_failures+1 >= :failure_threshold
+                  THEN 'QUARANTINED'
+                ELSE 'DEGRADED'
+              END,
               updated_by=:actor
           WHERE id=:id
         """),{
@@ -343,6 +357,10 @@ def run_credential_health_check(
           "failure_sha":failure_sha,
           "evidence_sha":evidence_sha,
           "actor":(actor or "shrimp-credential-health")[:200],
+          "failure_threshold":max(
+            1,
+            int(settings.shrimp_bilibili_health_failure_threshold),
+          ),
         })
         check=db.execute(text("""
           INSERT INTO shrimp_bilibili_health_checks(
@@ -368,6 +386,13 @@ def run_credential_health_check(
           "actor":(actor or "shrimp-credential-health")[:200],
         }).mappings().one()
 
+    with engine.connect() as db:
+        refreshed=db.execute(text("""
+          SELECT consecutive_failures,degradation_status,credential_version
+          FROM shrimp_bilibili_credential_slots
+          WHERE id=:id
+        """),{"id":slot["id"]}).mappings().one()
+
     return {
         **_serialize(check),
         "slot_key":slot["slot_key"],
@@ -379,6 +404,9 @@ def run_credential_health_check(
         "health_status":health,
         "provider_uname":provider_uname,
         "provider_level":provider_level,
+        "consecutive_failures":int(refreshed["consecutive_failures"]),
+        "degradation_status":refreshed["degradation_status"],
+        "credential_version":int(refreshed["credential_version"]),
         "credential_presence":presence,
         "secrets_redacted":True,
     }
@@ -402,16 +430,20 @@ def select_healthy_sacrificial_account()->dict|None:
         rows=db.execute(text("""
           SELECT a.*,cs.id AS credential_slot_id,cs.slot_key,
                  cs.env_prefix,cs.health_status,cs.last_checked_at,
-                 cs.health_evidence_sha256
+                 cs.health_evidence_sha256,cs.degradation_status,
+                 cs.selection_priority,cs.credential_version
           FROM shrimp_bilibili_accounts a
           JOIN shrimp_bilibili_credential_slots cs ON cs.account_id=a.id
           WHERE a.account_status='ACTIVE'
             AND cs.slot_status='ACTIVE'
             AND cs.health_status='HEALTHY'
+            AND cs.degradation_status='NORMAL'
             AND cs.last_checked_at >= (
               now() - (:max_age * interval '1 minute')
             )
-          ORDER BY cs.last_checked_at DESC NULLS LAST,a.account_key
+          ORDER BY cs.selection_priority ASC,
+                   cs.last_checked_at DESC NULLS LAST,
+                   a.account_key
         """),{
           "max_age":max(
             1,
@@ -433,11 +465,14 @@ def select_healthy_sacrificial_account()->dict|None:
             "credential_slot_id":str(item["credential_slot_id"]),
             "credential_slot_key":item["slot_key"],
             "health_status":item["health_status"],
+            "credential_version":int(item["credential_version"]),
+            "selection_priority":int(item["selection_priority"]),
+            "degradation_status":item["degradation_status"],
             "last_checked_at":(
                 item["last_checked_at"].isoformat()
                 if item.get("last_checked_at") else None
             ),
-            "selection_reason":"LATEST_HEALTHY_SACRIFICIAL_ACCOUNT",
+            "selection_reason":"PRIORITY_HEALTHY_SACRIFICIAL_ACCOUNT",
             "secrets_redacted":True,
         }
     return None
@@ -483,3 +518,372 @@ def build_adapter_for_execution(execution:dict):
     return BilibiliLivePublisherAdapter(
         credentials=resolve_slot_credentials(slot)
     )
+
+
+def rotate_credential_slot(
+    slot_key:str,
+    *,
+    new_env_prefix:str,
+    reason:str,
+    actor:str,
+)->dict:
+    prefix=(new_env_prefix or "").strip().upper()
+    if not _ENV_PREFIX.fullmatch(prefix):
+        raise ValueError("invalid credential env_prefix")
+    clean_reason=(reason or "").strip()
+    if len(clean_reason)<3:
+        raise ValueError("rotation reason is required")
+    probe_slot={"env_prefix":prefix}
+    presence=credential_presence(probe_slot)
+    if not presence["required_bundle_present"]:
+        raise RuntimeError(
+            "New credential environment prefix is not fully configured"
+        )
+    with engine.begin() as db:
+        slot=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_credential_slots
+          WHERE slot_key=:slot_key FOR UPDATE
+        """),{"slot_key":slot_key}).mappings().one_or_none()
+        if slot is None:
+            raise LookupError("Bilibili credential slot not found")
+        previous_version=int(slot["credential_version"])
+        new_version=previous_version+1
+        material={
+            "slot_key":slot_key,
+            "previous_version":previous_version,
+            "new_version":new_version,
+            "previous_env_prefix":slot["env_prefix"],
+            "new_env_prefix":prefix,
+            "reason":clean_reason,
+        }
+        evidence_sha=_sha256(material)
+        db.execute(text("""
+          UPDATE shrimp_bilibili_credential_slots
+          SET previous_env_prefix=env_prefix,
+              env_prefix=:new_env_prefix,
+              credential_version=:new_version,
+              rotated_at=now(),
+              rotation_evidence_sha256=:evidence_sha,
+              credential_status='UNKNOWN',
+              login_status='UNKNOWN',
+              mid_status='UNKNOWN',
+              publish_permission_status='UNKNOWN',
+              health_status='UNKNOWN',
+              consecutive_failures=0,
+              degradation_status='NORMAL',
+              last_checked_at=NULL,
+              updated_by=:actor
+          WHERE id=:id
+        """),{
+          "id":slot["id"],
+          "new_env_prefix":prefix,
+          "new_version":new_version,
+          "evidence_sha":evidence_sha,
+          "actor":(actor or "shrimp-credential-rotation")[:200],
+        })
+        rotation=db.execute(text("""
+          INSERT INTO shrimp_bilibili_credential_rotations(
+            slot_id,previous_version,new_version,previous_env_prefix,
+            new_env_prefix,reason,rotation_evidence_sha256,rotated_by)
+          VALUES(:slot_id,:previous_version,:new_version,:previous_env_prefix,
+            :new_env_prefix,:reason,:evidence_sha,:actor)
+          RETURNING *
+        """),{
+          "slot_id":slot["id"],
+          "previous_version":previous_version,
+          "new_version":new_version,
+          "previous_env_prefix":slot["env_prefix"],
+          "new_env_prefix":prefix,
+          "reason":clean_reason,
+          "evidence_sha":evidence_sha,
+          "actor":(actor or "shrimp-credential-rotation")[:200],
+        }).mappings().one()
+    result=_serialize(rotation)
+    result["credential_presence"]=presence
+    result["secrets_redacted"]=True
+    return result
+
+
+def set_slot_selection_priority(
+    slot_key:str,
+    *,
+    selection_priority:int,
+    actor:str,
+)->dict:
+    priority=int(selection_priority)
+    if priority<1 or priority>10000:
+        raise ValueError("selection_priority outside guardrails")
+    with engine.begin() as db:
+        row=db.execute(text("""
+          UPDATE shrimp_bilibili_credential_slots
+          SET selection_priority=:priority,updated_by=:actor
+          WHERE slot_key=:slot_key
+          RETURNING *
+        """),{
+          "slot_key":slot_key,
+          "priority":priority,
+          "actor":(actor or "shrimp-slot-priority")[:200],
+        }).mappings().one_or_none()
+    if row is None:
+        raise LookupError("Bilibili credential slot not found")
+    return _serialize(row)
+
+
+def select_failover_sacrificial_accounts(
+    *,
+    limit:int=5,
+    exclude_account_key:str|None=None,
+)->list[dict]:
+    limit=max(1,min(int(limit),20))
+    allowed=set(settings.shrimp_publish_execution_allowed_account_ref_list)
+    with engine.connect() as db:
+        rows=db.execute(text("""
+          SELECT a.*,cs.id AS credential_slot_id,cs.slot_key,
+                 cs.health_status,cs.last_checked_at,cs.degradation_status,
+                 cs.selection_priority,cs.credential_version
+          FROM shrimp_bilibili_accounts a
+          JOIN shrimp_bilibili_credential_slots cs ON cs.account_id=a.id
+          WHERE a.account_status='ACTIVE'
+            AND cs.slot_status='ACTIVE'
+            AND cs.health_status='HEALTHY'
+            AND cs.degradation_status='NORMAL'
+            AND cs.last_checked_at >= (
+              now() - (:max_age * interval '1 minute')
+            )
+          ORDER BY cs.selection_priority ASC,
+                   cs.last_checked_at DESC NULLS LAST,
+                   a.account_key
+        """),{
+          "max_age":max(
+            1,
+            int(settings.shrimp_bilibili_health_max_age_minutes),
+          )
+        }).mappings().all()
+    result=[]
+    for row in rows:
+        item=dict(row)
+        if exclude_account_key and item["account_key"]==exclude_account_key:
+            continue
+        policy=dict(item.get("safety_policy") or {})
+        if str(policy.get("mode") or "").upper()!="SACRIFICIAL":
+            continue
+        refs={item["account_key"],item["mid"],"MID:"+item["mid"]}
+        if policy.get("require_global_allowlist",True) and not (refs & allowed):
+            continue
+        result.append({
+            "account_key":item["account_key"],
+            "display_name":item["display_name"],
+            "mid":item["mid"],
+            "credential_slot_id":str(item["credential_slot_id"]),
+            "credential_slot_key":item["slot_key"],
+            "credential_version":int(item["credential_version"]),
+            "selection_priority":int(item["selection_priority"]),
+            "health_status":item["health_status"],
+            "degradation_status":item["degradation_status"],
+            "last_checked_at":item["last_checked_at"].isoformat(),
+            "selection_reason":"FAILOVER_PRIORITY_HEALTHY",
+            "secrets_redacted":True,
+        })
+        if len(result)>=limit:
+            break
+    return result
+
+
+def run_health_monitor(
+    *,
+    actor:str,
+    adapter_factory=None,
+)->dict:
+    clean_actor=(actor or "shrimp-health-monitor")[:200]
+    with engine.begin() as db:
+        run=db.execute(text("""
+          INSERT INTO shrimp_bilibili_health_monitor_runs(
+            monitor_status,started_by)
+          VALUES('RUNNING',:actor)
+          RETURNING *
+        """),{"actor":clean_actor}).mappings().one()
+        slots=db.execute(text("""
+          SELECT slot_key FROM shrimp_bilibili_credential_slots
+          WHERE slot_status='ACTIVE'
+          ORDER BY selection_priority,slot_key
+        """)).scalars().all()
+        db.execute(text("""
+          UPDATE shrimp_bilibili_health_monitor_runs
+          SET active_slot_count=:count
+          WHERE id=:id
+        """),{"id":run["id"],"count":len(slots)})
+
+    items=[]
+    for slot_key in slots:
+        failure_type=None
+        health_check_id=None
+        try:
+            result=run_credential_health_check(
+                slot_key,
+                actor=clean_actor,
+                adapter_factory=adapter_factory,
+            )
+            health=result["health_status"]
+            health_check_id=result["id"]
+        except Exception as exc:
+            health="UNHEALTHY"
+            failure_type=type(exc).__name__
+        with engine.begin() as db:
+            slot=db.execute(text("""
+              SELECT cs.*,a.id AS account_row_id
+              FROM shrimp_bilibili_credential_slots cs
+              JOIN shrimp_bilibili_accounts a ON a.id=cs.account_id
+              WHERE cs.slot_key=:slot_key
+            """),{"slot_key":slot_key}).mappings().one()
+            material={
+                "slot_key":slot_key,
+                "credential_version":int(slot["credential_version"]),
+                "health_status":slot["health_status"],
+                "degradation_status":slot["degradation_status"],
+                "consecutive_failures":int(slot["consecutive_failures"]),
+                "failure_type":failure_type,
+            }
+            item_sha=_sha256(material)
+            item=db.execute(text("""
+              INSERT INTO shrimp_bilibili_health_monitor_items(
+                monitor_run_id,slot_id,account_id,slot_key,
+                credential_version,health_status,degradation_status,
+                consecutive_failures,health_check_id,failure_type,item_sha256)
+              VALUES(:run_id,:slot_id,:account_id,:slot_key,
+                :credential_version,:health_status,:degradation_status,
+                :consecutive_failures,CAST(:health_check_id AS uuid),
+                :failure_type,:item_sha)
+              RETURNING *
+            """),{
+              "run_id":run["id"],
+              "slot_id":slot["id"],
+              "account_id":slot["account_id"],
+              "slot_key":slot_key,
+              "credential_version":slot["credential_version"],
+              "health_status":slot["health_status"],
+              "degradation_status":slot["degradation_status"],
+              "consecutive_failures":slot["consecutive_failures"],
+              "health_check_id":health_check_id,
+              "failure_type":failure_type,
+              "item_sha":item_sha,
+            }).mappings().one()
+            db.execute(text("""
+              UPDATE shrimp_bilibili_credential_slots
+              SET last_monitor_run_id=:run_id
+              WHERE id=:slot_id
+            """),{"run_id":run["id"],"slot_id":slot["id"]})
+        items.append(_serialize(item))
+
+    candidates=select_failover_sacrificial_accounts(limit=1)
+    healthy=sum(1 for x in items if x["health_status"]=="HEALTHY")
+    quarantined=sum(
+        1 for x in items if x["degradation_status"]=="QUARANTINED"
+    )
+    degraded=sum(
+        1 for x in items if x["degradation_status"]=="DEGRADED"
+    )
+    unhealthy=len(items)-healthy
+    status="SUCCEEDED" if unhealthy==0 else (
+        "FAILED" if healthy==0 and items else "PARTIAL"
+    )
+    summary={
+        "active_slot_count":len(slots),
+        "checked_slot_count":len(items),
+        "healthy_slot_count":healthy,
+        "degraded_slot_count":degraded,
+        "unhealthy_slot_count":unhealthy,
+        "quarantined_slot_count":quarantined,
+        "selected_account_key":(
+            candidates[0]["account_key"] if candidates else None
+        ),
+        "selected_slot_key":(
+            candidates[0]["credential_slot_key"] if candidates else None
+        ),
+        "monitor_status":status,
+    }
+    summary_sha=_sha256(summary)
+    with engine.begin() as db:
+        final=db.execute(text("""
+          UPDATE shrimp_bilibili_health_monitor_runs
+          SET monitor_status=:status,
+              checked_slot_count=:checked,
+              healthy_slot_count=:healthy,
+              degraded_slot_count=:degraded,
+              unhealthy_slot_count=:unhealthy,
+              quarantined_slot_count=:quarantined,
+              selected_account_key=:selected_account,
+              selected_slot_key=:selected_slot,
+              summary_sha256=:summary_sha,
+              finished_at=now()
+          WHERE id=:id
+          RETURNING *
+        """),{
+          "id":run["id"],
+          "status":status,
+          "checked":len(items),
+          "healthy":healthy,
+          "degraded":degraded,
+          "unhealthy":unhealthy,
+          "quarantined":quarantined,
+          "selected_account":summary["selected_account_key"],
+          "selected_slot":summary["selected_slot_key"],
+          "summary_sha":summary_sha,
+        }).mappings().one()
+    result=_serialize(final)
+    result["items"]=items
+    result["secrets_redacted"]=True
+    return result
+
+
+def list_health_monitor_runs(*,limit:int=20)->list[dict]:
+    limit=max(1,min(int(limit),100))
+    with engine.connect() as db:
+        rows=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_health_monitor_runs
+          ORDER BY started_at DESC,id DESC
+          LIMIT :limit
+        """),{"limit":limit}).mappings().all()
+    return [_serialize(row) for row in rows]
+
+
+def preflight_recheck_execution_credential(
+    execution:dict,
+    *,
+    actor:str,
+)->dict|None:
+    with engine.connect() as db:
+        row=db.execute(text("""
+          SELECT cs.slot_key,cs.last_checked_at
+          FROM shrimp_animation_publish_plans pp
+          JOIN shrimp_bilibili_credential_slots cs
+            ON cs.id=pp.credential_slot_id
+          WHERE pp.id=CAST(:plan_id AS uuid)
+        """),{"plan_id":execution["publish_plan_id"]}).mappings().one_or_none()
+    if row is None:
+        return None
+    checked=row["last_checked_at"]
+    if checked is not None and checked.tzinfo is None:
+        checked=checked.replace(tzinfo=timezone.utc)
+    max_age=max(
+        1,
+        int(settings.shrimp_bilibili_preflight_recheck_max_age_minutes),
+    )
+    must_recheck=(
+        checked is None
+        or datetime.now(timezone.utc)-checked > timedelta(minutes=max_age)
+    )
+    if must_recheck:
+        result=run_credential_health_check(
+            row["slot_key"],
+            actor=actor,
+        )
+        if result["health_status"]!="HEALTHY":
+            raise RuntimeError(
+                "Bilibili preflight recheck failed before live acceptance"
+            )
+        if result["degradation_status"]!="NORMAL":
+            raise RuntimeError(
+                "Bilibili preflight recheck left slot degraded"
+            )
+        return result
+    return get_credential_slot(row["slot_key"])
