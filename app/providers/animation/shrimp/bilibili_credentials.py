@@ -265,6 +265,9 @@ def run_credential_health_check(
                 "provider_level":provider_level,
             })
             login_status="LOGGED_IN" if evidence["login_ok"] else "LOGGED_OUT"
+            if not evidence["login_ok"]:
+                credential_status="EXPIRED"
+                failure_type="SessionExpired"
             mid_status="MATCH" if evidence["mid_match"] else "MISMATCH"
             permission_status=(
                 "ALLOWED" if evidence["publish_probe_ok"] else "DENIED"
