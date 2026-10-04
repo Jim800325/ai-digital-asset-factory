@@ -723,7 +723,13 @@ def _current_authorization_snapshot(db, plan_id) -> dict | None:
                  pj.external_side_effects AS current_external_side_effects,
                  rd.decision AS current_review_decision,
                  rd.decision_sha256 AS current_review_decision_sha256,
-                 rd.decision_status AS current_review_decision_status
+                 rd.decision_status AS current_review_decision_status,
+                 r.reservation_status AS current_reservation_status,
+                 r.selection_sha256 AS current_reservation_sha256,
+                 r.consumed_by_plan_id AS current_reservation_plan_id,
+                 r.account_id AS current_reservation_account_id,
+                 r.credential_slot_id AS current_reservation_slot_id,
+                 r.target_id AS current_reservation_target_id
           FROM shrimp_animation_publish_plans pp
           JOIN shrimp_animation_publish_targets pt ON pt.id=pp.target_id
           JOIN shrimp_animation_jobs saj
@@ -732,6 +738,8 @@ def _current_authorization_snapshot(db, plan_id) -> dict | None:
             ON pj.id=pp.provider_job_id
           JOIN shrimp_animation_review_decisions rd
             ON rd.id=pp.review_decision_id
+          LEFT JOIN shrimp_bilibili_publish_reservations r
+            ON r.id=pp.reservation_id
           WHERE pp.id=CAST(:plan_id AS uuid)
           FOR UPDATE OF pp,pt,saj,pj,rd
         """),
@@ -806,6 +814,26 @@ def _authorization_drift_reasons(row: dict) -> tuple[list[str], dict, str]:
         reasons.append("publish_target_snapshot_drift")
     if current_dry["dry_run_sha256"] != row["dry_run_sha256"]:
         reasons.append("dry_run_sha256_drift")
+
+    if row.get("reservation_id") is not None:
+        if row.get("current_reservation_status") != "CONSUMED":
+            reasons.append("reservation_not_consumed")
+        if str(row.get("current_reservation_plan_id") or "") != str(row["id"]):
+            reasons.append("reservation_plan_binding_drift")
+        if row.get("current_reservation_sha256") != row.get("reservation_sha256"):
+            reasons.append("reservation_sha256_drift")
+        if str(row.get("current_reservation_account_id") or "") != str(
+            row.get("account_profile_id") or ""
+        ):
+            reasons.append("reservation_account_binding_drift")
+        if str(row.get("current_reservation_slot_id") or "") != str(
+            row.get("credential_slot_id") or ""
+        ):
+            reasons.append("reservation_slot_binding_drift")
+        if str(row.get("current_reservation_target_id") or "") != str(
+            row.get("target_id") or ""
+        ):
+            reasons.append("reservation_target_binding_drift")
 
     return list(dict.fromkeys(reasons)), current_dry, target_sha
 
