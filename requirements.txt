@@ -9,6 +9,8 @@ vercel==0.11.4
 beautifulsoup4==4.13.5
 pydantic-settings==2.10.1
 cryptography>=45,<47
+tuf==7.0.1
+securesystemslib==1.5.1
 pytest==8.4.2
 
 pytest-timeout==2.4.0
