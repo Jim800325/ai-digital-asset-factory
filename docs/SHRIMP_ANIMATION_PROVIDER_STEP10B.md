@@ -74,3 +74,14 @@ The readiness endpoint exposes only booleans, counts and blocker keys. It checks
     SHRIMP_PUBLISH_EXECUTION_ADAPTER=MOCK
 
 Deployment alone cannot submit to Bilibili. Real acceptance requires Preview-only Cookie secrets, explicit sacrificial MID/target allowlisting, real/main MID/target denylisting, a current PUBLISH_AUTHORIZED plan, a BILIBILI_CONTROLLED execution and the independent Step 10B key.
+
+
+## Preview branch environment
+
+For `feature/shrimp-animation-provider-v0.1-step10b`, the non-account
+execution gates may be configured as Preview-only branch variables. Account
+credentials and MID allow/deny lists remain separate blockers and must never be
+committed to this repository.
+
+A new deployment is required after changing Vercel environment variables before
+the readiness endpoint can observe them.
