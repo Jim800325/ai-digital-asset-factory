@@ -21,6 +21,9 @@ from app.providers.animation.shrimp.bilibili_quota import (
 from app.providers.animation.shrimp.bilibili_recovery_policy import (
     account_circuit_allows_reservation,
 )
+from app.providers.animation.shrimp.bilibili_reliability_policy_change import (
+    reservation_policy,
+)
 
 def _sha256(value:Any)->str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
@@ -78,6 +81,12 @@ def create_pre_publish_reservation(
         int(settings.shrimp_bilibili_reservation_ttl_minutes),
         120,
     ))
+    with engine.connect() as db:
+        policy=reservation_policy(db)
+    if not bool(policy["new_reservation_allowed"]):
+        raise RuntimeError(
+            "Reliability policy currently blocks new Bilibili reservations"
+        )
     candidates=select_failover_sacrificial_accounts(
         limit=20,
         exclude_account_key=exclude_account_key,
@@ -157,6 +166,16 @@ def create_pre_publish_reservation(
                     "degradation_status":slot["degradation_status"],
                     "selection_priority":int(slot["selection_priority"]),
                     "selection_rank":rank,
+                    "reliability_policy":{
+                        "automation_exposure":policy["automation_exposure"],
+                        "quota_multiplier_percent":int(
+                            policy["quota_multiplier_percent"]
+                        ),
+                        "new_reservation_allowed":bool(
+                            policy["new_reservation_allowed"]
+                        ),
+                        "control_version":int(policy["control_version"]),
+                    },
                 }
                 selection_sha=_sha256(snapshot)
                 reservation_key=secrets.token_hex(24)

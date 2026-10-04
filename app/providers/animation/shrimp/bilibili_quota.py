@@ -9,6 +9,9 @@ from sqlalchemy import text
 
 from app.db import engine
 from app.providers.animation.models import canonical_json
+from app.providers.animation.shrimp.bilibili_reliability_policy_change import (
+    reservation_policy,
+)
 
 def _sha256(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
@@ -375,6 +378,14 @@ def release_claim_after_definitive_failure(
 def quota_usage_for_account(db, account:dict) -> dict:
     db.execute(text("SELECT expire_shrimp_bilibili_reservations()"))
     local_date=_local_quota_date(account)
+    control=reservation_policy(db)
+    base_limit=int(account.get("daily_publish_limit") or 0)
+    multiplier=int(control["quota_multiplier_percent"])
+    effective_limit=(
+        0
+        if base_limit<=0 or multiplier<=0
+        else max(1,(base_limit*multiplier)//100)
+    )
     committed=int(db.execute(text("""
       SELECT COALESCE(SUM(quota_units),0)
       FROM shrimp_bilibili_quota_ledger
@@ -403,13 +414,16 @@ def quota_usage_for_account(db, account:dict) -> dict:
     """),{"account_id":account["id"]}).scalar_one())
     return {
       "local_quota_date":str(local_date),
-      "daily_publish_limit":int(account.get("daily_publish_limit") or 0),
+      "daily_publish_limit":base_limit,
+      "effective_daily_publish_limit":effective_limit,
+      "reliability_quota_multiplier_percent":multiplier,
+      "automation_exposure":control["automation_exposure"],
       "published_units":committed,
       "held_units":held,
       "claimed_units":claimed,
       "available_units":max(
         0,
-        int(account.get("daily_publish_limit") or 0)-committed-held-claimed,
+        effective_limit-committed-held-claimed,
       ),
     }
 
