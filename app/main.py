@@ -1390,6 +1390,21 @@ def shrimp_animation_bilibili_notifications(limit: int = 100):
     return list_notifications(limit=limit)
 
 
+@app.post("/v1/shrimp-animation/bilibili-incidents/{incident_id}/recovery-request")
+def shrimp_animation_bilibili_recovery_request(
+    incident_id: UUID,
+    payload: ShrimpBilibiliIncidentAction,
+    x_shrimp_bilibili_live_acceptance_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Live-Acceptance-Key"),
+):
+    _require_shrimp_bilibili_live_acceptance_key(x_shrimp_bilibili_live_acceptance_key)
+    try:
+        return request_recovery(incident_id,actor=payload.actor)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
 @app.get("/v1/shrimp-animation/bilibili-operations-console")
 def shrimp_animation_bilibili_operations_console():
     return operations_console()
