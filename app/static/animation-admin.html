@@ -43,8 +43,8 @@
       <section id="accountsPage" class="admin-page hidden">
         <div class="hero-grid">
           <article class="hero-card primary">
-            <div class="card-kicker">BILIBILI ACCOUNT CENTER</div>
-            <div class="hero-head"><div><h2>账号安全状态</h2><p class="muted">账号资料可管理，Cookie 与授权 Key 只显示配置状态。</p></div><span id="credentialBadge" class="pill warn">UNKNOWN</span></div>
+            <div class="card-kicker">BILIBILI ACCOUNT REGISTRY v0.2</div>
+            <div class="hero-head"><div><h2>账号档案 Registry</h2><p class="muted">多账号、默认投稿配置、发布窗口、每日限额和账号级安全策略。</p></div><span id="credentialBadge" class="pill warn">UNKNOWN</span></div>
             <div id="accountMetrics" class="metric-grid"></div>
           </article>
           <article class="hero-card">
@@ -55,30 +55,61 @@
         </div>
 
         <section class="panel-card">
-          <div class="section-title-row"><div><div class="card-kicker">ACCOUNTS</div><h2>Bilibili 账号 / Target 绑定</h2></div><span class="safe-badge">MID / Target metadata only</span></div>
+          <div class="section-title-row"><div><div class="card-kicker">REGISTRY</div><h2>Bilibili 账号档案</h2></div><span class="safe-badge">No Cookie values returned</span></div>
           <div class="table-wrap dashboard-table-wrap">
-            <table><thead><tr><th>显示名称</th><th>Account Reference / MID</th><th>Target Key</th><th>状态</th><th>策略</th></tr></thead><tbody id="accountRows"></tbody></table>
+            <table><thead><tr><th>账号</th><th>MID</th><th>状态</th><th>标签</th><th>默认 TID</th><th>版权</th><th>日限额</th><th>发布窗口</th><th>安全模式</th><th>操作</th></tr></thead><tbody id="registryRows"></tbody></table>
           </div>
         </section>
 
         <section class="split-grid">
           <article class="panel-card">
-            <div class="card-kicker">ADD BILIBILI TARGET</div><h2>新增账号绑定</h2>
-            <form id="targetForm" class="settings-form" autocomplete="off">
-              <label>显示名称<input id="targetDisplayName" required maxlength="200" placeholder="测试 Bilibili 账号"></label>
-              <label>Target Key<input id="targetKey" required maxlength="120" placeholder="bilibili-sacrificial-01"></label>
-              <label>Account Reference / MID<input id="accountReference" required maxlength="300" placeholder="MID:123456789"></label>
-              <label>默认分区 TID<input id="defaultTid" type="number" min="1" value="122"></label>
-              <label>Step 9 Authorization Key<input id="publishKey" type="password" required autocomplete="off" placeholder="仅本次请求使用"></label>
-              <div class="form-actions"><button class="button" type="submit">创建 Bilibili Target</button></div>
+            <div class="card-kicker">ACCOUNT PROFILE</div><h2>新增 / 编辑账号</h2>
+            <form id="accountForm" class="settings-form" autocomplete="off">
+              <label>Account Key<input id="accountKey" required maxlength="120" placeholder="bili-test-01"></label>
+              <label>显示名称<input id="accountDisplayName" required maxlength="200" placeholder="测试 Bilibili 账号"></label>
+              <label>MID<input id="accountMid" required maxlength="32" placeholder="123456789"></label>
+              <label>账号标签<input id="accountTags" maxlength="500" placeholder="测试, 动画, 虾仁"></label>
+              <label>默认投稿分区 TID<input id="accountDefaultTid" type="number" min="1" value="122"></label>
+              <label>默认版权类型<select id="accountCopyright"><option value="ORIGINAL">ORIGINAL</option><option value="REPOST">REPOST</option></select></label>
+              <label>默认简介<textarea id="accountDescription" maxlength="5000" rows="3" placeholder="自动补充到没有简介的发布任务"></textarea></label>
+              <label>默认标签<input id="accountDefaultTags" maxlength="500" placeholder="AI动画, 虾仁动画"></label>
+              <label>封面策略<select id="accountCoverStrategy"><option value="REQUIRE_ARTIFACT">必须有封面</option><option value="OPTIONAL">可选</option><option value="NONE">无封面要求</option></select></label>
+              <label>每日发布限额<input id="accountDailyLimit" type="number" min="0" max="100" value="1"></label>
+              <label>发布时间窗口开始<input id="accountWindowStart" type="time"></label>
+              <label>发布时间窗口结束<input id="accountWindowEnd" type="time"></label>
+              <label>时区<input id="accountTimezone" value="Asia/Shanghai" maxlength="100"></label>
+              <label>安全模式<select id="accountSafetyMode"><option value="SACRIFICIAL">SACRIFICIAL</option><option value="REAL">REAL</option></select></label>
+              <label><input id="accountAllowPublic" type="checkbox"> 允许 PUBLIC 可见性</label>
+              <label>Step 9 Authorization Key<input id="accountPublishKey" type="password" required autocomplete="off" placeholder="仅本次请求使用"></label>
+              <div class="form-actions"><button id="accountSaveButton" class="button" type="submit">创建账号</button><button id="accountCancelEdit" class="button ghost hidden" type="button">取消编辑</button></div>
             </form>
-            <p class="mini-note">Key 不写入 localStorage/sessionStorage；请求完成后立即清空输入框。</p>
           </article>
+
           <article class="panel-card">
             <div class="card-kicker">ACCOUNT POLICY</div><h2>安全策略</h2>
             <div id="policyChecks" class="check-grid"></div>
-            <div class="notice warn">真实账号必须在 denylist；牺牲测试账号与测试 target 必须在 allowlist，且两者不得重叠。</div>
+            <div class="notice warn">REAL 账号仍应放入全局 denylist；SACRIFICIAL 测试账号才允许进入 Step 10B Live Acceptance allowlist。</div>
+            <div class="mini-note">账号 Registry 不保存 Cookie。SESSDATA / bili_jct / DedeUserID 继续只存在 Vercel Preview Environment Variables。</div>
           </article>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">TARGET BINDINGS</div><h2>Bilibili Publish Target</h2></div><span class="safe-badge">Account Key or MID binding</span></div>
+          <div class="table-wrap dashboard-table-wrap">
+            <table><thead><tr><th>显示名称</th><th>Account Reference</th><th>Target Key</th><th>状态</th><th>绑定</th></tr></thead><tbody id="accountRows"></tbody></table>
+          </div>
+        </section>
+
+        <section class="panel-card">
+          <div class="card-kicker">ADD BILIBILI TARGET</div><h2>新增账号 Target 绑定</h2>
+          <form id="targetForm" class="settings-form inline-form" autocomplete="off">
+            <label>显示名称<input id="targetDisplayName" required maxlength="200" placeholder="测试发布目标"></label>
+            <label>Target Key<input id="targetKey" required maxlength="120" placeholder="bilibili-sacrificial-01"></label>
+            <label>Account Key / MID<input id="accountReference" required maxlength="300" placeholder="bili-test-01 或 MID:123456789"></label>
+            <label>默认分区 TID<input id="defaultTid" type="number" min="1" value="122"></label>
+            <label>Step 9 Authorization Key<input id="publishKey" type="password" required autocomplete="off" placeholder="仅本次请求使用"></label>
+            <div class="form-actions"><button class="button" type="submit">创建 Bilibili Target</button></div>
+          </form>
         </section>
       </section>
 
