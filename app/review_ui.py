@@ -60,6 +60,18 @@ def shrimp_animation_jobs_page():
 def shrimp_animation_executions_page():
     return _html_file(ANIMATION_ADMIN_HTML)
 
+@router.get("/animation/quota")
+def shrimp_animation_quota_page():
+    return _html_file(ANIMATION_ADMIN_HTML)
+
+@router.get("/animation/operations")
+def shrimp_animation_operations_page():
+    return _html_file(ANIMATION_ADMIN_HTML)
+
+@router.get("/animation/reliability")
+def shrimp_animation_reliability_page():
+    return _html_file(ANIMATION_ADMIN_HTML)
+
 @router.get("/animation/settings")
 def shrimp_animation_settings_page():
     return _html_file(ANIMATION_ADMIN_HTML)
