@@ -242,7 +242,8 @@ def _latest_scope_points(db,scope_type,account_id):
         params["account_id"]=account_id
         clause="account_id=:account_id"
     return db.execute(text(f"""
-      SELECT * FROM shrimp_bilibili_reliability_trend_points
+      SELECT DISTINCT ON (bucket_start) *
+      FROM shrimp_bilibili_reliability_trend_points
       WHERE scope_type=:scope AND {clause} AND bucket_type='DAILY'
       ORDER BY bucket_start DESC,generated_at DESC
       LIMIT 14
