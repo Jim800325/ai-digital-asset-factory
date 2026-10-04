@@ -364,7 +364,23 @@
 
         <section class="panel-card">
           <div class="section-title-row"><div><div class="card-kicker">POLICY INTENTS</div><h2>Authorized but Non-Executable Intent</h2></div><span class="safe-badge">NO APPLY PATH</span></div>
-          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Review</th><th>Intent</th><th>Status</th><th>Execution</th><th>Changes Applied</th><th>Authorized</th></tr></thead><tbody id="governanceIntentRows"></tbody></table></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Review</th><th>Intent</th><th>Status</th><th>Execution</th><th>Changes Applied</th><th>Authorized</th><th>操作</th></tr></thead><tbody id="governanceIntentRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">APPLIED POLICY CONTROL</div><h2>当前 Reliability Policy Control</h2></div><span class="safe-badge">Affects new work only</span></div>
+          <div id="policyControlCurrent" class="settings-list"></div>
+          <div class="notice">Policy Control 只影响新 Reservation 和新的有效日额度计算；已有 Reservation / Claim / Recovery 不追溯修改。</div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">CONTROLLED CHANGE PLAN</div><h2>Exact Change Set / Dry-Run Diff</h2></div><span class="safe-badge">Second human apply gate</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Intent</th><th>Status</th><th>Exposure</th><th>Quota</th><th>New Reservation</th><th>Plan SHA</th><th>Dry-Run SHA</th><th>操作</th></tr></thead><tbody id="policyChangePlanRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">APPLY AUDIT</div><h2>Second Human Apply Decisions</h2></div><span class="safe-badge">Immutable</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Plan</th><th>Decision</th><th>Actor</th><th>Reason</th><th>Decided</th></tr></thead><tbody id="policyApplyDecisionRows"></tbody></table></div>
         </section>
 
         <section class="panel-card">
@@ -384,7 +400,7 @@
           <div class="card-kicker">SECRET MANAGEMENT</div><h2>敏感凭证管理原则</h2>
           <p class="muted">以下变量只应通过 Vercel Preview Environment Variables 设置，不在本后台保存明文。</p>
           <div class="env-chip-grid">
-            <code>SHRIMP_BILIBILI_SESSDATA</code><code>SHRIMP_BILIBILI_BILI_JCT</code><code>SHRIMP_BILIBILI_DEDE_USER_ID</code><code>SHRIMP_BILIBILI_DEDE_USER_ID_CKMD5</code><code>SHRIMP_PUBLISH_AUTHORIZATION_KEY</code><code>SHRIMP_PUBLISH_EXECUTION_KEY</code><code>SHRIMP_BILIBILI_LIVE_ACCEPTANCE_KEY</code><code>SHRIMP_BILIBILI_INCIDENT_OPS_KEY</code><code>SHRIMP_BILIBILI_RECOVERY_APPROVAL_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_GOVERNANCE_KEY</code>
+            <code>SHRIMP_BILIBILI_SESSDATA</code><code>SHRIMP_BILIBILI_BILI_JCT</code><code>SHRIMP_BILIBILI_DEDE_USER_ID</code><code>SHRIMP_BILIBILI_DEDE_USER_ID_CKMD5</code><code>SHRIMP_PUBLISH_AUTHORIZATION_KEY</code><code>SHRIMP_PUBLISH_EXECUTION_KEY</code><code>SHRIMP_BILIBILI_LIVE_ACCEPTANCE_KEY</code><code>SHRIMP_BILIBILI_INCIDENT_OPS_KEY</code><code>SHRIMP_BILIBILI_RECOVERY_APPROVAL_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_GOVERNANCE_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_POLICY_APPLY_KEY</code>
           </div>
         </section>
       </section>
