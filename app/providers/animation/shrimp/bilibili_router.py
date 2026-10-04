@@ -89,11 +89,17 @@ def create_pre_publish_reservation(
                   SELECT *
                   FROM shrimp_bilibili_publish_reservations
                   WHERE provider_job_id=CAST(:job_id AS uuid)
-                    AND reservation_status='HELD'
+                    AND reservation_status IN (
+                      'HELD','CONSUMED','CLAIMED','PUBLISHED'
+                    )
                   FOR UPDATE
                 """),{"job_id":provider_job_id}).mappings().one_or_none()
                 if existing is not None:
-                    return _serialize(existing)
+                    if existing["reservation_status"]=="HELD":
+                        return _serialize(existing)
+                    raise RuntimeError(
+                        "Provider job already has an active Bilibili reservation lifecycle"
+                    )
 
                 account=db.execute(text("""
                   SELECT * FROM shrimp_bilibili_accounts
@@ -119,8 +125,11 @@ def create_pre_publish_reservation(
                 held=db.execute(text("""
                   SELECT id FROM shrimp_bilibili_publish_reservations
                   WHERE account_id=:account_id
-                    AND reservation_status='HELD'
-                    AND expires_at>now()
+                    AND reservation_status IN ('HELD','CONSUMED')
+                    AND (
+                      reservation_status='CONSUMED'
+                      OR expires_at>now()
+                    )
                   FOR UPDATE
                 """),{"account_id":account["id"]}).mappings().one_or_none()
                 if held is not None:
