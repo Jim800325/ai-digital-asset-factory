@@ -256,15 +256,27 @@ FOR EACH ROW EXECUTE FUNCTION prevent_bilibili_recert_candidate_evidence_mutatio
 CREATE OR REPLACE FUNCTION prevent_bilibili_certification_mutation()
 RETURNS trigger AS $certification_mutation$
 BEGIN
-  IF OLD.certification_status IN (
-       'CERTIFIED','EXPIRING','EXPIRED',
-       'RECERTIFICATION_REQUIRED','REOPEN_RECOMMENDED'
-     )
-     AND (
-       NEW.certification_status IN (
-         'EXPIRING','EXPIRED','RECERTIFICATION_REQUIRED',
-         'REOPEN_RECOMMENDED','SUPERSEDED'
-       )
+  IF (
+       (OLD.certification_status='CERTIFIED'
+         AND NEW.certification_status IN (
+           'EXPIRING','EXPIRED','REOPEN_RECOMMENDED','SUPERSEDED'
+         ))
+       OR
+       (OLD.certification_status='EXPIRING'
+         AND NEW.certification_status IN (
+           'EXPIRED','REOPEN_RECOMMENDED','SUPERSEDED'
+         ))
+       OR
+       (OLD.certification_status='EXPIRED'
+         AND NEW.certification_status IN (
+           'RECERTIFICATION_REQUIRED','SUPERSEDED'
+         ))
+       OR
+       (OLD.certification_status='RECERTIFICATION_REQUIRED'
+         AND NEW.certification_status='SUPERSEDED')
+       OR
+       (OLD.certification_status='REOPEN_RECOMMENDED'
+         AND NEW.certification_status='SUPERSEDED')
      )
      AND NEW.certification_snapshot=OLD.certification_snapshot
      AND NEW.stability_baseline=OLD.stability_baseline
