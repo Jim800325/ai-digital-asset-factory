@@ -400,3 +400,99 @@ def list_oncall_routes(*,limit:int=100)->list[dict]:
           LIMIT :limit
         """),{"limit":max(1,min(limit,500))}).mappings().all()
     return [_ser(x) for x in rows]
+
+
+def configure_oncall_route(
+    *,
+    severity:str,
+    owner_ref:str,
+    secondary_owner_ref:str|None,
+    actor:str,
+)->dict:
+    level=severity.strip().upper()
+    if level not in {"WARNING","CRITICAL"}:
+        raise ValueError("severity must be WARNING or CRITICAL")
+    owner=owner_ref.strip()
+    if not owner:
+        raise ValueError("owner_ref is required")
+    secondary=(secondary_owner_ref or "").strip() or None
+    with engine.begin() as db:
+        current=_active_route(db,level)
+        if current is None:
+            row=db.execute(text("""
+              INSERT INTO shrimp_bilibili_oncall_routes(
+                route_key,severity,owner_ref,secondary_owner_ref,
+                route_status,metadata,created_by)
+              VALUES(
+                :key,:severity,:owner,:secondary,'ACTIVE',
+                CAST(:metadata AS jsonb),:actor)
+              RETURNING *
+            """),{
+              "key":"bilibili-"+level.lower()+"-managed",
+              "severity":level,
+              "owner":owner[:200],
+              "secondary":secondary[:200] if secondary else None,
+              "metadata":canonical_json({"source":"incident-ops-api"}),
+              "actor":actor[:200],
+            }).mappings().one()
+        else:
+            row=db.execute(text("""
+              UPDATE shrimp_bilibili_oncall_routes
+              SET owner_ref=:owner,
+                  secondary_owner_ref=:secondary,
+                  metadata=CAST(:metadata AS jsonb),
+                  updated_at=now()
+              WHERE id=:id
+              RETURNING *
+            """),{
+              "id":current["id"],
+              "owner":owner[:200],
+              "secondary":secondary[:200] if secondary else None,
+              "metadata":canonical_json({
+                "source":"incident-ops-api",
+                "updated_by":actor[:200],
+              }),
+            }).mappings().one()
+    return _ser(row)
+
+def complete_corrective_action(
+    action_id,
+    *,
+    completion_evidence:str,
+    actor:str,
+)->dict:
+    evidence=completion_evidence.strip()
+    if len(evidence)<3:
+        raise ValueError("completion_evidence is required")
+    with engine.begin() as db:
+        action=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_corrective_actions
+          WHERE id=CAST(:id AS uuid)
+          FOR UPDATE
+        """),{"id":action_id}).mappings().one_or_none()
+        if action is None:
+            raise LookupError("Corrective action not found")
+        if action["action_status"]=="COMPLETED":
+            return _ser(action)
+        row=db.execute(text("""
+          UPDATE shrimp_bilibili_corrective_actions
+          SET action_status='COMPLETED',
+              completion_evidence=:evidence,
+              completed_at=now()
+          WHERE id=:id
+          RETURNING *
+        """),{
+          "id":action["id"],
+          "evidence":evidence[:4000],
+        }).mappings().one()
+        _timeline(
+            db,
+            action["incident_id"],
+            "CORRECTIVE_ACTION_COMPLETED",
+            {
+              "action_key":action["action_key"],
+              "completed_by":actor[:200],
+            },
+            actor,
+        )
+    return _ser(row)
