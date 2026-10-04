@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Shrimp Animation Admin · AI Digital Asset Factory</title>
+  <link rel="stylesheet" href="/review-assets/review.css">
+  <link rel="stylesheet" href="/review-assets/control-center.css">
+  <link rel="stylesheet" href="/review-assets/animation-admin.css">
+</head>
+<body>
+<div class="app-shell admin-shell">
+  <aside class="admin-sidebar">
+    <a class="brand-link" href="/">Shrimp Animation</a>
+    <div class="sidebar-caption">CONTROL CENTER v0.2</div>
+    <nav class="admin-nav">
+      <a data-page="accounts" href="/animation/accounts">Bilibili 账号</a>
+      <a data-page="jobs" href="/animation/jobs">任务中心</a>
+      <a data-page="executions" href="/animation/executions">发布执行</a>
+      <a data-page="settings" href="/animation/settings">系统设置</a>
+      <a href="/animation-review">Human Review</a>
+      <a href="/animation-publishing">Publishing</a>
+      <a href="/">返回首页</a>
+    </nav>
+    <div class="sidebar-safe">敏感凭证不会回显<br>SESSDATA / bili_jct / Keys</div>
+  </aside>
+
+  <div class="admin-main">
+    <header class="topbar admin-topbar">
+      <div>
+        <div class="eyebrow">SHRIMP ANIMATION · OPERATIONS</div>
+        <h1 id="pageTitle">载入中…</h1>
+        <p id="pageSubtitle" class="top-subtitle">正在读取安全状态。</p>
+      </div>
+      <div class="top-actions">
+        <span id="readinessBadge" class="safe-badge">LOADING</span>
+        <button id="refreshButton" class="button" type="button">重新整理</button>
+      </div>
+    </header>
+
+    <main class="admin-content">
+      <section id="accountsPage" class="admin-page hidden">
+        <div class="hero-grid">
+          <article class="hero-card primary">
+            <div class="card-kicker">BILIBILI ACCOUNT CENTER</div>
+            <div class="hero-head"><div><h2>账号安全状态</h2><p class="muted">账号资料可管理，Cookie 与授权 Key 只显示配置状态。</p></div><span id="credentialBadge" class="pill warn">UNKNOWN</span></div>
+            <div id="accountMetrics" class="metric-grid"></div>
+          </article>
+          <article class="hero-card">
+            <div class="card-kicker">CREDENTIALS</div>
+            <h2>凭证隔离</h2>
+            <div id="credentialChecks" class="check-grid"></div>
+          </article>
+        </div>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">ACCOUNTS</div><h2>Bilibili 账号 / Target 绑定</h2></div><span class="safe-badge">MID / Target metadata only</span></div>
+          <div class="table-wrap dashboard-table-wrap">
+            <table><thead><tr><th>显示名称</th><th>Account Reference / MID</th><th>Target Key</th><th>状态</th><th>策略</th></tr></thead><tbody id="accountRows"></tbody></table>
+          </div>
+        </section>
+
+        <section class="split-grid">
+          <article class="panel-card">
+            <div class="card-kicker">ADD BILIBILI TARGET</div><h2>新增账号绑定</h2>
+            <form id="targetForm" class="settings-form" autocomplete="off">
+              <label>显示名称<input id="targetDisplayName" required maxlength="200" placeholder="测试 Bilibili 账号"></label>
+              <label>Target Key<input id="targetKey" required maxlength="120" placeholder="bilibili-sacrificial-01"></label>
+              <label>Account Reference / MID<input id="accountReference" required maxlength="300" placeholder="MID:123456789"></label>
+              <label>默认分区 TID<input id="defaultTid" type="number" min="1" value="122"></label>
+              <label>Step 9 Authorization Key<input id="publishKey" type="password" required autocomplete="off" placeholder="仅本次请求使用"></label>
+              <div class="form-actions"><button class="button" type="submit">创建 Bilibili Target</button></div>
+            </form>
+            <p class="mini-note">Key 不写入 localStorage/sessionStorage；请求完成后立即清空输入框。</p>
+          </article>
+          <article class="panel-card">
+            <div class="card-kicker">ACCOUNT POLICY</div><h2>安全策略</h2>
+            <div id="policyChecks" class="check-grid"></div>
+            <div class="notice warn">真实账号必须在 denylist；牺牲测试账号与测试 target 必须在 allowlist，且两者不得重叠。</div>
+          </article>
+        </section>
+      </section>
+
+      <section id="jobsPage" class="admin-page hidden">
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">PIPELINE JOBS</div><h2>动画任务中心</h2></div><span id="jobsCount" class="pill info">0 JOBS</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Job</th><th>Stage</th><th>Status</th><th>Updated</th><th>工作区</th></tr></thead><tbody id="jobRows"></tbody></table></div>
+        </section>
+      </section>
+
+      <section id="executionsPage" class="admin-page hidden">
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">CONTROLLED PUBLISHER</div><h2>发布执行中心</h2></div><span class="safe-badge">Exactly-once budgets</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Platform</th><th>Target</th><th>Status</th><th>Upload</th><th>Publish</th><th>Source</th><th>Open</th></tr></thead><tbody id="executionRows"></tbody></table></div>
+        </section>
+      </section>
+
+      <section id="settingsPage" class="admin-page hidden">
+        <div class="settings-grid">
+          <article class="panel-card"><div class="card-kicker">RUNTIME</div><h2>运行环境</h2><div id="runtimeSettings" class="settings-list"></div></article>
+          <article class="panel-card"><div class="card-kicker">PUBLISHER</div><h2>发布器设置</h2><div id="publisherSettings" class="settings-list"></div></article>
+          <article class="panel-card"><div class="card-kicker">BILIBILI</div><h2>Bilibili 设置</h2><div id="bilibiliSettings" class="settings-list"></div></article>
+          <article class="panel-card"><div class="card-kicker">SECURITY</div><h2>Gate / Secret 状态</h2><div id="securitySettings" class="settings-list"></div></article>
+        </div>
+        <section class="panel-card">
+          <div class="card-kicker">SECRET MANAGEMENT</div><h2>敏感凭证管理原则</h2>
+          <p class="muted">以下变量只应通过 Vercel Preview Environment Variables 设置，不在本后台保存明文。</p>
+          <div class="env-chip-grid">
+            <code>SHRIMP_BILIBILI_SESSDATA</code><code>SHRIMP_BILIBILI_BILI_JCT</code><code>SHRIMP_BILIBILI_DEDE_USER_ID</code><code>SHRIMP_BILIBILI_DEDE_USER_ID_CKMD5</code><code>SHRIMP_PUBLISH_AUTHORIZATION_KEY</code><code>SHRIMP_PUBLISH_EXECUTION_KEY</code><code>SHRIMP_BILIBILI_LIVE_ACCEPTANCE_KEY</code>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+</div>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+<script src="/review-assets/animation-admin.js" defer></script>
+</body></html>
