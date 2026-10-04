@@ -461,6 +461,26 @@
         </section>
 
         <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">TRUST CHAIN VERIFICATION</div><h2>Certification / Attestation Integrity</h2></div><span class="safe-badge">Recomputed SHA</span></div>
+          <div id="trustAuditSummary" class="settings-list"></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Status</th><th>Issues</th><th>Certs</th><th>Attestations</th><th>Audit SHA</th><th>Evaluated</th></tr></thead><tbody id="trustAuditRows"></tbody></table></div>
+          <div class="notice warn">Integrity FAIL 只会生成 FREEZE_RECOMMENDED 并进入人工 Governance；不会自动冻结、修改 quota 或调用 Bilibili。</div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">RENEWAL SLA</div><h2>Missed-Renewal Escalation</h2></div><span class="safe-badge">Operational escalation</span></div>
+          <div id="renewalSlaSummary" class="settings-list"></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Certification</th><th>Type</th><th>Severity</th><th>Status</th><th>Overdue</th><th>Evidence SHA</th><th>Opened</th></tr></thead><tbody id="renewalEscalationRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">AUDIT PROOF EXPORT</div><h2>Certification Audit Proof</h2></div><span class="safe-badge">Deterministic JSON proof</span></div>
+          <div id="auditProofSummary" class="settings-list"></div>
+          <div class="form-actions"><a class="button ghost" href="/v1/shrimp-animation/bilibili-certification-audit-proof/latest" target="_blank" rel="noopener">打开最新 JSON Proof</a></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Proof SHA</th><th>Snapshot SHA</th><th>Integrity Audit</th><th>Certification</th><th>Generated</th></tr></thead><tbody id="auditProofRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
           <div class="section-title-row"><div><div class="card-kicker">REVIEW HISTORY</div><h2>Governance Reviews</h2></div><span class="safe-badge">Evidence SHA</span></div>
           <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Review</th><th>Recommendation</th><th>Status</th><th>Evidence</th><th>Generated</th></tr></thead><tbody id="governanceReviewRows"></tbody></table></div>
         </section>

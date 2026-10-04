@@ -119,6 +119,46 @@ def _evidence_snapshot() -> dict:
         }
         if lifecycle is not None else None
     )
+    with engine.connect() as db:
+        integrity=db.execute(text("""
+          SELECT id,audit_status,issue_codes,audit_snapshot_sha256,
+                 audit_sha256,evaluated_at
+          FROM shrimp_bilibili_certification_integrity_audits
+          ORDER BY evaluated_at DESC,id DESC
+          LIMIT 1
+        """)).mappings().one_or_none()
+        renewal_escalations=db.execute(text("""
+          SELECT id,certification_id,escalation_type,severity,
+                 evidence_sha256,escalation_sha256,due_at,opened_at
+          FROM shrimp_bilibili_renewal_sla_escalations
+          WHERE escalation_status='OPEN'
+          ORDER BY opened_at DESC,id DESC
+          LIMIT 20
+        """)).mappings().all()
+    integrity_signal=(
+        {
+            "audit_id":str(integrity["id"]),
+            "audit_status":integrity["audit_status"],
+            "issue_codes":list(integrity["issue_codes"]),
+            "audit_snapshot_sha256":integrity["audit_snapshot_sha256"],
+            "audit_sha256":integrity["audit_sha256"],
+            "evaluated_at":integrity["evaluated_at"].isoformat(),
+        }
+        if integrity is not None else None
+    )
+    renewal_sla_signal=[
+        {
+            "escalation_id":str(x["id"]),
+            "certification_id":str(x["certification_id"]),
+            "escalation_type":x["escalation_type"],
+            "severity":x["severity"],
+            "evidence_sha256":x["evidence_sha256"],
+            "escalation_sha256":x["escalation_sha256"],
+            "due_at":x["due_at"].isoformat(),
+            "opened_at":x["opened_at"].isoformat(),
+        }
+        for x in renewal_escalations
+    ]
     return {
         "scorecard": {
             "id": score.get("id") if score else None,
@@ -172,6 +212,8 @@ def _evidence_snapshot() -> dict:
         "post_unfreeze_observation":observation_signal,
         "post_restore_certification_reopen":certification_reopen,
         "certification_lifecycle":certification_lifecycle,
+        "certification_integrity_audit":integrity_signal,
+        "renewal_sla_escalations":renewal_sla_signal,
         "observe_only": True,
     }
 
@@ -194,6 +236,10 @@ def _recommend(snapshot: dict) -> tuple[str,str]:
         lifecycle.get("certification_status")
         in {"EXPIRED","RECERTIFICATION_REQUIRED"}
     )
+    integrity=snapshot.get("certification_integrity_audit") or {}
+    integrity_failed=integrity.get("audit_status")=="FAIL"
+    renewal_sla= snapshot.get("renewal_sla_escalations") or []
+    renewal_sla_breached=bool(renewal_sla)
 
     critical_regression=any(x["severity"]=="CRITICAL" for x in regressions)
     critical_policy=any(x["priority"]=="CRITICAL" for x in policies)
@@ -206,7 +252,8 @@ def _recommend(snapshot: dict) -> tuple[str,str]:
     fast_burn=burn["burn_status"] in {"FAST_BURN","EXHAUSTED"}
 
     if (
-        observation_refreeze
+        integrity_failed
+        or observation_refreeze
         or fast_burn
         or critical_regression
         or critical_policy
@@ -214,6 +261,8 @@ def _recommend(snapshot: dict) -> tuple[str,str]:
         or low_score
     ):
         reasons=[]
+        if integrity_failed:
+            reasons.append("certification trust chain integrity audit failed")
         if observation_refreeze:
             reasons.append(
                 "post-unfreeze observation recommends refreeze"
@@ -228,6 +277,7 @@ def _recommend(snapshot: dict) -> tuple[str,str]:
     caution=(
         certification_reopen
         or recertification_required
+        or renewal_sla_breached
         or burn["burn_status"]=="WATCH"
         or bool(regressions)
         or any(x["recurrence_status"]=="RECURRING" for x in recurrence)
@@ -244,6 +294,11 @@ def _recommend(snapshot: dict) -> tuple[str,str]:
             return (
                 "CAUTION",
                 "reliability certification expired; governance re-certification required",
+            )
+        if renewal_sla_breached:
+            return (
+                "CAUTION",
+                "reliability certification renewal SLA breached; human governance follow-up required",
             )
         return "CAUTION","reliability evidence requires human caution review"
 
