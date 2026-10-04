@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -50,6 +51,15 @@ def _slot_snapshot(slot:dict)->dict:
 
 def slot_snapshot_sha256(slot:dict)->str:
     return _sha256(_slot_snapshot(slot))
+
+def credential_slot_is_fresh(slot:dict)->bool:
+    checked=slot.get("last_checked_at")
+    if checked is None:
+        return False
+    if checked.tzinfo is None:
+        checked=checked.replace(tzinfo=timezone.utc)
+    max_age=max(1,int(settings.shrimp_bilibili_health_max_age_minutes))
+    return datetime.now(timezone.utc)-checked <= timedelta(minutes=max_age)
 
 def _env_name(prefix:str,suffix:str)->str:
     return f"{prefix}_{suffix}"
@@ -398,8 +408,16 @@ def select_healthy_sacrificial_account()->dict|None:
           WHERE a.account_status='ACTIVE'
             AND cs.slot_status='ACTIVE'
             AND cs.health_status='HEALTHY'
+            AND cs.last_checked_at >= (
+              now() - (:max_age * interval '1 minute')
+            )
           ORDER BY cs.last_checked_at DESC NULLS LAST,a.account_key
-        """)).mappings().all()
+        """),{
+          "max_age":max(
+            1,
+            int(settings.shrimp_bilibili_health_max_age_minutes),
+          )
+        }).mappings().all()
     for row in rows:
         item=dict(row)
         policy=dict(item.get("safety_policy") or {})
@@ -454,6 +472,8 @@ def build_adapter_for_execution(execution:dict):
         raise RuntimeError("Bound Bilibili credential slot is INACTIVE")
     if slot["health_status"]!="HEALTHY":
         raise RuntimeError("Bound Bilibili credential slot is not HEALTHY")
+    if not credential_slot_is_fresh(slot):
+        raise RuntimeError("Bound Bilibili credential health check is stale")
     if slot["mid_status"]!="MATCH":
         raise RuntimeError("Bound Bilibili credential slot MID is not verified")
     if slot["publish_permission_status"]!="ALLOWED":
