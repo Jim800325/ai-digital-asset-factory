@@ -89,6 +89,87 @@ def _latest_chain_attestation(db):
     """)).scalar_one_or_none()
 
 
+def backfill_attestation_history(*,actor:str)->list[dict]:
+    created=[]
+    with engine.begin() as db:
+        certifications=db.execute(text("""
+          SELECT *
+          FROM shrimp_bilibili_post_restore_certifications
+          ORDER BY certified_at,id
+        """)).mappings().all()
+        previous_attestation=_latest_chain_attestation(db)
+        for cert in certifications:
+            initial=db.execute(text("""
+              SELECT id
+              FROM shrimp_bilibili_reliability_attestations
+              WHERE certification_id=:certification_id
+                AND attestation_type='INITIAL_CERTIFICATION'
+              ORDER BY created_at
+              LIMIT 1
+            """),{"certification_id":cert["id"]}).scalar_one_or_none()
+            if initial is None:
+                item=_append_attestation(
+                    db,
+                    certification_id=cert["id"],
+                    previous_attestation_id=previous_attestation,
+                    attestation_type="INITIAL_CERTIFICATION",
+                    attestation_sequence=int(cert["attestation_sequence"]),
+                    attestation_status="VALID",
+                    evidence_snapshot={
+                        "certification_key":cert["certification_key"],
+                        "certification_sha256":cert["certification_sha256"],
+                        "baseline_sha256":cert["baseline_sha256"],
+                        "valid_from":cert["valid_from"].isoformat(),
+                        "renewal_due_at":cert["renewal_due_at"].isoformat(),
+                        "expires_at":cert["expires_at"].isoformat(),
+                        "previous_certification_id":(
+                            str(cert["previous_certification_id"])
+                            if cert["previous_certification_id"] else None
+                        ),
+                        "backfilled":True,
+                    },
+                    actor=actor,
+                )
+                previous_attestation=item["id"]
+                created.append(item)
+            else:
+                previous_attestation=initial
+
+            if cert["certification_status"]=="SUPERSEDED":
+                superseded=db.execute(text("""
+                  SELECT id
+                  FROM shrimp_bilibili_reliability_attestations
+                  WHERE certification_id=:certification_id
+                    AND attestation_type='SUPERSEDED'
+                  ORDER BY created_at DESC
+                  LIMIT 1
+                """),{"certification_id":cert["id"]}).scalar_one_or_none()
+                if superseded is None:
+                    item=_append_attestation(
+                        db,
+                        certification_id=cert["id"],
+                        previous_attestation_id=previous_attestation,
+                        attestation_type="SUPERSEDED",
+                        attestation_sequence=int(cert["attestation_sequence"]),
+                        attestation_status="SUPERSEDED",
+                        evidence_snapshot={
+                            "certification_key":cert["certification_key"],
+                            "certification_sha256":cert["certification_sha256"],
+                            "superseded_at":(
+                                cert["superseded_at"].isoformat()
+                                if cert["superseded_at"] else None
+                            ),
+                            "backfilled":True,
+                        },
+                        actor=actor,
+                    )
+                    previous_attestation=item["id"]
+                    created.append(item)
+                else:
+                    previous_attestation=superseded
+    return created
+
+
 def list_attestations(*,limit:int=200)->list[dict]:
     with engine.connect() as db:
         rows=db.execute(text("""
@@ -303,6 +384,7 @@ def _mark_attestation_once(
 
 
 def evaluate_certification_expiry(*,actor:str)->dict:
+    backfill_attestation_history(actor=actor+"-attestation-backfill")
     now=datetime.now(timezone.utc)
     with engine.connect() as db:
         source=db.execute(text("""
@@ -320,21 +402,6 @@ def evaluate_certification_expiry(*,actor:str)->dict:
             "provider_write_count":0,
         }
     cert=dict(source)
-    _mark_attestation_once(
-        certification=cert,
-        attestation_type="INITIAL_CERTIFICATION",
-        status="VALID",
-        actor=actor,
-        evidence={
-            "certification_key":cert["certification_key"],
-            "certification_sha256":cert["certification_sha256"],
-            "baseline_sha256":cert["baseline_sha256"],
-            "valid_from":cert["valid_from"].isoformat(),
-            "renewal_due_at":cert["renewal_due_at"].isoformat(),
-            "expires_at":cert["expires_at"].isoformat(),
-            "backfilled":True,
-        },
-    )
     action="VALID"
     notification=None
 
