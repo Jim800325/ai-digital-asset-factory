@@ -1421,7 +1421,18 @@ def shrimp_animation_bilibili_recovery_request(
 ):
     _require_shrimp_bilibili_live_acceptance_key(x_shrimp_bilibili_live_acceptance_key)
     try:
-        return request_recovery(incident_id,actor=payload.actor)
+        result=request_recovery(incident_id,actor=payload.actor)
+        queue_notification(
+            incident_id=incident_id,
+            notification_type="RECOVERY_REQUIRED",
+            severity="CRITICAL",
+            payload={
+                "incident_id":str(incident_id),
+                "approval_id":result["id"],
+                "operations_path":"/animation/operations",
+            },
+        )
+        return result
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
     except RuntimeError as exc:
