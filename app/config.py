@@ -109,6 +109,7 @@ class Settings(BaseSettings):
     shrimp_bilibili_regression_score_drop_points: float = 8.0
     shrimp_bilibili_regression_rate_drop_percent: float = 10.0
     shrimp_bilibili_regression_ambiguity_increase_percent: float = 5.0
+    shrimp_bilibili_reliability_governance_key: str = ""
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""

@@ -21,6 +21,7 @@
       <a data-page="quota" href="/animation/quota">额度运营</a>
       <a data-page="operations" href="/animation/operations">Publisher Ops</a>
       <a data-page="reliability" href="/animation/reliability">Reliability</a>
+      <a data-page="governance" href="/animation/reliability-review">Governance Review</a>
       <a data-page="settings" href="/animation/settings">系统设置</a>
       <a href="/animation-review">Human Review</a>
       <a href="/animation-publishing">Publishing</a>
@@ -331,6 +332,47 @@
         </section>
       </section>
 
+      <section id="governancePage" class="admin-page hidden">
+        <div class="hero-grid">
+          <article class="hero-card primary">
+            <div class="card-kicker">RELIABILITY GOVERNANCE GATE</div>
+            <div class="hero-head"><div><h2>Human Policy Review</h2><p class="muted">NORMAL / CAUTION / FREEZE_RECOMMENDED 只是一份治理建议；任何真实策略调整都不在本阶段执行。</p></div><span id="governanceRecommendationBadge" class="pill warn">NO REVIEW</span></div>
+            <div id="governanceMetrics" class="metric-grid"></div>
+          </article>
+          <article class="hero-card">
+            <div class="card-kicker">HARD BOUNDARY</div>
+            <h2>Authorized Intent ≠ Applied Change</h2>
+            <div class="notice warn">即使人工 AUTHORIZE_FREEZE_INTENT，也只生成 execution_enabled=false / changes_applied=false 的 Policy Intent；不会改发布额度、自动化暴露、SLO、Circuit 或发布 Gate。</div>
+          </article>
+        </div>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">CURRENT REVIEW</div><h2>当前可靠性治理审查</h2></div><span class="safe-badge">Independent human key</span></div>
+          <div id="governanceCurrentReview" class="settings-list"></div>
+          <div id="governanceDecisionActions" class="form-actions"></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">EVIDENCE SNAPSHOT</div><h2>治理证据摘要</h2></div><span class="safe-badge">Drift protected</span></div>
+          <div id="governanceEvidence" class="settings-list"></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">DECISION HISTORY</div><h2>Human Policy Decisions</h2></div><span class="safe-badge">Immutable</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Review</th><th>Recommendation</th><th>Decision</th><th>Actor</th><th>Reason</th><th>Decided</th></tr></thead><tbody id="governanceDecisionRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">POLICY INTENTS</div><h2>Authorized but Non-Executable Intent</h2></div><span class="safe-badge">NO APPLY PATH</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Review</th><th>Intent</th><th>Status</th><th>Execution</th><th>Changes Applied</th><th>Authorized</th></tr></thead><tbody id="governanceIntentRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">REVIEW HISTORY</div><h2>Governance Reviews</h2></div><span class="safe-badge">Evidence SHA</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Review</th><th>Recommendation</th><th>Status</th><th>Evidence</th><th>Generated</th></tr></thead><tbody id="governanceReviewRows"></tbody></table></div>
+        </section>
+      </section>
+
       <section id="settingsPage" class="admin-page hidden">
         <div class="settings-grid">
           <article class="panel-card"><div class="card-kicker">RUNTIME</div><h2>运行环境</h2><div id="runtimeSettings" class="settings-list"></div></article>
@@ -342,7 +384,7 @@
           <div class="card-kicker">SECRET MANAGEMENT</div><h2>敏感凭证管理原则</h2>
           <p class="muted">以下变量只应通过 Vercel Preview Environment Variables 设置，不在本后台保存明文。</p>
           <div class="env-chip-grid">
-            <code>SHRIMP_BILIBILI_SESSDATA</code><code>SHRIMP_BILIBILI_BILI_JCT</code><code>SHRIMP_BILIBILI_DEDE_USER_ID</code><code>SHRIMP_BILIBILI_DEDE_USER_ID_CKMD5</code><code>SHRIMP_PUBLISH_AUTHORIZATION_KEY</code><code>SHRIMP_PUBLISH_EXECUTION_KEY</code><code>SHRIMP_BILIBILI_LIVE_ACCEPTANCE_KEY</code>
+            <code>SHRIMP_BILIBILI_SESSDATA</code><code>SHRIMP_BILIBILI_BILI_JCT</code><code>SHRIMP_BILIBILI_DEDE_USER_ID</code><code>SHRIMP_BILIBILI_DEDE_USER_ID_CKMD5</code><code>SHRIMP_PUBLISH_AUTHORIZATION_KEY</code><code>SHRIMP_PUBLISH_EXECUTION_KEY</code><code>SHRIMP_BILIBILI_LIVE_ACCEPTANCE_KEY</code><code>SHRIMP_BILIBILI_INCIDENT_OPS_KEY</code><code>SHRIMP_BILIBILI_RECOVERY_APPROVAL_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_GOVERNANCE_KEY</code>
           </div>
         </section>
       </section>

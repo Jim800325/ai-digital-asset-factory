@@ -72,6 +72,10 @@ def shrimp_animation_operations_page():
 def shrimp_animation_reliability_page():
     return _html_file(ANIMATION_ADMIN_HTML)
 
+@router.get("/animation/reliability-review")
+def shrimp_animation_reliability_review_page():
+    return _html_file(ANIMATION_ADMIN_HTML)
+
 @router.get("/animation/settings")
 def shrimp_animation_settings_page():
     return _html_file(ANIMATION_ADMIN_HTML)
