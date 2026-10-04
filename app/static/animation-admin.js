@@ -220,6 +220,27 @@ async function addCorrectiveActionForPir(x){
     toast("Corrective Action 已添加");await load();
   }catch(e){toast("Action 添加失败："+e.message,true)}
 }
+async function configureOncallRoute(x){
+  const owner=prompt("Primary Owner：",x.owner_ref||"");
+  if(!owner)return;
+  const backup=prompt("Backup Owner：",x.secondary_owner_ref||"");
+  const key=prompt("输入独立 Incident Ops Key：");
+  if(!key)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-oncall-routes",{method:"POST",headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Incident-Ops-Key":key},body:JSON.stringify({severity:x.severity,owner_ref:owner,secondary_owner_ref:backup||null,actor:"shrimp-control-center-v0.5"})});
+    toast("On-Call Route 已更新");await load();
+  }catch(e){toast("Route 更新失败："+e.message,true)}
+}
+async function completeCorrectiveAction(x){
+  const evidence=prompt("Completion Evidence：",x.completion_evidence||"");
+  if(!evidence)return;
+  const key=prompt("输入独立 Incident Ops Key：");
+  if(!key)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-corrective-actions/"+encodeURIComponent(x.id)+"/complete",{method:"POST",headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Incident-Ops-Key":key},body:JSON.stringify({completion_evidence:evidence,actor:"shrimp-control-center-v0.5"})});
+    toast("Corrective Action 已完成");await load();
+  }catch(e){toast("Action 完成失败："+e.message,true)}
+}
 function renderOperations(){
   const ops=state.operations||{},summary=ops.summary||{},escalations=ops.open_escalations||[],circuits=ops.circuits||[],runs=ops.recovery_runs||[];
   const incidentBody=byId("incidentRows");clear(incidentBody);
@@ -227,8 +248,8 @@ function renderOperations(){
   state.incidents.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.incident_key||String(x.id).slice(0,12)),el("td","mono",x.account_key||"—"));const sev=document.createElement("td");sev.appendChild(pill(x.severity));tr.appendChild(sev);const st=document.createElement("td");st.appendChild(pill(x.incident_status));tr.appendChild(st);const ack=document.createElement("td");ack.appendChild(pill(x.acknowledgement_status||"UNACKNOWLEDGED"));tr.appendChild(ack);tr.append(el("td","",x.owner_ref||"—"));const sla=document.createElement("td");sla.appendChild(pill(x.sla_status||"WITHIN_SLA"));tr.appendChild(sla);const pir=document.createElement("td");pir.appendChild(pill(x.pir_status||"NOT_REQUIRED"));tr.appendChild(pir);tr.append(el("td","",x.recovery_due_at?new Date(x.recovery_due_at).toLocaleString():"—"));const opsCell=document.createElement("td");const timeline=el("button","button ghost small","Timeline");timeline.type="button";timeline.addEventListener("click",()=>showIncidentTimeline(x));opsCell.appendChild(timeline);if(x.acknowledgement_status!=="ACKNOWLEDGED"&&x.incident_status!=="RESOLVED"){const ackBtn=el("button","button ghost small","ACK");ackBtn.type="button";ackBtn.addEventListener("click",()=>acknowledgeIncident(x));opsCell.appendChild(ackBtn)}if(x.incident_status!=="RESOLVED"){const ownerBtn=el("button","button ghost small","Owner");ownerBtn.type="button";ownerBtn.addEventListener("click",()=>assignIncidentOwner(x));opsCell.appendChild(ownerBtn)}if(x.incident_status==="OPEN"){const req=el("button","button ghost small","Request Recovery");req.type="button";req.addEventListener("click",()=>requestIncidentRecovery(x));opsCell.appendChild(req)}tr.appendChild(opsCell);incidentBody.appendChild(tr)});
 
   const routeBody=byId("oncallRouteRows");clear(routeBody);
-  if(!state.oncallRoutes.length)empty(routeBody,4,"尚无 On-Call Route");
-  state.oncallRoutes.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","",x.severity||"—"),el("td","",x.owner_ref||"—"),el("td","",x.secondary_owner_ref||"—"));const st=document.createElement("td");st.appendChild(pill(x.route_status));tr.appendChild(st);routeBody.appendChild(tr)});
+  if(!state.oncallRoutes.length)empty(routeBody,5,"尚无 On-Call Route");
+  state.oncallRoutes.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","",x.severity||"—"),el("td","",x.owner_ref||"—"),el("td","",x.secondary_owner_ref||"—"));const st=document.createElement("td");st.appendChild(pill(x.route_status));tr.appendChild(st);const opsCell=document.createElement("td");const b=el("button","button ghost small","Edit Route");b.type="button";b.addEventListener("click",()=>configureOncallRoute(x));opsCell.appendChild(b);tr.appendChild(opsCell);routeBody.appendChild(tr)});
 
   const slaBody=byId("incidentSlaRows");clear(slaBody);
   if(!state.slaEvents.length)empty(slaBody,5,"尚无 SLA Event");
@@ -239,8 +260,8 @@ function renderOperations(){
   state.pirs.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.incident_key||"—"));const st=document.createElement("td");st.appendChild(pill(x.review_status));tr.appendChild(st);tr.append(el("td","",x.owner_ref||"—"),el("td","",x.completed_at?new Date(x.completed_at).toLocaleString():"—"));const opsCell=document.createElement("td");if(x.review_status!=="COMPLETED"){const done=el("button","button ghost small","Complete PIR");done.type="button";done.addEventListener("click",()=>completePir(x));opsCell.appendChild(done)}const add=el("button","button ghost small","Add Action");add.type="button";add.addEventListener("click",()=>addCorrectiveActionForPir(x));opsCell.appendChild(add);tr.appendChild(opsCell);pirBody.appendChild(tr)});
 
   const caBody=byId("correctiveActionRows");clear(caBody);
-  if(!state.correctiveActions.length)empty(caBody,5,"尚无 Corrective Action");
-  state.correctiveActions.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.incident_key||"—"),el("td","",x.action_key+" · "+x.description),el("td","",x.owner_ref||"—"));const st=document.createElement("td");st.appendChild(pill(x.action_status));tr.appendChild(st);tr.append(el("td","",x.due_at?new Date(x.due_at).toLocaleString():"—"));caBody.appendChild(tr)});
+  if(!state.correctiveActions.length)empty(caBody,6,"尚无 Corrective Action");
+  state.correctiveActions.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.incident_key||"—"),el("td","",x.action_key+" · "+x.description),el("td","",x.owner_ref||"—"));const st=document.createElement("td");st.appendChild(pill(x.action_status));tr.appendChild(st);tr.append(el("td","",x.due_at?new Date(x.due_at).toLocaleString():"—"));const opsCell=document.createElement("td");if(x.action_status!=="COMPLETED"&&x.action_status!=="CANCELLED"){const b=el("button","button ghost small","Complete");b.type="button";b.addEventListener("click",()=>completeCorrectiveAction(x));opsCell.appendChild(b)}else{opsCell.appendChild(el("span","muted","—"))}tr.appendChild(opsCell);caBody.appendChild(tr)});
 
   const approvalBody=byId("recoveryApprovalRows");clear(approvalBody);
   if(!state.approvals.length)empty(approvalBody,7,"当前没有 Recovery Approval");
