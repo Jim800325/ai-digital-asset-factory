@@ -389,3 +389,14 @@ def incident_ops_summary()->dict:
           FROM shrimp_bilibili_incidents
         """)).mappings().one()
     return dict(row)
+
+
+def list_oncall_routes(*,limit:int=100)->list[dict]:
+    with engine.connect() as db:
+        rows=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_oncall_routes
+          ORDER BY CASE route_status WHEN 'ACTIVE' THEN 1 ELSE 2 END,
+                   severity,created_at DESC
+          LIMIT :limit
+        """),{"limit":max(1,min(limit,500))}).mappings().all()
+    return [_ser(x) for x in rows]
