@@ -678,6 +678,13 @@ def upload_publish_media(
                 details={"message": str(exc)[:2000]},
                 provider_result_sha256=evidence,
             )
+            release_claim_after_definitive_failure(
+                db,
+                execution_id=current["id"],
+                source_sha256=evidence,
+                reason="UPLOAD_FAILED",
+                actor=clean_actor,
+            )
         raise RuntimeError(str(exc)) from exc
 
     result_sha = _receipt_sha(receipt)
@@ -945,6 +952,13 @@ def publish_uploaded_media(
                 next_status="PUBLISH_FAILED",
                 details={"message": str(exc)[:2000]},
                 provider_result_sha256=evidence,
+            )
+            release_claim_after_definitive_failure(
+                db,
+                execution_id=current["id"],
+                source_sha256=evidence,
+                reason="PUBLISH_FAILED",
+                actor=clean_actor,
             )
         raise RuntimeError(str(exc)) from exc
 
