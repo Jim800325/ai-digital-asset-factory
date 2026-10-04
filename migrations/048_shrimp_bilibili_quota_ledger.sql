@@ -127,3 +127,50 @@ CREATE TRIGGER trg_prevent_bilibili_quota_ledger_update
 BEFORE UPDATE OR DELETE ON shrimp_bilibili_quota_ledger
 FOR EACH ROW
 EXECUTE FUNCTION prevent_bilibili_quota_ledger_mutation();
+
+
+CREATE OR REPLACE FUNCTION record_bilibili_reservation_release_ledger()
+RETURNS trigger AS $$
+DECLARE tz text;
+DECLARE local_day date;
+DECLARE payload jsonb;
+DECLARE entry_hash text;
+BEGIN
+  IF OLD.reservation_status='CONSUMED'
+     AND NEW.reservation_status='RELEASED'
+  THEN
+    SELECT timezone INTO tz
+    FROM shrimp_bilibili_accounts
+    WHERE id=NEW.account_id;
+
+    local_day=(now() AT TIME ZONE COALESCE(tz,'Asia/Shanghai'))::date;
+    payload=jsonb_build_object(
+      'schema_version','shrimp-bilibili-quota-ledger-v0.1',
+      'entry_type','PLAN_RELEASED',
+      'reservation_id',NEW.id::text,
+      'account_id',NEW.account_id::text,
+      'reason',COALESCE(NEW.released_reason,'PLAN_TERMINAL'),
+      'selection_sha256',NEW.selection_sha256
+    );
+    entry_hash=encode(digest(payload::text,'sha256'),'hex');
+
+    INSERT INTO shrimp_bilibili_quota_ledger(
+      account_id,reservation_id,entry_type,quota_units,
+      local_quota_date,account_timezone,source_sha256,
+      entry_payload,entry_sha256,created_by)
+    VALUES(
+      NEW.account_id,NEW.id,'PLAN_RELEASED',0,
+      local_day,COALESCE(tz,'Asia/Shanghai'),NEW.selection_sha256,
+      payload,entry_hash,'reservation-lifecycle-trigger')
+    ON CONFLICT (entry_sha256) DO NOTHING;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_record_bilibili_reservation_release_ledger
+  ON shrimp_bilibili_publish_reservations;
+CREATE TRIGGER trg_record_bilibili_reservation_release_ledger
+AFTER UPDATE OF reservation_status ON shrimp_bilibili_publish_reservations
+FOR EACH ROW
+EXECUTE FUNCTION record_bilibili_reservation_release_ledger();
