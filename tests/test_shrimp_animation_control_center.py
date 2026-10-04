@@ -42,7 +42,7 @@ def test_control_center_homepage_and_summary_are_secret_redacted(
 
     client=TestClient(app)
 
-    homepage=client.get("/")
+    homepage=client.get("/admin")
     assert homepage.status_code == 200
     assert "Shrimp Animation Control Center" in homepage.text
     assert "/review-assets/control-center.js" in homepage.text
@@ -80,7 +80,7 @@ def test_control_center_homepage_and_summary_are_secret_redacted(
 
 def test_control_center_is_read_only_surface():
     client=TestClient(app)
-    response=client.get("/")
+    response=client.get("/admin")
     assert response.status_code == 200
 
     body=response.text
