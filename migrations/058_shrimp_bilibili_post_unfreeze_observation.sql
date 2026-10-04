@@ -1,5 +1,18 @@
 -- Step 10B.17 — Post-Unfreeze Observation + Gradual Ramp + Restore Acceptance
 
+ALTER TABLE shrimp_bilibili_reliability_policy_control_events
+  DROP CONSTRAINT IF EXISTS shrimp_bilibili_reliability_policy_control_events_event_type_check;
+ALTER TABLE shrimp_bilibili_reliability_policy_control_events
+  ADD CONSTRAINT shrimp_bilibili_reliability_policy_control_events_event_type_check
+  CHECK (
+    event_type IN (
+      'PLAN_APPLIED',
+      'SAFE_UNFREEZE_APPLIED',
+      'OBSERVATION_RAMP_APPLIED',
+      'RESTORE_ACCEPTED'
+    )
+  );
+
 ALTER TABLE shrimp_bilibili_reliability_policy_controls
   DROP CONSTRAINT IF EXISTS shrimp_bilibili_reliability_policy_controls_automation_exposure_check;
 ALTER TABLE shrimp_bilibili_reliability_policy_controls
