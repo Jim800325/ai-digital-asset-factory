@@ -186,6 +186,7 @@ def run_integrity_audit(*,actor:str)->dict:
             "audit_sha":audit_sha,
             "actor":actor[:200],
         }).mappings().one_or_none()
+        created=row is not None
         if row is None:
             row=db.execute(text("""
               SELECT *
@@ -194,7 +195,7 @@ def run_integrity_audit(*,actor:str)->dict:
             """),{"sha":audit_sha}).mappings().one()
 
     notification=None
-    if issues:
+    if issues and created:
         notification=queue_notification(
             incident_id=None,
             notification_type="RELIABILITY_CERTIFICATION_INTEGRITY_FAILURE",
