@@ -101,27 +101,45 @@ def _circuit_event(
     return _serialize(row)
 
 def _ambiguity_count(db, account_id) -> int:
-    return int(db.execute(text("""
-      SELECT COUNT(*)
+    outcomes=db.execute(text("""
+      SELECT reconciliation_outcome
       FROM shrimp_bilibili_stuck_claim_reconciliations
       WHERE account_id=:account_id
-        AND reconciliation_outcome='STILL_AMBIGUOUS'
         AND reconciled_at>=now()-interval '24 hours'
-    """),{"account_id":account_id}).scalar_one())
+      ORDER BY reconciled_at DESC,id DESC
+      LIMIT 50
+    """),{"account_id":account_id}).scalars().all()
+    count=0
+    for outcome in outcomes:
+        if outcome!="STILL_AMBIGUOUS":
+            break
+        count+=1
+    return count
 
 def _provider_failure_count(db, account_id) -> int:
-    return int(db.execute(text("""
-      SELECT COUNT(*)
+    statuses=db.execute(text("""
+      SELECT e.execution_status
       FROM shrimp_animation_publish_executions e
       JOIN shrimp_bilibili_execution_claims c ON c.execution_id=e.id
       WHERE c.account_id=:account_id
-        AND e.execution_status IN ('UPLOAD_FAILED','PUBLISH_FAILED')
         AND COALESCE(
           e.publish_attempted_at,
           e.upload_attempted_at,
           e.created_at
         )>=now()-interval '24 hours'
-    """),{"account_id":account_id}).scalar_one())
+      ORDER BY COALESCE(
+        e.publish_attempted_at,
+        e.upload_attempted_at,
+        e.created_at
+      ) DESC,e.id DESC
+      LIMIT 50
+    """),{"account_id":account_id}).scalars().all()
+    count=0
+    for status in statuses:
+        if status not in {"UPLOAD_FAILED","PUBLISH_FAILED"}:
+            break
+        count+=1
+    return count
 
 def _set_circuit_open(
     db,
