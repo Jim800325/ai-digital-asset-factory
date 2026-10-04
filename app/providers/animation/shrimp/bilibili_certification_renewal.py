@@ -201,6 +201,20 @@ def generate_recertification_candidate(
     candidate_sha=_sha(candidate_material)
 
     with engine.begin() as db:
+        same_candidate=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_recertification_candidates
+          WHERE candidate_sha256=:candidate_sha
+          ORDER BY generated_at DESC
+          LIMIT 1
+        """),{"candidate_sha":candidate_sha}).mappings().one_or_none()
+        if same_candidate is not None:
+            if same_candidate["candidate_status"]=="PENDING_APPROVAL":
+                return _ser(same_candidate)
+            raise RuntimeError(
+                "This re-certification evidence was already decided; "
+                "wait for newer reliability evidence"
+            )
+
         existing=db.execute(text("""
           SELECT * FROM shrimp_bilibili_recertification_candidates
           WHERE source_certification_id=:source_id
@@ -527,7 +541,16 @@ def decide_recertification(
                 "provider_write_count":0,
             }
 
-        valid_from,renewal_due,expires_at=_certification_validity()
+        frozen_snapshot=dict(locked["candidate_snapshot"])
+        valid_from=datetime.fromisoformat(
+            frozen_snapshot["proposed_valid_from"]
+        )
+        renewal_due=datetime.fromisoformat(
+            frozen_snapshot["proposed_renewal_due_at"]
+        )
+        expires_at=datetime.fromisoformat(
+            frozen_snapshot["proposed_expires_at"]
+        )
         baseline=dict(locked["proposed_stability_baseline"])
         slo=dict(locked["promoted_slo"])
         reopen=dict(locked["reopen_policy"])
