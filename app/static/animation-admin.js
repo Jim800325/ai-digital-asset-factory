@@ -2,7 +2,7 @@
 const byId=id=>document.getElementById(id);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const clear=n=>n.replaceChildren();
-const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null,reliabilityTrend:null,governance:null,policyChange:null};
+const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null,reliabilityTrend:null,governance:null,policyChange:null,safeUnfreeze:null};
 function toast(msg,bad=false){const n=byId("toast");n.textContent=msg;n.className="toast"+(bad?" bad":"");n.classList.remove("hidden");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.add("hidden"),3200)}
 async function api(url,opts={}){const r=await fetch(url,{cache:"no-store",...opts,headers:{"Accept":"application/json",...(opts.headers||{})}});const b=await r.json().catch(()=>({detail:"Invalid response"}));if(!r.ok)throw new Error(b.detail||("HTTP "+r.status));return b}
 function pill(v){const s=String(v||"UNKNOWN").toUpperCase();const cls=/READY|SUCCESS|APPROVED|AUTHORIZED|PUBLISHED|CURRENT|ACTIVE|PASS|CONFIGURED/.test(s)?"good":/BLOCKED|FAILED|REJECTED|STALE|DISABLED|MISSING|INACTIVE|EXPIRED|UNHEALTHY|MISMATCH|LOGGED_OUT|DENIED/.test(s)?"bad":"warn";return el("span","pill "+cls,s)}
@@ -425,6 +425,53 @@ async function decideReliabilityChangePlan(plan,decision){
     await load();
   }catch(e){toast("Change Plan Decision 失败："+e.message,true)}
 }
+async function createRestorePlan(){
+  const key=prompt("输入 Reliability Governance Key，生成 Safe Unfreeze Plan：");
+  if(!key)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-reliability-restore-plans",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Reliability-Governance-Key":key},
+      body:JSON.stringify({actor:"shrimp-control-center-safe-unfreeze-v0.1"})
+    });
+    toast("Safe Unfreeze Plan 已生成；尚未恢复策略");
+    await load();
+  }catch(e){toast("Restore Plan 生成失败："+e.message,true)}
+}
+async function firstRestoreDecision(plan,decision){
+  const key=prompt("输入第一位 Restore Approval Key：");
+  if(!key)return;
+  const actor=prompt("第一位审批人 Actor：");
+  if(!actor)return;
+  const reason=prompt(decision+" 原因：","Reviewed recovery evidence and restore dry-run");
+  if(!reason)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-reliability-restore-plans/"+encodeURIComponent(plan.id)+"/first-approval",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Reliability-Restore-Approval-Key":key},
+      body:JSON.stringify({decision,reason,actor,plan_sha256:plan.plan_sha256,dry_run_sha256:plan.dry_run_sha256})
+    });
+    toast("第一位 Restore Decision 已记录");
+    await load();
+  }catch(e){toast("第一位审批失败："+e.message,true)}
+}
+async function secondRestoreDecision(plan,decision){
+  const key=prompt("输入第二位 Restore Apply Key：");
+  if(!key)return;
+  const actor=prompt("第二位审批人 Actor（必须与第一位不同）：");
+  if(!actor)return;
+  const reason=prompt(decision+" 原因：","Rechecked recovery evidence and safe unfreeze plan");
+  if(!reason)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-reliability-restore-plans/"+encodeURIComponent(plan.id)+"/second-apply",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Reliability-Restore-Apply-Key":key},
+      body:JSON.stringify({decision,reason,actor,plan_sha256:plan.plan_sha256,dry_run_sha256:plan.dry_run_sha256})
+    });
+    toast(decision==="APPROVE"?"Safe Unfreeze 已应用到新工作路径":"第二位 Restore Decision 已拒绝");
+    await load();
+  }catch(e){toast("第二位审批失败："+e.message,true)}
+}
 function renderGovernance(){
   const data=state.governance||{},review=data.current_review||null;
   const badge=byId("governanceRecommendationBadge");
@@ -512,11 +559,38 @@ function renderGovernance(){
   const applyDecisions=Array.isArray(policyData.apply_decisions)?policyData.apply_decisions:[];
   if(!applyDecisions.length)empty(applyBody,5,"尚无 Second Human Apply Decision");
   applyDecisions.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",String(x.plan_id||"").slice(0,12)+"…"));const dec=document.createElement("td");dec.appendChild(pill(x.decision));tr.appendChild(dec);tr.append(el("td","",x.actor||"—"),el("td","",x.reason||"—"),el("td","",x.decided_at?new Date(x.decided_at).toLocaleString():"—"));applyBody.appendChild(tr)});
+
+  const restoreData=state.safeUnfreeze||{},restoreEvidence=restoreData.recovery_evidence||{},checks=restoreEvidence.checks||{};
+  const restoreSummary=byId("restoreEvidenceSummary");clear(restoreSummary);
+  row(restoreSummary,"Current Exposure",restoreData.policy_control?.automation_exposure||"—");
+  row(restoreSummary,"Restore Eligible",restoreData.eligible_for_restore?"YES":"NO");
+  row(restoreSummary,"Reliability Score",restoreEvidence.scorecard?.reliability_score??"—");
+  row(restoreSummary,"Burn Status",restoreEvidence.burn?.burn_status||"—");
+  const checkRoot=byId("restoreEvidenceChecks");clear(checkRoot);
+  Object.entries(checks).forEach(([k,v])=>row(checkRoot,k,v?"PASS":"BLOCKED"));
+
+  const restoreActions=byId("restorePlanActions");clear(restoreActions);
+  const restorePlans=Array.isArray(restoreData.plans)?restoreData.plans:[];
+  const activeRestore=restoreData.current_plan||null;
+  if(restoreData.eligible_for_restore&&!activeRestore&&["CAUTION","FROZEN"].includes(restoreData.policy_control?.automation_exposure)){
+    const b=el("button","button ghost","Generate Safe Unfreeze Plan");b.type="button";b.addEventListener("click",createRestorePlan);restoreActions.appendChild(b);
+  }else{
+    restoreActions.appendChild(el("span","muted",activeRestore?"已有待处理 Restore Plan":"Recovery Evidence Gate 未满足或当前已是 NORMAL"));
+  }
+
+  const restoreBody=byId("restorePlanRows");clear(restoreBody);
+  if(!restorePlans.length)empty(restoreBody,7,"尚无 Restore Plan");
+  restorePlans.forEach(x=>{const tr=document.createElement("tr");const source=x.source_control_snapshot||{},proposed=x.proposed_control_snapshot||{};tr.append(el("td","mono",x.restore_key||String(x.id).slice(0,12)));const st=document.createElement("td");st.appendChild(pill(x.plan_status));tr.appendChild(st);tr.append(el("td","",(source.automation_exposure||"—")+" → "+(proposed.automation_exposure||"—")),el("td","",(source.quota_multiplier_percent??"—")+"% → "+(proposed.quota_multiplier_percent??"—")+"%"),el("td","",(source.new_reservation_allowed?"ALLOW":"BLOCK")+" → "+(proposed.new_reservation_allowed?"ALLOW":"BLOCK")),el("td","mono",String(x.recovery_evidence_sha256||"").slice(0,12)+"…"));const ops=document.createElement("td");if(x.plan_status==="PENDING_FIRST_APPROVAL"){for(const d of ["APPROVE","REJECT"]){const b=el("button","button ghost small","FIRST "+d);b.type="button";b.addEventListener("click",()=>firstRestoreDecision(x,d));ops.appendChild(b)}}else if(x.plan_status==="PENDING_SECOND_APPROVAL"){for(const d of ["APPROVE","REJECT"]){const b=el("button","button "+(d==="APPROVE"?"danger":"ghost")+" small","SECOND "+d);b.type="button";b.addEventListener("click",()=>secondRestoreDecision(x,d));ops.appendChild(b)}}else{ops.appendChild(el("span","muted","—"))}tr.appendChild(ops);restoreBody.appendChild(tr)});
+
+  const restoreApprovalBody=byId("restoreApprovalRows");clear(restoreApprovalBody);
+  const restoreApprovals=Array.isArray(restoreData.approvals)?restoreData.approvals:[];
+  if(!restoreApprovals.length)empty(restoreApprovalBody,6,"尚无 Restore Approval");
+  restoreApprovals.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.restore_key||String(x.plan_id||"").slice(0,12)),el("td","",x.approval_stage||"—"));const dec=document.createElement("td");dec.appendChild(pill(x.decision));tr.appendChild(dec);tr.append(el("td","",x.actor||"—"),el("td","",x.reason||"—"),el("td","",x.decided_at?new Date(x.decided_at).toLocaleString():"—"));restoreApprovalBody.appendChild(tr)});
 }
 
 function renderSettings(){const s=state.summary||{},sys=s.system||{},r=s.bilibili?.readiness||{},c=r.checks||{};const groups=[["runtimeSettings",[["Vercel Env",sys.vercel_env||"—"],["Database",sys.database_available?"AVAILABLE":"UNAVAILABLE"],["Database Source",sys.database_source||"—"],["Preview Isolated",sys.preview_isolated?"YES":"NO"],["Migrations",sys.migration_status||"—"]]],["publisherSettings",[["Adapter",sys.publisher_adapter||"—"],["Executor",c.publish_executor_enabled?"ENABLED":"DISABLED"],["Step 9 Gate",c.publish_authorization_gate?"READY":"BLOCKED"],["Step 10 Gate",c.publish_execution_gate?"READY":"BLOCKED"]]],["bilibiliSettings",[["Account Profiles",state.accounts.length],["Controlled Adapter",c.bilibili_controlled_adapter?"READY":"BLOCKED"],["Live Acceptance",c.bilibili_live_acceptance_enabled?"ENABLED":"DISABLED"],["Cookie Bundle",c.bilibili_cookie_credentials_present?"CONFIGURED":"MISSING"]]],["securitySettings",[["Secrets Redacted",r.secrets_redacted?"YES":"NO"],["Account Allowlist",c.sacrificial_account_allowlist_present?"SET":"MISSING"],["Account Denylist",c.real_account_denylist_present?"SET":"MISSING"],["Target Allowlist",c.sacrificial_target_allowlist_present?"SET":"MISSING"],["Target Denylist",c.real_target_denylist_present?"SET":"MISSING"]]]];groups.forEach(([id,items])=>{const root=byId(id);clear(root);items.forEach(([k,v])=>row(root,k,v))})}
 async function load(){byId("refreshButton").disabled=true;try{
-  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability,reliabilityTrend,governance,policyChange]=await Promise.all([
+  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability,reliabilityTrend,governance,policyChange,safeUnfreeze]=await Promise.all([
     api("/v1/shrimp-animation/control-center/summary"),
     api("/v1/shrimp-animation/publish-targets"),
     api("/v1/shrimp-animation/bilibili-accounts"),
@@ -539,11 +613,12 @@ async function load(){byId("refreshButton").disabled=true;try{
     api("/v1/shrimp-animation/bilibili-reliability-dashboard"),
     api("/v1/shrimp-animation/bilibili-reliability-trend-dashboard"),
     api("/v1/shrimp-animation/bilibili-reliability-governance"),
-    api("/v1/shrimp-animation/bilibili-reliability-policy-change")
+    api("/v1/shrimp-animation/bilibili-reliability-policy-change"),
+    api("/v1/shrimp-animation/bilibili-reliability-safe-unfreeze")
   ]);
   let selection=null;
   try{selection=await api("/v1/shrimp-animation/bilibili-account-selection/healthy")}catch(_){}
-  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};state.reliabilityTrend=reliabilityTrend||{};state.governance=governance||{};state.policyChange=policyChange||{};
+  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};state.reliabilityTrend=reliabilityTrend||{};state.governance=governance||{};state.policyChange=policyChange||{};state.safeUnfreeze=safeUnfreeze||{};
   renderAccounts();renderJobs();renderExecutions();renderQuota();renderOperations();renderReliability();renderGovernance();renderSettings();
 }catch(e){toast("载入失败："+e.message,true)}finally{byId("refreshButton").disabled=false}}
 byId("accountForm").addEventListener("submit",async e=>{

@@ -158,6 +158,15 @@ from app.providers.animation.shrimp.bilibili_incidents import (
     request_recovery,
     sync_critical_incidents,
 )
+from app.providers.animation.shrimp.bilibili_reliability_restore import (
+    first_restore_approval,
+    generate_restore_plan,
+    get_restore_plan,
+    list_restore_approvals,
+    list_restore_plans,
+    safe_unfreeze_dashboard,
+    second_restore_apply,
+)
 from app.providers.animation.shrimp.bilibili_reliability_policy_change import (
     decide_change_plan,
     generate_change_plan,
@@ -456,6 +465,22 @@ class ShrimpBilibiliCorrectiveActionCreate(BaseModel):
     due_at: str | None = None
     actor: str = Field(default="shrimp-pir-reviewer",min_length=1,max_length=200)
 
+class ShrimpBilibiliReliabilityRestorePlanCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(
+        default="shrimp-reliability-restore-planner",
+        min_length=1,
+        max_length=200,
+    )
+
+class ShrimpBilibiliReliabilityRestoreDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["APPROVE","REJECT"]
+    reason: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(min_length=1,max_length=200)
+    plan_sha256: str = Field(min_length=64,max_length=64)
+    dry_run_sha256: str = Field(min_length=64,max_length=64)
+
 class ShrimpBilibiliReliabilityChangePlanCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     actor: str = Field(
@@ -667,6 +692,76 @@ def _require_shrimp_bilibili_live_acceptance_key(
             status_code=403,
             detail="Invalid Shrimp Bilibili live acceptance key",
         )
+
+def _require_shrimp_bilibili_reliability_restore_approval_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_bilibili_reliability_restore_approval_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Bilibili reliability restore approval gate is not configured",
+        )
+    forbidden=(
+        settings.shrimp_bilibili_reliability_restore_apply_key.strip(),
+        settings.shrimp_bilibili_reliability_policy_apply_key.strip(),
+        settings.shrimp_bilibili_reliability_governance_key.strip(),
+        settings.shrimp_bilibili_incident_ops_key.strip(),
+        settings.shrimp_bilibili_recovery_approval_key.strip(),
+        settings.shrimp_bilibili_live_acceptance_key.strip(),
+        settings.shrimp_publish_authorization_key.strip(),
+        settings.shrimp_publish_execution_key.strip(),
+        settings.shrimp_human_review_key.strip(),
+    )
+    if any(
+        value and secrets.compare_digest(expected,value)
+        for value in forbidden
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Bilibili reliability restore approval key must be independent",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili reliability restore approval key",
+        )
+
+
+def _require_shrimp_bilibili_reliability_restore_apply_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_bilibili_reliability_restore_apply_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Bilibili reliability restore apply gate is not configured",
+        )
+    forbidden=(
+        settings.shrimp_bilibili_reliability_restore_approval_key.strip(),
+        settings.shrimp_bilibili_reliability_policy_apply_key.strip(),
+        settings.shrimp_bilibili_reliability_governance_key.strip(),
+        settings.shrimp_bilibili_incident_ops_key.strip(),
+        settings.shrimp_bilibili_recovery_approval_key.strip(),
+        settings.shrimp_bilibili_live_acceptance_key.strip(),
+        settings.shrimp_publish_authorization_key.strip(),
+        settings.shrimp_publish_execution_key.strip(),
+        settings.shrimp_human_review_key.strip(),
+    )
+    if any(
+        value and secrets.compare_digest(expected,value)
+        for value in forbidden
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Bilibili reliability restore apply key must be independent",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili reliability restore apply key",
+        )
+
 
 def _require_shrimp_bilibili_reliability_policy_apply_key(
     provided: str | None,
@@ -1694,6 +1789,102 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-reliability-safe-unfreeze")
+def shrimp_animation_bilibili_reliability_safe_unfreeze():
+    return safe_unfreeze_dashboard()
+
+
+@app.get("/v1/shrimp-animation/bilibili-reliability-restore-plans")
+def shrimp_animation_bilibili_reliability_restore_plans(limit: int = 100):
+    return list_restore_plans(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-reliability-restore-plans/{plan_id}")
+def shrimp_animation_bilibili_reliability_restore_plan(plan_id: UUID):
+    try:
+        return get_restore_plan(plan_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-reliability-restore-approvals")
+def shrimp_animation_bilibili_reliability_restore_approvals(limit: int = 100):
+    return list_restore_approvals(limit=limit)
+
+
+@app.post("/v1/shrimp-animation/bilibili-reliability-restore-plans")
+def shrimp_animation_bilibili_reliability_restore_plan_create(
+    payload: ShrimpBilibiliReliabilityRestorePlanCreate,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Bilibili-Reliability-Governance-Key",
+    ),
+):
+    _require_shrimp_bilibili_reliability_governance_key(x_key)
+    try:
+        return generate_restore_plan(actor=payload.actor)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/bilibili-reliability-restore-plans/{plan_id}/first-approval"
+)
+def shrimp_animation_bilibili_reliability_restore_first_approval(
+    plan_id: UUID,
+    payload: ShrimpBilibiliReliabilityRestoreDecision,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Bilibili-Reliability-Restore-Approval-Key",
+    ),
+):
+    _require_shrimp_bilibili_reliability_restore_approval_key(x_key)
+    try:
+        return first_restore_approval(
+            plan_id,
+            decision=payload.decision,
+            reason=payload.reason,
+            actor=payload.actor,
+            plan_sha256=payload.plan_sha256,
+            dry_run_sha256=payload.dry_run_sha256,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/bilibili-reliability-restore-plans/{plan_id}/second-apply"
+)
+def shrimp_animation_bilibili_reliability_restore_second_apply(
+    plan_id: UUID,
+    payload: ShrimpBilibiliReliabilityRestoreDecision,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Bilibili-Reliability-Restore-Apply-Key",
+    ),
+):
+    _require_shrimp_bilibili_reliability_restore_apply_key(x_key)
+    try:
+        return second_restore_apply(
+            plan_id,
+            decision=payload.decision,
+            reason=payload.reason,
+            actor=payload.actor,
+            plan_sha256=payload.plan_sha256,
+            dry_run_sha256=payload.dry_run_sha256,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
 
 
 @app.get("/v1/shrimp-animation/bilibili-reliability-policy-change")
