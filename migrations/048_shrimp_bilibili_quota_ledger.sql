@@ -1,5 +1,31 @@
 -- Step 10B.7 — Reservation Lifecycle + Execution Claim + Quota Ledger
 
+CREATE OR REPLACE FUNCTION expire_shrimp_bilibili_reservations()
+RETURNS integer AS $
+DECLARE affected integer;
+BEGIN
+  UPDATE shrimp_bilibili_publish_reservations r
+  SET reservation_status='EXPIRED',
+      released_at=COALESCE(r.released_at,now()),
+      released_reason=COALESCE(r.released_reason,'TTL_EXPIRED')
+  WHERE r.expires_at<=now()
+    AND (
+      r.reservation_status='HELD'
+      OR (
+        r.reservation_status='CONSUMED'
+        AND EXISTS (
+          SELECT 1
+          FROM shrimp_animation_publish_plans pp
+          WHERE pp.id=r.consumed_by_plan_id
+            AND pp.plan_status='PENDING_AUTHORIZATION'
+        )
+      )
+    );
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  RETURN affected;
+END;
+$ LANGUAGE plpgsql;
+
 DROP INDEX IF EXISTS uq_shrimp_bilibili_active_account_reservation;
 CREATE UNIQUE INDEX uq_shrimp_bilibili_active_account_reservation
   ON shrimp_bilibili_publish_reservations(account_id)
@@ -195,7 +221,7 @@ DECLARE local_day date;
 DECLARE payload jsonb;
 DECLARE entry_hash text;
 BEGIN
-  IF OLD.reservation_status='HELD'
+  IF OLD.reservation_status IN ('HELD','CONSUMED')
      AND NEW.reservation_status='EXPIRED'
   THEN
     SELECT timezone INTO tz
