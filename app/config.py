@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     shrimp_bilibili_reliability_policy_apply_key: str = ""
     shrimp_bilibili_reliability_restore_approval_key: str = ""
     shrimp_bilibili_reliability_restore_apply_key: str = ""
+    shrimp_bilibili_observation_stage_minutes: int = 360
+    shrimp_bilibili_observation_min_executions: int = 1
+    shrimp_bilibili_restore_acceptance_key: str = ""
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
