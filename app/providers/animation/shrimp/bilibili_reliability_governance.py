@@ -60,6 +60,31 @@ def _evidence_snapshot() -> dict:
         }
         if observation is not None else None
     )
+    with engine.connect() as db:
+        reopen=db.execute(text("""
+          SELECT e.id,e.certification_id,e.trigger_codes,e.evidence_sha256,
+                 e.event_sha256,e.opened_at,c.certification_key,
+                 c.baseline_sha256
+          FROM shrimp_bilibili_certification_reopen_events e
+          JOIN shrimp_bilibili_post_restore_certifications c
+            ON c.id=e.certification_id
+          WHERE e.event_status='OPEN'
+          ORDER BY e.opened_at DESC
+          LIMIT 1
+        """)).mappings().one_or_none()
+    certification_reopen=(
+        {
+            "event_id":str(reopen["id"]),
+            "certification_id":str(reopen["certification_id"]),
+            "certification_key":reopen["certification_key"],
+            "trigger_codes":list(reopen["trigger_codes"]),
+            "evidence_sha256":reopen["evidence_sha256"],
+            "event_sha256":reopen["event_sha256"],
+            "baseline_sha256":reopen["baseline_sha256"],
+            "opened_at":reopen["opened_at"].isoformat(),
+        }
+        if reopen is not None else None
+    )
     return {
         "scorecard": {
             "id": score.get("id") if score else None,
@@ -111,6 +136,7 @@ def _evidence_snapshot() -> dict:
             for x in recommendations
         ],
         "post_unfreeze_observation":observation_signal,
+        "post_restore_certification_reopen":certification_reopen,
         "observe_only": True,
     }
 
@@ -124,6 +150,9 @@ def _recommend(snapshot: dict) -> tuple[str,str]:
     observation=snapshot.get("post_unfreeze_observation") or {}
     observation_refreeze=(
         observation.get("refreeze_recommendation")=="REFREEZE_RECOMMENDED"
+    )
+    certification_reopen=bool(
+        snapshot.get("post_restore_certification_reopen")
     )
 
     critical_regression=any(x["severity"]=="CRITICAL" for x in regressions)
@@ -157,13 +186,19 @@ def _recommend(snapshot: dict) -> tuple[str,str]:
         return "FREEZE_RECOMMENDED",", ".join(reasons)
 
     caution=(
-        burn["burn_status"]=="WATCH"
+        certification_reopen
+        or burn["burn_status"]=="WATCH"
         or bool(regressions)
         or any(x["recurrence_status"]=="RECURRING" for x in recurrence)
         or (score["reliability_score"] is not None and score["reliability_score"]<85)
         or any(x["priority"] in {"HIGH","MEDIUM"} for x in policies)
     )
     if caution:
+        if certification_reopen:
+            return (
+                "CAUTION",
+                "post-restore certification reopened; human governance review required",
+            )
         return "CAUTION","reliability evidence requires human caution review"
 
     return "NORMAL","no current burn, regression, or recurrence signal requires escalation"
