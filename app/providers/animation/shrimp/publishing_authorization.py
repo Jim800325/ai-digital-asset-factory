@@ -19,6 +19,10 @@ from app.providers.animation.shrimp.bilibili_credentials import (
     resolve_credential_slot_for_account,
     slot_snapshot_sha256,
 )
+from app.providers.animation.shrimp.bilibili_router import (
+    consume_reservation,
+    validate_reservation_for_plan,
+)
 from app.providers.animation.shrimp.human_review import (
     get_episode_bundle_file,
     get_episode_player_file,
@@ -447,6 +451,7 @@ def create_publish_plan(
     *,
     target_key: str,
     publish_metadata: dict,
+    reservation_id=None,
     actor: str = "shrimp-publish-plan-api",
 ) -> dict:
     key = _normalize_target_key(target_key)
@@ -467,6 +472,23 @@ def create_publish_plan(
         if target is None:
             raise LookupError("Publish Target not found")
         target = dict(target)
+
+        reservation = None
+        reservation_sha = None
+        failover_selection_sha = None
+        if reservation_id is not None:
+            reservation = validate_reservation_for_plan(
+                db,
+                reservation_id=reservation_id,
+                provider_job_id=job_id,
+            )
+            if str(reservation["target_id"]) != str(target["id"]):
+                raise RuntimeError(
+                    "Reservation target does not match requested Publish Target"
+                )
+            reservation_sha = reservation["selection_sha256"]
+            failover_selection_sha = reservation["selection_sha256"]
+
         if target["target_status"] != "ACTIVE":
             raise RuntimeError("Publish Target is not ACTIVE")
         if target["execution_enabled"] or target["external_publish_enabled"]:
@@ -554,6 +576,16 @@ def create_publish_plan(
                 str(credential_slot["id"]) if credential_slot else None,
             "credential_slot_sha256": credential_slot_sha,
             "credential_slot_snapshot": credential_slot_snapshot_value,
+            "credential_version":
+                int(credential_slot["credential_version"])
+                if credential_slot else None,
+            "failover_selection_sha256": failover_selection_sha,
+            "reservation_id":
+                str(reservation["id"]) if reservation else None,
+            "reservation_sha256": reservation_sha,
+            "reservation_snapshot":
+                dict(reservation["selection_snapshot"])
+                if reservation else None,
             "publish_metadata": dry_run["publish_metadata"],
             "dry_run_sha256": dry_run["dry_run_sha256"],
             "dry_run_status": "VERIFIED",
@@ -592,7 +624,9 @@ def create_publish_plan(
                 episode_bundle_sha256,release_review_package_sha256,
                 target_snapshot_sha256,account_profile_id,
                 account_profile_sha256,credential_slot_id,
-                credential_slot_sha256,publish_metadata,
+                credential_slot_sha256,credential_version,
+                failover_selection_sha256,reservation_id,
+                reservation_sha256,publish_metadata,
                 dry_run_snapshot,dry_run_sha256,dry_run_status,
                 plan_payload,plan_sha256,plan_status,
                 execution_enabled,publish_performed,created_by)
@@ -602,7 +636,9 @@ def create_publish_plan(
                 :episode_bundle_sha256,:release_review_package_sha256,
                 :target_snapshot_sha256,:account_profile_id,
                 :account_profile_sha256,:credential_slot_id,
-                :credential_slot_sha256,CAST(:publish_metadata AS jsonb),
+                :credential_slot_sha256,:credential_version,
+                :failover_selection_sha256,:reservation_id,
+                :reservation_sha256,CAST(:publish_metadata AS jsonb),
                 CAST(:dry_run_snapshot AS jsonb),:dry_run_sha256,'VERIFIED',
                 CAST(:plan_payload AS jsonb),:plan_sha256,
                 'PENDING_AUTHORIZATION',false,false,:actor)
@@ -625,6 +661,13 @@ def create_publish_plan(
                 "credential_slot_id":
                     credential_slot["id"] if credential_slot else None,
                 "credential_slot_sha256": credential_slot_sha,
+                "credential_version":
+                    int(credential_slot["credential_version"])
+                    if credential_slot else None,
+                "failover_selection_sha256": failover_selection_sha,
+                "reservation_id":
+                    reservation["id"] if reservation else None,
+                "reservation_sha256": reservation_sha,
                 "publish_metadata": canonical_json(
                     dry_run["publish_metadata"]
                 ),
@@ -637,6 +680,13 @@ def create_publish_plan(
                 "actor": clean_actor[:200],
             },
         ).mappings().one()
+
+        if reservation is not None:
+            consume_reservation(
+                db,
+                reservation_id=reservation["id"],
+                plan_id=row["id"],
+            )
 
     result = _serialize_row(row)
     result.update(
@@ -673,7 +723,13 @@ def _current_authorization_snapshot(db, plan_id) -> dict | None:
                  pj.external_side_effects AS current_external_side_effects,
                  rd.decision AS current_review_decision,
                  rd.decision_sha256 AS current_review_decision_sha256,
-                 rd.decision_status AS current_review_decision_status
+                 rd.decision_status AS current_review_decision_status,
+                 r.reservation_status AS current_reservation_status,
+                 r.selection_sha256 AS current_reservation_sha256,
+                 r.consumed_by_plan_id AS current_reservation_plan_id,
+                 r.account_id AS current_reservation_account_id,
+                 r.credential_slot_id AS current_reservation_slot_id,
+                 r.target_id AS current_reservation_target_id
           FROM shrimp_animation_publish_plans pp
           JOIN shrimp_animation_publish_targets pt ON pt.id=pp.target_id
           JOIN shrimp_animation_jobs saj
@@ -682,6 +738,8 @@ def _current_authorization_snapshot(db, plan_id) -> dict | None:
             ON pj.id=pp.provider_job_id
           JOIN shrimp_animation_review_decisions rd
             ON rd.id=pp.review_decision_id
+          LEFT JOIN shrimp_bilibili_publish_reservations r
+            ON r.id=pp.reservation_id
           WHERE pp.id=CAST(:plan_id AS uuid)
           FOR UPDATE OF pp,pt,saj,pj,rd
         """),
@@ -756,6 +814,26 @@ def _authorization_drift_reasons(row: dict) -> tuple[list[str], dict, str]:
         reasons.append("publish_target_snapshot_drift")
     if current_dry["dry_run_sha256"] != row["dry_run_sha256"]:
         reasons.append("dry_run_sha256_drift")
+
+    if row.get("reservation_id") is not None:
+        if row.get("current_reservation_status") != "CONSUMED":
+            reasons.append("reservation_not_consumed")
+        if str(row.get("current_reservation_plan_id") or "") != str(row["id"]):
+            reasons.append("reservation_plan_binding_drift")
+        if row.get("current_reservation_sha256") != row.get("reservation_sha256"):
+            reasons.append("reservation_sha256_drift")
+        if str(row.get("current_reservation_account_id") or "") != str(
+            row.get("account_profile_id") or ""
+        ):
+            reasons.append("reservation_account_binding_drift")
+        if str(row.get("current_reservation_slot_id") or "") != str(
+            row.get("credential_slot_id") or ""
+        ):
+            reasons.append("reservation_slot_binding_drift")
+        if str(row.get("current_reservation_target_id") or "") != str(
+            row.get("target_id") or ""
+        ):
+            reasons.append("reservation_target_binding_drift")
 
     return list(dict.fromkeys(reasons)), current_dry, target_sha
 
