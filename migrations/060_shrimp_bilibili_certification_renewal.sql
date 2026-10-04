@@ -213,3 +213,35 @@ DROP TRIGGER IF EXISTS trg_prevent_bilibili_recert_candidate_evidence_mutation
 CREATE TRIGGER trg_prevent_bilibili_recert_candidate_evidence_mutation
 BEFORE UPDATE OR DELETE ON shrimp_bilibili_recertification_candidates
 FOR EACH ROW EXECUTE FUNCTION prevent_bilibili_recert_candidate_evidence_mutation();
+
+
+CREATE OR REPLACE FUNCTION prevent_bilibili_certification_mutation()
+RETURNS trigger AS $$
+BEGIN
+  IF OLD.certification_status IN (
+       'CERTIFIED','EXPIRING','EXPIRED',
+       'RECERTIFICATION_REQUIRED','REOPEN_RECOMMENDED'
+     )
+     AND (
+       NEW.certification_status IN (
+         'EXPIRING','EXPIRED','RECERTIFICATION_REQUIRED',
+         'REOPEN_RECOMMENDED','SUPERSEDED'
+       )
+     )
+     AND NEW.certification_snapshot=OLD.certification_snapshot
+     AND NEW.stability_baseline=OLD.stability_baseline
+     AND NEW.promoted_slo=OLD.promoted_slo
+     AND NEW.reopen_policy=OLD.reopen_policy
+     AND NEW.certification_sha256=OLD.certification_sha256
+     AND NEW.baseline_sha256=OLD.baseline_sha256
+     AND NEW.valid_from=OLD.valid_from
+     AND NEW.expires_at=OLD.expires_at
+     AND NEW.renewal_due_at=OLD.renewal_due_at
+     AND NEW.previous_certification_id IS NOT DISTINCT FROM OLD.previous_certification_id
+     AND NEW.attestation_sequence=OLD.attestation_sequence
+  THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'Post-restore reliability certification evidence is immutable';
+END;
+$$ LANGUAGE plpgsql;
