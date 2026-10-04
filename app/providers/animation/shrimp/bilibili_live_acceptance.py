@@ -10,6 +10,9 @@ from app.db import engine
 from app.providers.animation.shrimp.bilibili_live_publisher import (
     BilibiliLivePublisherAdapter,
 )
+from app.providers.animation.shrimp.bilibili_quota import (
+    settle_cleanup,
+)
 from app.providers.animation.shrimp.bilibili_credentials import (
     build_adapter_for_execution,
     preflight_recheck_execution_credential,
@@ -325,6 +328,16 @@ def _cleanup_once(
                     ),
                 },
             )
+    if deleted:
+        settle_cleanup(
+            execution_id=execution_id,
+            source_sha256=_sha({
+                "execution_id":str(execution_id),
+                "aid":str(aid),
+                "cleanup_verified":True,
+            }),
+            actor=actor,
+        )
     return {
         "deleted": bool(deleted),
         "write_performed": bool(do_cleanup),
