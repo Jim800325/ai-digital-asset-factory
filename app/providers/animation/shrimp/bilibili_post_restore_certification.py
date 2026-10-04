@@ -15,6 +15,9 @@ from app.providers.animation.shrimp.bilibili_reliability_policy_change import (
 from app.providers.animation.shrimp.bilibili_reliability_trend import (
     trend_dashboard,
 )
+from app.providers.animation.shrimp.bilibili_incidents import (
+    queue_notification,
+)
 
 
 def _sha(value: Any) -> str:
@@ -482,11 +485,36 @@ def evaluate_certification(*,actor:str)->dict:
                 "event_sha":_sha(event_material),
                 "actor":actor[:200],
             })
+    notification=None
+    if status=="REOPEN_RECOMMENDED":
+        notification=queue_notification(
+            incident_id=None,
+            notification_type="RELIABILITY_CERTIFICATION_REOPEN",
+            severity="CRITICAL" if any(
+                code in {
+                    "ERROR_BUDGET_BURN",
+                    "CIRCUIT_REOPENED",
+                    "INCIDENT_REOPENED",
+                    "ROOT_CAUSE_RECURRENCE",
+                }
+                for code in triggers
+            ) else "WARNING",
+            payload={
+                "certification_id":str(cert["id"]),
+                "certification_key":cert["certification_key"],
+                "baseline_sha256":cert["baseline_sha256"],
+                "evaluation_sha256":row["evaluation_sha256"],
+                "trigger_codes":triggers,
+                "action":"OPEN_GOVERNANCE_REVIEW",
+                "automatic_policy_change":False,
+            },
+        )
     return {
         "certification_id":str(cert["id"]),
         "evaluation":_ser(row),
         "reopen_recommended":status=="REOPEN_RECOMMENDED",
         "trigger_codes":triggers,
+        "notification":notification,
         "automatic_policy_change":False,
         "provider_write_count":0,
     }
