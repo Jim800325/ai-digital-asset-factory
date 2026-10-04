@@ -268,11 +268,14 @@ def decide_governance_review(
             "AUTHORIZE_FREEZE_INTENT":"FREEZE_CHANGE_INTENT",
             "REJECT_RECOMMENDATION":"RECOMMENDATION_REJECTED",
         }[decision]
+        if intent_type=="FREEZE_CHANGE_INTENT":
+            automation_exposure="FREEZE_RECOMMENDED"
+        elif intent_type=="CAUTION_CONTROLS":
+            automation_exposure="CAUTION_REVIEW"
+        else:
+            automation_exposure="NO_CHANGE"
         requested_changes={
-            "automation_exposure":"NO_CHANGE" if intent_type=="NO_CHANGE" else (
-                "FREEZE_RECOMMENDED" if intent_type=="FREEZE_CHANGE_INTENT"
-                else "CAUTION_REVIEW"
-            ),
+            "automation_exposure":automation_exposure,
             "publish_quota":"HUMAN_CHANGE_REQUIRED" if intent_type in {"CAUTION_CONTROLS","FREEZE_CHANGE_INTENT"} else "NO_CHANGE",
             "policy_changes":"HUMAN_CHANGE_REQUIRED" if intent_type in {"CAUTION_CONTROLS","FREEZE_CHANGE_INTENT"} else "NO_CHANGE",
             "execution_enabled":False,
