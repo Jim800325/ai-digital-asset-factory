@@ -465,11 +465,7 @@ def create_publish_plan(
         account_snapshot = None
         account_profile_sha256 = None
         effective_metadata = dict(publish_metadata or {})
-        if target["platform"] == "BILIBILI":
-            if account_profile is None:
-                raise RuntimeError(
-                    "Bilibili Publish Target is not bound to a registered account"
-                )
+        if target["platform"] == "BILIBILI" and account_profile is not None:
             (
                 effective_metadata,
                 account_snapshot,
