@@ -47,6 +47,13 @@ def _serialize(row: Any) -> dict[str, Any]:
     return result
 
 
+def _expected_mid(adapter, execution: dict[str, Any]) -> str:
+    resolver=getattr(adapter,"expected_mid",None)
+    if callable(resolver):
+        return str(resolver(execution))
+    return str(execution.get("account_reference") or "")
+
+
 def _marker(upload_idempotency_key: str) -> str:
     return f"[shrimp-step10b:{upload_idempotency_key}]"
 
@@ -365,7 +372,7 @@ def run_bilibili_live_acceptance(
                 """),
                 {
                     "execution_id": execution_id,
-                    "expected_mid": chosen.expected_mid(execution),
+                    "expected_mid": _expected_mid(chosen, execution),
                     "marker": marker,
                     "actor": clean_actor[:200],
                 },
@@ -378,7 +385,7 @@ def run_bilibili_live_acceptance(
 
     try:
         preflight = chosen.preflight(execution)
-        if preflight["mid"] != chosen.expected_mid(execution):
+        if preflight["mid"] != _expected_mid(chosen, execution):
             raise RuntimeError(
                 "Step 10B authenticated MID does not match execution"
             )
