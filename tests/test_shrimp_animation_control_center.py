@@ -116,7 +116,8 @@ def test_control_center_v02_admin_pages_are_available():
 def test_admin_surface_does_not_embed_bilibili_secrets():
     client=TestClient(app)
     body=client.get("/animation/accounts").text
-    assert "SHRIMP_BILIBILI_SESSDATA" not in body
+    assert "SHRIMP_BILIBILI_SESSDATA" in body
+    assert "敏感凭证不会回显" in body
     assert 'id="publishKey"' in body
     assert "localStorage" not in body
     assert "sessionStorage" not in body
