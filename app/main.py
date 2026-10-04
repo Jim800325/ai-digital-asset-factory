@@ -131,6 +131,13 @@ from app.providers.animation.shrimp.bilibili_credentials import (
     set_credential_slot_status,
     set_slot_selection_priority,
 )
+from app.providers.animation.shrimp.bilibili_router import (
+    create_pre_publish_reservation,
+    get_reservation,
+    list_reservations,
+    rebind_pre_publish_reservation,
+    release_reservation,
+)
 from app.providers.animation.shrimp.bilibili_accounts import (
     create_bilibili_account,
     get_bilibili_account,
@@ -298,9 +305,26 @@ class ShrimpPublishTargetCreate(BaseModel):
         max_length=200,
     )
 
+class ShrimpBilibiliReservationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    exclude_account_key: str | None = Field(default=None,max_length=120)
+    actor: str = Field(default="shrimp-bilibili-router",min_length=1,max_length=200)
+
+class ShrimpBilibiliReservationRelease(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=3,max_length=500)
+    actor: str = Field(default="shrimp-bilibili-router",min_length=1,max_length=200)
+
+class ShrimpBilibiliRoutedPlanCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reservation_id: UUID
+    publish_metadata: dict[str, Any]
+    actor: str = Field(default="shrimp-routed-publish-plan-api",min_length=1,max_length=200)
+
 class ShrimpPublishPlanCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     target_key: str = Field(min_length=3,max_length=120)
+    reservation_id: UUID | None = None
     publish_metadata: dict[str, Any]
     actor: str = Field(
         default="shrimp-publish-plan-api",
@@ -1477,6 +1501,122 @@ def shrimp_animation_publish_target(target_key: str):
 
 
 @app.post(
+    "/v1/shrimp-animation/jobs/{job_id}/bilibili-reservations",
+    status_code=201,
+)
+def shrimp_animation_bilibili_reservation_create(
+    job_id: UUID,
+    payload: ShrimpBilibiliReservationCreate,
+    x_shrimp_publish_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Key",
+    ),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    try:
+        return create_pre_publish_reservation(
+            job_id,
+            actor=payload.actor,
+            exclude_account_key=payload.exclude_account_key,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-reservations")
+def shrimp_animation_bilibili_reservations(
+    status: str | None = None,
+    limit: int = 50,
+):
+    return list_reservations(status=status,limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-reservations/{reservation_id}")
+def shrimp_animation_bilibili_reservation(reservation_id: UUID):
+    try:
+        return get_reservation(reservation_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-reservations/{reservation_id}/release")
+def shrimp_animation_bilibili_reservation_release(
+    reservation_id: UUID,
+    payload: ShrimpBilibiliReservationRelease,
+    x_shrimp_publish_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Key",
+    ),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    try:
+        return release_reservation(
+            reservation_id,
+            reason=payload.reason,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-reservations/{reservation_id}/rebind")
+def shrimp_animation_bilibili_reservation_rebind(
+    reservation_id: UUID,
+    payload: ShrimpBilibiliReservationCreate,
+    x_shrimp_publish_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Key",
+    ),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    try:
+        return rebind_pre_publish_reservation(
+            reservation_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/jobs/{job_id}/routed-publish-plans",
+    status_code=201,
+)
+def shrimp_animation_routed_publish_plan_create(
+    job_id: UUID,
+    payload: ShrimpBilibiliRoutedPlanCreate,
+    x_shrimp_publish_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Key",
+    ),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    try:
+        reservation=get_reservation(payload.reservation_id)
+        if str(reservation["provider_job_id"]) != str(job_id):
+            raise RuntimeError("Reservation belongs to a different provider job")
+        return create_publish_plan(
+            job_id,
+            target_key=reservation["target_key"],
+            publish_metadata=payload.publish_metadata,
+            reservation_id=payload.reservation_id,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.post(
     "/v1/shrimp-animation/jobs/{job_id}/publish-plans",
     status_code=201,
 )
@@ -1494,6 +1634,7 @@ def shrimp_animation_publish_plan_create(
             job_id,
             target_key=payload.target_key,
             publish_metadata=payload.publish_metadata,
+            reservation_id=payload.reservation_id,
             actor=payload.actor,
         )
     except LookupError as exc:
