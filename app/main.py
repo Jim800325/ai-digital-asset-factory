@@ -134,6 +134,7 @@ from app.providers.animation.shrimp.bilibili_credentials import (
 from app.providers.animation.shrimp.bilibili_incidents import (
     apply_approved_recovery,
     decide_recovery,
+    deliver_notifications,
     incident_timeline,
     list_incidents,
     list_notifications,
@@ -998,10 +999,32 @@ def shrimp_animation_bilibili_recovery_policy(
             status_code=403,
             detail="Invalid Bilibili recovery policy authorization",
         )
-    return run_recovery_policy(
+    policy=run_recovery_policy(
         actor="scheduled-bilibili-recovery-policy",
         auto_readback=True,
     )
+    incidents=sync_critical_incidents(
+        actor="scheduled-bilibili-incident-sync"
+    )
+    for incident in incidents:
+        queue_notification(
+            incident_id=incident["id"],
+            notification_type="INCIDENT_OPENED",
+            severity="CRITICAL",
+            payload={
+                "incident_id":incident["id"],
+                "incident_key":incident["incident_key"],
+                "operations_path":"/animation/operations",
+            },
+        )
+    notifications=deliver_notifications(
+        actor="scheduled-bilibili-notifications"
+    )
+    return {
+        "policy":policy,
+        "incidents":incidents,
+        "notifications":notifications,
+    }
 
 
 @app.post(
