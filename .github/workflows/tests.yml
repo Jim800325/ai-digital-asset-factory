@@ -101,6 +101,9 @@ jobs:
       - name: Check Shrimp Control Center JavaScript
         run: node --check app/static/control-center.js
 
+      - name: Check Shrimp Admin JavaScript
+        run: node --check app/static/animation-admin.js
+
       - name: Apply all repository migrations
         run: python -m app.migrate
 
@@ -117,7 +120,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "043_shrimp_animation_bilibili_live_acceptance.sql", expected
+          assert expected[-1] == "046_shrimp_bilibili_rotation_failover.sql", expected
           print("migrations:", actual)
           PY
 
