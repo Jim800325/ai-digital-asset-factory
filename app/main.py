@@ -724,6 +724,7 @@ def _require_shrimp_bilibili_restore_acceptance_key(
         settings.shrimp_bilibili_reliability_restore_apply_key.strip(),
         settings.shrimp_bilibili_reliability_policy_apply_key.strip(),
         settings.shrimp_bilibili_reliability_governance_key.strip(),
+        settings.shrimp_bilibili_health_monitor_key.strip(),
         settings.shrimp_bilibili_incident_ops_key.strip(),
         settings.shrimp_bilibili_recovery_approval_key.strip(),
         settings.shrimp_bilibili_live_acceptance_key.strip(),
