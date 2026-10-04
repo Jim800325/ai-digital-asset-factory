@@ -158,6 +158,15 @@ from app.providers.animation.shrimp.bilibili_incidents import (
     request_recovery,
     sync_critical_incidents,
 )
+from app.providers.animation.shrimp.bilibili_post_unfreeze_observation import (
+    accept_restore,
+    evaluate_observation,
+    get_observation_session,
+    list_observation_sessions,
+    list_ramp_evaluations,
+    list_restore_acceptances,
+    observation_dashboard,
+)
 from app.providers.animation.shrimp.bilibili_reliability_restore import (
     first_restore_approval,
     generate_restore_plan,
@@ -465,6 +474,14 @@ class ShrimpBilibiliCorrectiveActionCreate(BaseModel):
     due_at: str | None = None
     actor: str = Field(default="shrimp-pir-reviewer",min_length=1,max_length=200)
 
+class ShrimpBilibiliRestoreAcceptanceAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(
+        default="shrimp-restore-acceptance",
+        min_length=1,
+        max_length=200,
+    )
+
 class ShrimpBilibiliReliabilityRestorePlanCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     actor: str = Field(
@@ -692,6 +709,42 @@ def _require_shrimp_bilibili_live_acceptance_key(
             status_code=403,
             detail="Invalid Shrimp Bilibili live acceptance key",
         )
+
+def _require_shrimp_bilibili_restore_acceptance_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_bilibili_restore_acceptance_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Bilibili restore acceptance gate is not configured",
+        )
+    forbidden=(
+        settings.shrimp_bilibili_reliability_restore_approval_key.strip(),
+        settings.shrimp_bilibili_reliability_restore_apply_key.strip(),
+        settings.shrimp_bilibili_reliability_policy_apply_key.strip(),
+        settings.shrimp_bilibili_reliability_governance_key.strip(),
+        settings.shrimp_bilibili_incident_ops_key.strip(),
+        settings.shrimp_bilibili_recovery_approval_key.strip(),
+        settings.shrimp_bilibili_live_acceptance_key.strip(),
+        settings.shrimp_publish_authorization_key.strip(),
+        settings.shrimp_publish_execution_key.strip(),
+        settings.shrimp_human_review_key.strip(),
+    )
+    if any(
+        value and secrets.compare_digest(expected,value)
+        for value in forbidden
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Bilibili restore acceptance key must be independent",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili restore acceptance key",
+        )
+
 
 def _require_shrimp_bilibili_reliability_restore_approval_key(
     provided: str | None,
@@ -1362,6 +1415,43 @@ def shrimp_animation_bilibili_reliability_governance_review_generate(
 
 
 @app.post(
+    "/internal/shrimp-animation/bilibili-post-unfreeze-observation-evaluate",
+    include_in_schema=False,
+)
+def shrimp_animation_bilibili_post_unfreeze_observation_evaluate(
+    authorization: str | None = Header(default=None,alias="Authorization"),
+    x_shrimp_health_monitor_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Health-Monitor-Key",
+    ),
+):
+    provided=(x_shrimp_health_monitor_key or "").strip()
+    bearer=(authorization or "").strip()
+    expected=settings.shrimp_bilibili_health_monitor_key.strip()
+    cron=settings.cron_secret.strip()
+    manual_ok=bool(expected) and secrets.compare_digest(provided,expected)
+    cron_ok=bool(cron) and bearer.startswith("Bearer ") and secrets.compare_digest(
+        bearer[7:].strip(),cron
+    )
+    if not (manual_ok or cron_ok):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili observation evaluator authorization",
+        )
+    try:
+        return {
+            "status":"EVALUATED",
+            "result":evaluate_observation(
+                actor="scheduled-bilibili-post-unfreeze-observation"
+            ),
+        }
+    except RuntimeError as exc:
+        if "No active post-unfreeze observation session" in str(exc):
+            return {"status":"NO_ACTIVE_OBSERVATION","result":None}
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
     "/internal/shrimp-animation/bilibili-reliability-analysis",
     include_in_schema=False,
 )
@@ -1789,6 +1879,57 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-post-unfreeze-observation")
+def shrimp_animation_bilibili_post_unfreeze_observation():
+    return observation_dashboard()
+
+
+@app.get("/v1/shrimp-animation/bilibili-post-unfreeze-observation/sessions")
+def shrimp_animation_bilibili_observation_sessions(limit: int = 100):
+    return list_observation_sessions(limit=limit)
+
+
+@app.get(
+    "/v1/shrimp-animation/bilibili-post-unfreeze-observation/sessions/{session_id}"
+)
+def shrimp_animation_bilibili_observation_session(session_id: UUID):
+    try:
+        return get_observation_session(session_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-post-unfreeze-ramp-evaluations")
+def shrimp_animation_bilibili_post_unfreeze_ramp_evaluations(limit: int = 200):
+    return list_ramp_evaluations(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-restore-acceptances")
+def shrimp_animation_bilibili_restore_acceptances(limit: int = 100):
+    return list_restore_acceptances(limit=limit)
+
+
+@app.post(
+    "/v1/shrimp-animation/bilibili-post-unfreeze-observation/"
+    "sessions/{session_id}/accept"
+)
+def shrimp_animation_bilibili_restore_accept(
+    session_id: UUID,
+    payload: ShrimpBilibiliRestoreAcceptanceAction,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Bilibili-Restore-Acceptance-Key",
+    ),
+):
+    _require_shrimp_bilibili_restore_acceptance_key(x_key)
+    try:
+        return accept_restore(session_id,actor=payload.actor)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
 @app.get("/v1/shrimp-animation/bilibili-reliability-safe-unfreeze")
