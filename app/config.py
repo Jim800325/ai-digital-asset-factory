@@ -120,7 +120,8 @@ class Settings(BaseSettings):
     shrimp_bilibili_certification_expiry_warning_days: int = 7
     shrimp_bilibili_recertification_key: str = ""
     shrimp_bilibili_renewal_sla_hours: int = 72
-    shrimp_bilibili_missed_renewal_critical_hours: int = 24\n    shrimp_bilibili_audit_signing_private_key_pem_b64: str = \"\"
+    shrimp_bilibili_missed_renewal_critical_hours: int = 24
+    shrimp_bilibili_audit_signing_private_key_pem_b64: str = ""
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
