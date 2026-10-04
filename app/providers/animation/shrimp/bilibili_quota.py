@@ -388,8 +388,11 @@ def quota_usage_for_account(db, account:dict) -> dict:
       SELECT COUNT(*)
       FROM shrimp_bilibili_publish_reservations
       WHERE account_id=:account_id
-        AND reservation_status='HELD'
-        AND expires_at>now()
+        AND reservation_status IN ('HELD','CONSUMED')
+        AND (
+          reservation_status='CONSUMED'
+          OR expires_at>now()
+        )
     """),{"account_id":account["id"]}).scalar_one())
     claimed=int(db.execute(text("""
       SELECT COUNT(*)
