@@ -131,6 +131,17 @@ from app.providers.animation.shrimp.bilibili_credentials import (
     set_credential_slot_status,
     set_slot_selection_priority,
 )
+from app.providers.animation.shrimp.bilibili_incidents import (
+    apply_approved_recovery,
+    decide_recovery,
+    incident_timeline,
+    list_incidents,
+    list_notifications,
+    list_recovery_approvals,
+    queue_notification,
+    request_recovery,
+    sync_critical_incidents,
+)
 from app.providers.animation.shrimp.bilibili_recovery_policy import (
     evaluate_account_circuit,
     list_circuit_breakers,
@@ -365,6 +376,16 @@ class ShrimpPublishAuthorizationDecision(BaseModel):
     )
     plan_sha256: str = Field(min_length=64,max_length=64)
     dry_run_sha256: str = Field(min_length=64,max_length=64)
+
+class ShrimpBilibiliIncidentAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(default="shrimp-incident-api",min_length=1,max_length=200)
+
+class ShrimpBilibiliRecoveryDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["APPROVE","REJECT"]
+    reason: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(default="shrimp-recovery-approver",min_length=1,max_length=200)
 
 class ShrimpBilibiliCircuitEvaluateAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
