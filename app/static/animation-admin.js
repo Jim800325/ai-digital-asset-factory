@@ -2,19 +2,20 @@
 const byId=id=>document.getElementById(id);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const clear=n=>n.replaceChildren();
-const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[]};
+const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null};
 function toast(msg,bad=false){const n=byId("toast");n.textContent=msg;n.className="toast"+(bad?" bad":"");n.classList.remove("hidden");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.add("hidden"),3200)}
 async function api(url,opts={}){const r=await fetch(url,{cache:"no-store",...opts,headers:{"Accept":"application/json",...(opts.headers||{})}});const b=await r.json().catch(()=>({detail:"Invalid response"}));if(!r.ok)throw new Error(b.detail||("HTTP "+r.status));return b}
 function pill(v){const s=String(v||"UNKNOWN").toUpperCase();const cls=/READY|SUCCESS|APPROVED|AUTHORIZED|PUBLISHED|CURRENT|ACTIVE|PASS|CONFIGURED/.test(s)?"good":/BLOCKED|FAILED|REJECTED|STALE|DISABLED|MISSING|INACTIVE|EXPIRED|UNHEALTHY|MISMATCH|LOGGED_OUT|DENIED/.test(s)?"bad":"warn";return el("span","pill "+cls,s)}
 function row(root,key,value){const n=el("div","setting-row");n.append(el("span","setting-key",key),el("span","setting-value",value));root.appendChild(n)}
 function empty(tbody,cols,msg){const tr=document.createElement("tr"),td=el("td","empty-row",msg);td.colSpan=cols;tr.appendChild(td);tbody.appendChild(tr)}
-function currentPage(){const p=location.pathname;return p.includes("/accounts")?"accounts":p.includes("/jobs")?"jobs":p.includes("/executions")?"executions":p.includes("/quota")?"quota":p.includes("/operations")?"operations":"settings"}
+function currentPage(){const p=location.pathname;return p.includes("/accounts")?"accounts":p.includes("/jobs")?"jobs":p.includes("/executions")?"executions":p.includes("/quota")?"quota":p.includes("/operations")?"operations":p.includes("/reliability")?"reliability":"settings"}
 const meta={
  accounts:["Bilibili 账号管理","多账号 Registry、默认投稿配置、发布窗口、每日限额与账号级安全策略。"],
  jobs:["动画任务中心","查看 Shrimp Animation pipeline 任务并快速进入 Review / Publishing。"],
  executions:["发布执行中心","查看受控 Upload / Publish、Exactly-once write budget 与 stale 状态。"],
  quota:["额度运营中心","查看账号日额度、Reservation / Claim 生命周期、Stuck Claim reconciliation 与 Daily Reset Audit。"],
  operations:["Publisher Operations Console","Claim Escalation、Automatic Recovery Policy 与 Account Circuit Breaker。"],
+ reliability:["Reliability Scorecard","30 天 SLO / Error Budget / MTTR / Ambiguity / Circuit / Root Cause recurrence。"],
  settings:["增强设置","集中查看运行环境、发布器、Bilibili 与 Gate 配置；敏感值永不回显。"]
 };
 function showPage(){const p=currentPage();document.querySelectorAll(".admin-page").forEach(x=>x.classList.add("hidden"));byId(p+"Page").classList.remove("hidden");document.querySelectorAll(".admin-nav [data-page]").forEach(a=>a.classList.toggle("active",a.dataset.page===p));byId("pageTitle").textContent=meta[p][0];byId("pageSubtitle").textContent=meta[p][1]}
@@ -318,9 +319,44 @@ async function evaluateCircuit(x){
     await load();
   }catch(e){toast("Circuit 评估失败："+e.message,true)}
 }
+function renderReliability(){
+  const data=state.reliability||{},g=data.latest_global||{},payload=g.metrics_payload||{},ack=payload.ack_slo||{},recovery=payload.recovery_slo||{};
+  const badge=byId("reliabilityGradeBadge");
+  badge.textContent=g.reliability_grade?("GRADE "+g.reliability_grade):"NO DATA";
+  badge.className="pill "+(g.reliability_grade==="A"?"good":g.reliability_grade==="F"?"bad":"warn");
+
+  const metrics=byId("reliabilityMetrics");clear(metrics);
+  [
+    ["Score",g.reliability_score??"—"],
+    ["Avg ACK",g.avg_ack_minutes==null?"—":g.avg_ack_minutes+" min"],
+    ["P95 MTTR",g.p95_mttr_minutes==null?"—":g.p95_mttr_minutes+" min"],
+    ["Ambiguity",g.ambiguity_rate_percent==null?"—":g.ambiguity_rate_percent+"%"],
+    ["Circuit Opens",g.circuit_open_count??0],
+    ["Recurring Causes",g.recurring_root_cause_count??0]
+  ].forEach(([k,v])=>{const card=el("div","metric-card");card.append(el("div","metric-label",k),el("div","metric-value small",v));metrics.appendChild(card)});
+
+  const sloBody=byId("sloBudgetRows");clear(sloBody);
+  const rows=[
+    ["ACK",ack.target_percent,ack.success_rate,ack.allowed,ack.consumed,ack.remaining],
+    ["Recovery",recovery.target_percent,recovery.success_rate,recovery.allowed,recovery.consumed,recovery.remaining]
+  ];
+  if(!g.id)empty(sloBody,6,"尚无 Reliability Scorecard");
+  else rows.forEach(r=>{const tr=document.createElement("tr");tr.append(el("td","",r[0]),el("td","",r[1]+"%"),el("td","",r[2]+"%"),el("td","",r[3]),el("td","",r[4]),el("td","",r[5]));sloBody.appendChild(tr)});
+
+  const scoreBody=byId("reliabilityScorecardRows");clear(scoreBody);
+  const scorecards=Array.isArray(data.scorecards)?data.scorecards:[];
+  if(!scorecards.length)empty(scoreBody,9,"尚无 Scorecard Snapshot");
+  scorecards.slice(0,80).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.scope_type==="GLOBAL"?"GLOBAL":(x.account_key||"ACCOUNT")),el("td","",x.reliability_score??"—"));const gr=document.createElement("td");gr.appendChild(pill(x.reliability_grade||"—"));tr.appendChild(gr);tr.append(el("td","",x.incident_count??0),el("td","",x.ack_slo_breach_count??0),el("td","",x.recovery_slo_breach_count??0),el("td","",x.circuit_open_count??0),el("td","",(x.ambiguity_rate_percent??0)+"%"),el("td","",x.generated_at?new Date(x.generated_at).toLocaleString():"—"));scoreBody.appendChild(tr)});
+
+  const recurrenceBody=byId("recurrenceRows");clear(recurrenceBody);
+  const clusters=Array.isArray(data.recurrence_clusters)?data.recurrence_clusters:[];
+  if(!clusters.length)empty(recurrenceBody,8,"尚无已完成 PIR 的 Root Cause recurrence");
+  clusters.forEach(x=>{const tr=document.createElement("tr");const st=document.createElement("td");st.appendChild(pill(x.recurrence_status));tr.appendChild(st);tr.append(el("td","",x.normalized_root_cause||"—"),el("td","",x.occurrence_count??0),el("td","",x.critical_occurrence_count??0),el("td","",Array.isArray(x.account_keys)?x.account_keys.join(" · "):"—"),el("td","",x.first_observed_at?new Date(x.first_observed_at).toLocaleString():"—"),el("td","",x.last_observed_at?new Date(x.last_observed_at).toLocaleString():"—"),el("td","mono",String(x.root_cause_fingerprint||"").slice(0,12)+"…"));recurrenceBody.appendChild(tr)});
+}
+
 function renderSettings(){const s=state.summary||{},sys=s.system||{},r=s.bilibili?.readiness||{},c=r.checks||{};const groups=[["runtimeSettings",[["Vercel Env",sys.vercel_env||"—"],["Database",sys.database_available?"AVAILABLE":"UNAVAILABLE"],["Database Source",sys.database_source||"—"],["Preview Isolated",sys.preview_isolated?"YES":"NO"],["Migrations",sys.migration_status||"—"]]],["publisherSettings",[["Adapter",sys.publisher_adapter||"—"],["Executor",c.publish_executor_enabled?"ENABLED":"DISABLED"],["Step 9 Gate",c.publish_authorization_gate?"READY":"BLOCKED"],["Step 10 Gate",c.publish_execution_gate?"READY":"BLOCKED"]]],["bilibiliSettings",[["Account Profiles",state.accounts.length],["Controlled Adapter",c.bilibili_controlled_adapter?"READY":"BLOCKED"],["Live Acceptance",c.bilibili_live_acceptance_enabled?"ENABLED":"DISABLED"],["Cookie Bundle",c.bilibili_cookie_credentials_present?"CONFIGURED":"MISSING"]]],["securitySettings",[["Secrets Redacted",r.secrets_redacted?"YES":"NO"],["Account Allowlist",c.sacrificial_account_allowlist_present?"SET":"MISSING"],["Account Denylist",c.real_account_denylist_present?"SET":"MISSING"],["Target Allowlist",c.sacrificial_target_allowlist_present?"SET":"MISSING"],["Target Denylist",c.real_target_denylist_present?"SET":"MISSING"]]]];groups.forEach(([id,items])=>{const root=byId(id);clear(root);items.forEach(([k,v])=>row(root,k,v))})}
 async function load(){byId("refreshButton").disabled=true;try{
-  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions]=await Promise.all([
+  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability]=await Promise.all([
     api("/v1/shrimp-animation/control-center/summary"),
     api("/v1/shrimp-animation/publish-targets"),
     api("/v1/shrimp-animation/bilibili-accounts"),
@@ -339,12 +375,13 @@ async function load(){byId("refreshButton").disabled=true;try{
     api("/v1/shrimp-animation/bilibili-oncall-routes?limit=100"),
     api("/v1/shrimp-animation/bilibili-incident-sla-events?limit=100"),
     api("/v1/shrimp-animation/bilibili-post-incident-reviews?limit=100"),
-    api("/v1/shrimp-animation/bilibili-corrective-actions?limit=100")
+    api("/v1/shrimp-animation/bilibili-corrective-actions?limit=100"),
+    api("/v1/shrimp-animation/bilibili-reliability-dashboard")
   ]);
   let selection=null;
   try{selection=await api("/v1/shrimp-animation/bilibili-account-selection/healthy")}catch(_){}
-  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];
-  renderAccounts();renderJobs();renderExecutions();renderQuota();renderOperations();renderSettings();
+  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};
+  renderAccounts();renderJobs();renderExecutions();renderQuota();renderOperations();renderReliability();renderSettings();
 }catch(e){toast("载入失败："+e.message,true)}finally{byId("refreshButton").disabled=false}}
 byId("accountForm").addEventListener("submit",async e=>{
   e.preventDefault();const key=byId("accountPublishKey").value;

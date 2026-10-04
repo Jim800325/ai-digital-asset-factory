@@ -20,6 +20,7 @@
       <a data-page="executions" href="/animation/executions">发布执行</a>
       <a data-page="quota" href="/animation/quota">额度运营</a>
       <a data-page="operations" href="/animation/operations">Publisher Ops</a>
+      <a data-page="reliability" href="/animation/reliability">Reliability</a>
       <a data-page="settings" href="/animation/settings">系统设置</a>
       <a href="/animation-review">Human Review</a>
       <a href="/animation-publishing">Publishing</a>
@@ -278,6 +279,36 @@
             <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Time</th><th>Account</th><th>Event</th><th>State</th><th>Reason</th></tr></thead><tbody id="circuitEventRows"></tbody></table></div>
           </section>
         </div>
+      </section>
+
+      <section id="reliabilityPage" class="admin-page hidden">
+        <div class="hero-grid">
+          <article class="hero-card primary">
+            <div class="card-kicker">RELIABILITY SCORECARD</div>
+            <div class="hero-head"><div><h2>30-Day Publisher Reliability</h2><p class="muted">ACK / MTTR / SLA / Circuit / Provider Ambiguity / Root Cause recurrence。</p></div><span id="reliabilityGradeBadge" class="pill warn">NO DATA</span></div>
+            <div id="reliabilityMetrics" class="metric-grid"></div>
+          </article>
+          <article class="hero-card">
+            <div class="card-kicker">OBSERVE ONLY</div>
+            <h2>SLO / Error Budget</h2>
+            <div class="notice">Scorecard 与 Recurrence Detection 只做长期可靠性评估，不会修改 Circuit、Reservation、Claim 或任何发布 Gate。</div>
+          </article>
+        </div>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">SLO</div><h2>ACK / Recovery Error Budget</h2></div><span class="safe-badge">Rolling window</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>SLO</th><th>Target</th><th>Success Rate</th><th>Allowed Failures</th><th>Consumed</th><th>Remaining</th></tr></thead><tbody id="sloBudgetRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">SCORECARDS</div><h2>Global / Account Reliability</h2></div><span class="safe-badge">Immutable snapshots</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Scope</th><th>Score</th><th>Grade</th><th>Incidents</th><th>ACK Breach</th><th>Recovery Breach</th><th>Circuits</th><th>Ambiguity</th><th>Generated</th></tr></thead><tbody id="reliabilityScorecardRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">RECURRENCE DETECTION</div><h2>重复 Root Cause</h2></div><span class="safe-badge">Deterministic fingerprint</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Status</th><th>Root Cause</th><th>Occurrences</th><th>Critical</th><th>Accounts</th><th>First</th><th>Last</th><th>Fingerprint</th></tr></thead><tbody id="recurrenceRows"></tbody></table></div>
+        </section>
       </section>
 
       <section id="settingsPage" class="admin-page hidden">

@@ -32,7 +32,7 @@ def test_full_v02_integration_acceptance():
             ).all()
         ]
     assert versions == migration_files()
-    assert versions[-1] == "043_shrimp_animation_bilibili_live_acceptance.sql"
+    assert versions[-1] == migration_files()[-1]
 
     assert Redis.from_url(settings.redis_url).ping() is True
 

@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS shrimp_bilibili_publish_reservations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   provider_job_id uuid NOT NULL
-    REFERENCES shrimp_animation_jobs(id) ON DELETE CASCADE,
+    REFERENCES shrimp_animation_jobs(provider_job_id) ON DELETE CASCADE,
   account_id uuid NOT NULL
     REFERENCES shrimp_bilibili_accounts(id) ON DELETE RESTRICT,
   credential_slot_id uuid NOT NULL
