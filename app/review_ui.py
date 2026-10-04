@@ -10,6 +10,7 @@ AUDITS_HTML=STATIC_DIR/"audits.html"
 SHRIMP_REVIEW_HTML=STATIC_DIR/"shrimp-review.html"
 SHRIMP_PUBLISH_HTML=STATIC_DIR/"shrimp-publish.html"
 CONTROL_CENTER_HTML=STATIC_DIR/"control-center.html"
+ANIMATION_ADMIN_HTML=STATIC_DIR/"animation-admin.html"
 
 router=APIRouter(include_in_schema=False)
 
@@ -45,6 +46,23 @@ def _review_file():
 @router.get("/")
 def control_center_page():
     return _html_file(CONTROL_CENTER_HTML)
+
+
+@router.get("/animation/accounts")
+def shrimp_animation_accounts_page():
+    return _html_file(ANIMATION_ADMIN_HTML)
+
+@router.get("/animation/jobs")
+def shrimp_animation_jobs_page():
+    return _html_file(ANIMATION_ADMIN_HTML)
+
+@router.get("/animation/executions")
+def shrimp_animation_executions_page():
+    return _html_file(ANIMATION_ADMIN_HTML)
+
+@router.get("/animation/settings")
+def shrimp_animation_settings_page():
+    return _html_file(ANIMATION_ADMIN_HTML)
 
 
 @router.get("/review")
