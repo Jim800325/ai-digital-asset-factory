@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -202,8 +202,7 @@ def apply_account_defaults_and_guard(db,account:dict,metadata:dict)->tuple[dict,
         value["tags"]=list(account["default_tags"])
     if not value.get("category"):
         value["category"]=str(account["default_tid"])
-    value.setdefault("copyright",account["default_copyright"])
-    if str(value.get("visibility") or "DRAFT").upper()=="PUBLIC" and not policy.get("allow_public_visibility",False):
+        if str(value.get("visibility") or "DRAFT").upper()=="PUBLIC" and not policy.get("allow_public_visibility",False):
         raise RuntimeError("Account safety policy forbids PUBLIC visibility")
     if account["cover_strategy"]=="REQUIRE_ARTIFACT" and not value.get("cover_artifact_sha256"):
         raise RuntimeError("Account cover strategy requires cover_artifact_sha256")
@@ -228,7 +227,7 @@ def apply_account_defaults_and_guard(db,account:dict,metadata:dict)->tuple[dict,
     """),{
       "mid":account["mid"],"mid_ref":"MID:"+account["mid"],
       "day_start":now.replace(hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc),
-      "day_end":now.replace(hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc).replace(day=now.day)+__import__("datetime").timedelta(days=1),
+      "day_end":now.replace(hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc)+timedelta(days=1),
     }).scalar_one()
     if published>=limit: raise RuntimeError("Bilibili account daily publish limit reached")
     snap=account_snapshot(account)
