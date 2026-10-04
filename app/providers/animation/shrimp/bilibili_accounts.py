@@ -224,7 +224,11 @@ def apply_account_defaults_and_guard(db,account:dict,metadata:dict)->tuple[dict,
         value["tags"]=list(account["default_tags"])
     if not value.get("category"):
         value["category"]=str(account["default_tid"])
-        if str(value.get("visibility") or "DRAFT").upper()=="PUBLIC" and not policy.get("allow_public_visibility",False):
+    value.setdefault("copyright",account["default_copyright"])
+    if (
+        str(value.get("visibility") or "DRAFT").upper()=="PUBLIC"
+        and not policy.get("allow_public_visibility",False)
+    ):
         raise RuntimeError("Account safety policy forbids PUBLIC visibility")
     if account["cover_strategy"]=="REQUIRE_ARTIFACT" and not value.get("cover_artifact_sha256"):
         raise RuntimeError("Account cover strategy requires cover_artifact_sha256")
@@ -242,11 +246,12 @@ def apply_account_defaults_and_guard(db,account:dict,metadata:dict)->tuple[dict,
     published=db.execute(text("""
       SELECT COUNT(*) FROM shrimp_animation_publish_executions
       WHERE platform='BILIBILI'
-        AND account_reference IN (:mid,:mid_ref)
+        AND account_reference IN (:account_key,:mid,:mid_ref)
         AND execution_status='PUBLISHED'
         AND publish_attempted_at >= :day_start
         AND publish_attempted_at < :day_end
     """),{
+      "account_key":account["account_key"],
       "mid":account["mid"],"mid_ref":"MID:"+account["mid"],
       "day_start":now.replace(hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc),
       "day_end":now.replace(hour=0,minute=0,second=0,microsecond=0).astimezone(timezone.utc)+timedelta(days=1),
