@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+
+import httpx
 from typing import Any
 
 from sqlalchemy import text
@@ -546,3 +548,81 @@ def list_notifications(*,limit:int=100)->list[dict]:
           LIMIT :limit
         """),{"limit":max(1,min(int(limit),500))}).mappings().all()
     return [_serialize(x) for x in rows]
+
+
+def deliver_notifications(*,actor:str)->dict:
+    with engine.connect() as db:
+        rows=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_notification_outbox
+          WHERE delivery_status IN ('QUEUED','FAILED')
+            AND attempt_count<5
+          ORDER BY created_at,id
+          LIMIT 50
+        """)).mappings().all()
+    delivered=0
+    failed=0
+    for raw in rows:
+        row=dict(raw)
+        if row["destination_type"]=="CONTROL_CENTER":
+            with engine.begin() as db:
+                db.execute(text("""
+                  UPDATE shrimp_bilibili_notification_outbox
+                  SET delivery_status='DELIVERED',
+                      attempt_count=attempt_count+1,
+                      last_attempt_at=now(),delivered_at=now(),
+                      last_error_type=NULL,last_error_sha256=NULL
+                  WHERE id=:id
+                """),{"id":row["id"]})
+            delivered+=1
+            continue
+        url=settings.shrimp_bilibili_notification_webhook_url.strip()
+        if not url:
+            failed+=1
+            continue
+        headers={"Content-Type":"application/json"}
+        token=settings.shrimp_bilibili_notification_webhook_token.strip()
+        if token:
+            headers["Authorization"]="Bearer "+token
+        try:
+            response=httpx.post(
+                url,
+                json=dict(row["payload"]),
+                headers=headers,
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            with engine.begin() as db:
+                db.execute(text("""
+                  UPDATE shrimp_bilibili_notification_outbox
+                  SET delivery_status='DELIVERED',
+                      attempt_count=attempt_count+1,
+                      last_attempt_at=now(),delivered_at=now(),
+                      last_error_type=NULL,last_error_sha256=NULL
+                  WHERE id=:id
+                """),{"id":row["id"]})
+            delivered+=1
+        except Exception as exc:
+            err_sha=_sha256({
+                "type":type(exc).__name__,
+                "message":str(exc)[:500],
+            })
+            with engine.begin() as db:
+                db.execute(text("""
+                  UPDATE shrimp_bilibili_notification_outbox
+                  SET delivery_status='FAILED',
+                      attempt_count=attempt_count+1,
+                      last_attempt_at=now(),
+                      last_error_type=:error_type,
+                      last_error_sha256=:error_sha
+                  WHERE id=:id
+                """),{
+                  "id":row["id"],
+                  "error_type":type(exc).__name__,
+                  "error_sha":err_sha,
+                })
+            failed+=1
+    return {
+        "delivered":delivered,
+        "failed":failed,
+        "secrets_redacted":True,
+    }
