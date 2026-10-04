@@ -9,6 +9,7 @@ REVIEW_HTML=STATIC_DIR/"review.html"
 AUDITS_HTML=STATIC_DIR/"audits.html"
 SHRIMP_REVIEW_HTML=STATIC_DIR/"shrimp-review.html"
 SHRIMP_PUBLISH_HTML=STATIC_DIR/"shrimp-publish.html"
+SYSTEM_HOME_HTML=STATIC_DIR/"system-home.html"
 CONTROL_CENTER_HTML=STATIC_DIR/"control-center.html"
 ANIMATION_ADMIN_HTML=STATIC_DIR/"animation-admin.html"
 
@@ -44,6 +45,12 @@ def _review_file():
     return _html_file(REVIEW_HTML)
 
 @router.get("/")
+def system_home_page():
+    return _html_file(SYSTEM_HOME_HTML)
+
+
+@router.get("/admin")
+@router.get("/control-center")
 def control_center_page():
     return _html_file(CONTROL_CENTER_HTML)
 

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>AI Digital Asset Factory</title>
+  <link rel="stylesheet" href="/review-assets/system-home.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="public-nav">
+      <a class="brand" href="/">
+        <span class="brand-mark">AF</span>
+        <span><b>AI Digital Asset Factory</b><small>自动数字资产工厂</small></span>
+      </a>
+      <nav class="nav-links" aria-label="主导航">
+        <a href="#factory">生产工厂</a>
+        <a href="#opportunities">机会池</a>
+        <a href="#governance">治理</a>
+        <a class="nav-cta" href="/admin">进入控制中心</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow">DISCOVER → VALIDATE → BUILD → REVIEW → PUBLISH</div>
+          <h1>让数字资产生产成为<br><span>可持续运行的系统。</span></h1>
+          <p>自动发现机会、聚合证据、研究验证、生成数字资产，并通过人工治理门控进入受控发布。所有关键写操作都保留审计链。</p>
+          <div class="hero-actions">
+            <a class="button primary" href="/admin">打开后台工作台</a>
+            <a class="button secondary" href="/animation-review">进入人工审核</a>
+          </div>
+          <div class="safety-row">
+            <span>✓ Human-gated</span>
+            <span>✓ Audit-first</span>
+            <span>✓ Fail-closed</span>
+          </div>
+        </div>
+        <aside class="hero-status">
+          <div class="status-head">
+            <div>
+              <div class="kicker">LIVE SYSTEM</div>
+              <h2>系统实时状态</h2>
+            </div>
+            <span id="systemPill" class="pill loading">LOADING</span>
+          </div>
+          <div id="systemMetrics" class="metric-grid"></div>
+          <div id="systemNote" class="status-note">正在读取系统状态…</div>
+        </aside>
+      </section>
+
+      <section id="factory" class="content-section">
+        <div class="section-heading">
+          <div><div class="kicker">FACTORY MODULES</div><h2>一个系统，四条生产主线</h2></div>
+          <p>前台用于看系统和进入模块；所有高风险操作仍在后台独立 Gate 中完成。</p>
+        </div>
+        <div class="module-grid">
+          <a class="module-card" href="/admin">
+            <div class="module-icon">01</div><div>
+              <span class="module-tag">CONTROL</span><h3>控制中心</h3>
+              <p>系统健康、迁移、流水线、Readiness、治理与发布状态。</p>
+            </div><strong>→</strong>
+          </a>
+          <a class="module-card" href="/animation-review">
+            <div class="module-icon">02</div><div>
+              <span class="module-tag">HUMAN REVIEW</span><h3>动画人工审核</h3>
+              <p>QC、Provenance、Episode Bundle 与发布前人工决策。</p>
+            </div><strong>→</strong>
+          </a>
+          <a class="module-card" href="/animation-publishing">
+            <div class="module-icon">03</div><div>
+              <span class="module-tag">PUBLISHING</span><h3>受控发布</h3>
+              <p>Target、Dry Run、Authorization、Execution 与 reconciliation。</p>
+            </div><strong>→</strong>
+          </a>
+          <a class="module-card" href="/review">
+            <div class="module-icon">04</div><div>
+              <span class="module-tag">SOFTWARE</span><h3>软件发布审查</h3>
+              <p>Diff、SBOM、测试、风险、哈希与 Production Gate。</p>
+            </div><strong>→</strong>
+          </a>
+        </div>
+      </section>
+
+      <section class="content-section factory-board">
+        <div class="board-main">
+          <div class="section-heading compact">
+            <div><div class="kicker">AUTOMATION PIPELINE</div><h2>当前生产流水线</h2></div>
+            <span id="jobTotal" class="counter">0 JOBS</span>
+          </div>
+          <div id="pipelineStages" class="pipeline-flow"></div>
+        </div>
+        <div class="board-side">
+          <div class="kicker">SIDE BUSINESS</div>
+          <h2>自动变现发现</h2>
+          <div id="sideBusinessMetrics" class="side-metrics"></div>
+          <a href="/docs" class="inline-link">查看 Provider Registry API →</a>
+        </div>
+      </section>
+
+      <section id="opportunities" class="content-section">
+        <div class="section-heading">
+          <div><div class="kicker">OPPORTUNITY INTELLIGENCE</div><h2>高优先级机会</h2></div>
+          <p>由系统按 Evidence、Demand、Automation、Ownership 与 Build Readiness 自动评分。</p>
+        </div>
+        <div id="opportunityGrid" class="opportunity-grid">
+          <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+        </div>
+      </section>
+
+      <section id="governance" class="content-section governance">
+        <div>
+          <div class="kicker">GOVERNANCE BY DESIGN</div>
+          <h2>自动化不等于绕过控制。</h2>
+          <p>发现、研究、构建、动画生成可以自动运行；Release、Production、真实平台发布与恢复仍由独立授权链控制。</p>
+        </div>
+        <div class="governance-grid">
+          <div><b>Evidence First</b><span>多来源证据与可追踪研究档案</span></div>
+          <div><b>Human Gate</b><span>发布与生产写操作必须人工授权</span></div>
+          <div><b>Immutable Audit</b><span>关键决策、证明与执行结果不可变留痕</span></div>
+          <div><b>Fail Closed</b><span>状态不明确时默认阻止高风险执行</span></div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>AI Digital Asset Factory</span>
+      <span>GitHub-first architecture · Controlled automation</span>
+      <a href="/docs">API Docs</a>
+    </footer>
+  </div>
+  <script src="/review-assets/system-home.js" defer></script>
+</body>
+</html>
