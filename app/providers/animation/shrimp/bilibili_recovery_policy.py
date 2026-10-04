@@ -279,12 +279,12 @@ def evaluate_account_circuit(account_id, *, actor: str) -> dict:
 
         circuit=_account_circuit_row(db,account_id,actor=actor)
         if (
-            circuit["circuit_status"]=="OPEN"
+            circuit["circuit_status"] in {"OPEN","RECOVERY_PENDING"}
             and circuit.get("recovery_not_before") is not None
             and circuit["recovery_not_before"]<=datetime.now(timezone.utc)
         ):
             evidence=_recovery_evidence(db,account_id)
-            previous="OPEN"
+            previous=circuit["circuit_status"]
             if evidence["slot_ok"] and evidence["active_ambiguous_claim_count"]==0:
                 event_payload={
                     "schema_version":"shrimp-bilibili-circuit-recovery-v0.1",
@@ -349,7 +349,7 @@ def evaluate_account_circuit(account_id, *, actor: str) -> dict:
                     _circuit_event(
                         db,
                         account_id=account_id,
-                        previous_status="OPEN",
+                        previous_status=previous,
                         next_status="RECOVERY_PENDING",
                         event_type="RECOVERY_PENDING",
                         reason="Recovery evidence is not yet sufficient",
@@ -455,7 +455,8 @@ def sync_claim_escalations(*,actor: str) -> list[dict]:
                       claim_age_minutes=:age,
                       ambiguity_count=:ambiguity,
                       recommended_action=:recommended_action,
-                      escalation_payload=CAST(:payload AS jsonb)
+                      escalation_payload=CAST(:payload AS jsonb),
+                      escalation_sha256=:sha
                   WHERE id=:id
                   RETURNING *
                 """),{
@@ -466,6 +467,7 @@ def sync_claim_escalations(*,actor: str) -> list[dict]:
                   "ambiguity":ambiguity,
                   "recommended_action":claim["recommended_action"],
                   "payload":canonical_json(payload),
+                  "sha":sha,
                 }).mappings().one()
                 results.append(_serialize(row))
 
