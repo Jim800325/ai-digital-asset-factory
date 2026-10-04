@@ -12,6 +12,7 @@ from app.providers.animation.shrimp.bilibili_live_publisher import (
 )
 from app.providers.animation.shrimp.bilibili_credentials import (
     build_adapter_for_execution,
+    preflight_recheck_execution_credential,
 )
 from app.providers.animation.shrimp.publisher_execution import (
     get_publish_execution,
@@ -344,6 +345,12 @@ def run_bilibili_live_acceptance(
         (actor or "").strip() or "shrimp-bilibili-live-acceptance-api"
     )
     execution = get_publish_execution(execution_id)
+    if adapter is None:
+        preflight_recheck_execution_credential(
+            execution,
+            actor=clean_actor + "-preflight-recheck",
+        )
+        execution = get_publish_execution(execution_id)
     chosen = adapter or build_adapter_for_execution(execution)
 
     if execution["platform"] != "BILIBILI":
