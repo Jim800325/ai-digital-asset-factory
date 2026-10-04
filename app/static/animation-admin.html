@@ -94,6 +94,38 @@
         </section>
 
         <section class="panel-card">
+          <div class="section-title-row">
+            <div><div class="card-kicker">CREDENTIAL SLOTS</div><h2>多账号凭证槽与健康状态</h2></div>
+            <span class="safe-badge">Secret values never returned</span>
+          </div>
+          <div class="table-wrap dashboard-table-wrap">
+            <table>
+              <thead><tr><th>账号</th><th>Slot</th><th>Env Prefix</th><th>凭证</th><th>登录</th><th>MID</th><th>投稿权限</th><th>健康</th><th>最近检查</th><th>操作</th></tr></thead>
+              <tbody id="credentialRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="split-grid">
+          <article class="panel-card">
+            <div class="card-kicker">BIND CREDENTIAL SLOT</div><h2>绑定独立凭证槽</h2>
+            <form id="credentialForm" class="settings-form" autocomplete="off">
+              <label>Account Key<input id="credentialAccountKey" required maxlength="120" placeholder="bili-test-01"></label>
+              <label>Slot Key<input id="credentialSlotKey" required maxlength="120" placeholder="test01"></label>
+              <label>Environment Prefix<input id="credentialEnvPrefix" required maxlength="121" placeholder="SHRIMP_BILIBILI_SLOT_TEST01"></label>
+              <label>Step 9 Authorization Key<input id="credentialPublishKey" type="password" required autocomplete="off" placeholder="仅本次绑定请求使用"></label>
+              <div class="form-actions"><button class="button" type="submit">绑定 Credential Slot</button></div>
+            </form>
+            <p class="mini-note">服务器将读取 PREFIX_SESSDATA、PREFIX_BILI_JCT、PREFIX_DEDE_USER_ID、PREFIX_DEDE_USER_ID_CKMD5；数据库只保存 Prefix。</p>
+          </article>
+          <article class="panel-card">
+            <div class="card-kicker">AUTO SELECTION</div><h2>健康牺牲账号选择</h2>
+            <div id="healthySelection" class="notice">正在读取…</div>
+            <p class="mini-note">选择条件：Account ACTIVE + Slot ACTIVE + HEALTHY + SACRIFICIAL + 全局 allowlist 合法。</p>
+          </article>
+        </section>
+
+        <section class="panel-card">
           <div class="section-title-row"><div><div class="card-kicker">TARGET BINDINGS</div><h2>Bilibili Publish Target</h2></div><span class="safe-badge">Account Key or MID binding</span></div>
           <div class="table-wrap dashboard-table-wrap">
             <table><thead><tr><th>显示名称</th><th>Account Reference</th><th>Target Key</th><th>状态</th><th>绑定</th></tr></thead><tbody id="accountRows"></tbody></table>
