@@ -1461,6 +1461,31 @@ def shrimp_animation_bilibili_recovery_apply(
     x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Live-Acceptance-Key"),
 ):
     _require_shrimp_bilibili_live_acceptance_key(x_key)
+    with engine.connect() as db:
+        fresh=db.execute(text("""
+          SELECT EXISTS(
+            SELECT 1
+            FROM shrimp_bilibili_recovery_approvals r
+            JOIN shrimp_bilibili_credential_slots cs
+              ON cs.account_id=r.account_id
+            WHERE r.id=CAST(:approval_id AS uuid)
+              AND cs.last_checked_at IS NOT NULL
+              AND cs.last_checked_at >= (
+                now() - (:max_age * interval '1 minute')
+              )
+          )
+        """),{
+          "approval_id":approval_id,
+          "max_age":max(
+            1,
+            int(settings.shrimp_bilibili_health_max_age_minutes),
+          ),
+        }).scalar_one()
+    if not fresh:
+        raise HTTPException(
+            status_code=409,
+            detail="Recovery health evidence is stale",
+        )
     return apply_approved_recovery(
         approval_id,
         actor=payload.actor,
