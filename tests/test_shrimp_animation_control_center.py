@@ -44,7 +44,7 @@ def test_control_center_homepage_and_summary_are_secret_redacted(
 
     homepage=client.get("/admin")
     assert homepage.status_code == 200
-    assert "Shrimp Animation Control Center" in homepage.text
+    assert "系统控制中心" in homepage.text
     assert "/review-assets/control-center.js" in homepage.text
     assert "/animation-review" in homepage.text
     assert "/animation-publishing" in homepage.text
@@ -108,7 +108,7 @@ def test_control_center_v02_admin_pages_are_available():
         assert "/review-assets/animation-admin.js" in response.text
         assert "SESSDATA / bili_jct / Keys" in response.text
 
-    homepage=client.get("/")
+    homepage=client.get("/admin")
     assert "/animation/accounts" in homepage.text
     assert "/animation/settings" in homepage.text
 
