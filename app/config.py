@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     shrimp_bilibili_dede_user_id_ckmd5: str = ""
     shrimp_bilibili_default_tid: int = 122
     shrimp_bilibili_live_acceptance_max_media_bytes: int = 52428800
+    shrimp_bilibili_health_max_age_minutes: int = 360
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""
