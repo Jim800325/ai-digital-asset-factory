@@ -158,6 +158,12 @@ from app.providers.animation.shrimp.bilibili_incidents import (
     request_recovery,
     sync_critical_incidents,
 )
+from app.providers.animation.shrimp.bilibili_reliability import (
+    generate_reliability_scorecards,
+    list_recurrence_clusters,
+    list_reliability_scorecards,
+    reliability_dashboard,
+)
 from app.providers.animation.shrimp.bilibili_recovery_policy import (
     evaluate_account_circuit,
     list_circuit_breakers,
@@ -1099,6 +1105,38 @@ def shrimp_animation_bilibili_recovery_policy(
 
 
 @app.post(
+    "/internal/shrimp-animation/bilibili-reliability-scorecard",
+    include_in_schema=False,
+)
+def shrimp_animation_bilibili_reliability_scorecard(
+    authorization: str | None = Header(default=None,alias="Authorization"),
+    x_shrimp_health_monitor_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Health-Monitor-Key",
+    ),
+):
+    provided=(x_shrimp_health_monitor_key or "").strip()
+    bearer=(authorization or "").strip()
+    expected=settings.shrimp_bilibili_health_monitor_key.strip()
+    cron=settings.cron_secret.strip()
+    manual_ok=bool(expected) and secrets.compare_digest(provided,expected)
+    cron_ok=bool(cron) and bearer.startswith("Bearer ") and secrets.compare_digest(
+        bearer[7:].strip(),cron
+    )
+    if not (manual_ok or cron_ok):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili reliability scorecard authorization",
+        )
+    return {
+        "status":"GENERATED",
+        "scorecards":generate_reliability_scorecards(
+            actor="scheduled-bilibili-reliability"
+        ),
+    }
+
+
+@app.post(
     "/internal/shrimp-animation/bilibili-daily-quota-audit",
     include_in_schema=False,
 )
@@ -1462,6 +1500,21 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-reliability-dashboard")
+def shrimp_animation_bilibili_reliability_dashboard():
+    return reliability_dashboard()
+
+
+@app.get("/v1/shrimp-animation/bilibili-reliability-scorecards")
+def shrimp_animation_bilibili_reliability_scorecards(limit: int = 100):
+    return list_reliability_scorecards(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-recurrence-clusters")
+def shrimp_animation_bilibili_recurrence_clusters(limit: int = 100):
+    return list_recurrence_clusters(limit=limit)
 
 
 @app.get("/v1/shrimp-animation/bilibili-incident-ops-summary")
