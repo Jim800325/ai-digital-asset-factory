@@ -15,6 +15,12 @@ from app.providers.animation.shrimp.human_review import (
     get_episode_player_file,
     get_review_document_file,
 )
+from app.providers.animation.shrimp.bilibili_quota import (
+    claim_reservation_for_execution,
+    mark_publish_committed,
+    release_claim_after_definitive_failure,
+)
+
 from app.providers.animation.shrimp.publisher_execution_adapter import (
     PublishReceipt,
     PublisherExecutionAdapter,
@@ -421,6 +427,13 @@ def create_publish_execution(
                 "provider_write_performed": False,
             },
         )
+        if source["platform"] == "BILIBILI":
+            claim_reservation_for_execution(
+                db,
+                source=source,
+                execution_id=row["id"],
+                actor=clean_actor,
+            )
 
     result = _serialize(row)
     result["replayed"] = False
@@ -664,6 +677,13 @@ def upload_publish_media(
                 next_status="UPLOAD_FAILED",
                 details={"message": str(exc)[:2000]},
                 provider_result_sha256=evidence,
+            )
+            release_claim_after_definitive_failure(
+                db,
+                execution_id=current["id"],
+                source_sha256=evidence,
+                reason="UPLOAD_FAILED",
+                actor=clean_actor,
             )
         raise RuntimeError(str(exc)) from exc
 
@@ -933,6 +953,13 @@ def publish_uploaded_media(
                 details={"message": str(exc)[:2000]},
                 provider_result_sha256=evidence,
             )
+            release_claim_after_definitive_failure(
+                db,
+                execution_id=current["id"],
+                source_sha256=evidence,
+                reason="PUBLISH_FAILED",
+                actor=clean_actor,
+            )
         raise RuntimeError(str(exc)) from exc
 
     result_sha = _receipt_sha(receipt)
@@ -979,6 +1006,12 @@ def publish_uploaded_media(
                     receipt.provider_write_performed,
             },
             provider_result_sha256=result_sha,
+        )
+        mark_publish_committed(
+            db,
+            execution_id=current["id"],
+            source_sha256=result_sha,
+            actor=clean_actor,
         )
     return get_publish_execution(execution_id)
 
@@ -1081,6 +1114,12 @@ def reconcile_published_media(
                     "provider_write_performed": False,
                 },
                 provider_result_sha256=result_sha,
+            )
+            mark_publish_committed(
+                db,
+                execution_id=current["id"],
+                source_sha256=result_sha,
+                actor=clean_actor,
             )
     return get_publish_execution(execution_id)
 

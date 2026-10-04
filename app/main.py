@@ -131,6 +131,11 @@ from app.providers.animation.shrimp.bilibili_credentials import (
     set_credential_slot_status,
     set_slot_selection_priority,
 )
+from app.providers.animation.shrimp.bilibili_quota import (
+    get_quota_usage,
+    list_execution_claims,
+    list_quota_ledger,
+)
 from app.providers.animation.shrimp.bilibili_router import (
     create_pre_publish_reservation,
     get_reservation,
@@ -1229,6 +1234,27 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-quota/{account_key}")
+def shrimp_animation_bilibili_quota(account_key: str):
+    try:
+        return get_quota_usage(account_key)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-quota-ledger")
+def shrimp_animation_bilibili_quota_ledger(
+    account_key: str | None = None,
+    limit: int = 100,
+):
+    return list_quota_ledger(account_key=account_key,limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-execution-claims")
+def shrimp_animation_bilibili_execution_claims(limit: int = 100):
+    return list_execution_claims(limit=limit)
 
 
 @app.post("/v1/shrimp-animation/bilibili-credential-slots/{slot_key}/rotate")
