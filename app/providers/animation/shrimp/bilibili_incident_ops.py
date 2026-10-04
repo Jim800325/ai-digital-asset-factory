@@ -392,6 +392,7 @@ def incident_ops_summary()->dict:
 
 
 def list_oncall_routes(*,limit:int=100)->list[dict]:
+    ensure_default_oncall_routes(actor="incident-ops-read")
     with engine.connect() as db:
         rows=db.execute(text("""
           SELECT * FROM shrimp_bilibili_oncall_routes
