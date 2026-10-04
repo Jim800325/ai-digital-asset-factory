@@ -311,7 +311,18 @@ def evaluate_account_circuit(account_id, *, actor: str) -> dict:
         ):
             evidence=_recovery_evidence(db,account_id)
             previous=circuit["circuit_status"]
-            if evidence["slot_ok"] and evidence["active_ambiguous_claim_count"]==0:
+            incident_open=bool(db.execute(text("""
+              SELECT 1
+              FROM shrimp_bilibili_incidents
+              WHERE account_id=:account_id
+                AND incident_status IN ('OPEN','RECOVERY_REVIEW')
+              LIMIT 1
+            """),{"account_id":account_id}).scalar_one_or_none())
+            if (
+                evidence["slot_ok"]
+                and evidence["active_ambiguous_claim_count"]==0
+                and not incident_open
+            ):
                 event_payload={
                     "schema_version":"shrimp-bilibili-circuit-recovery-v0.1",
                     "account_id":str(account_id),

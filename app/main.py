@@ -131,6 +131,18 @@ from app.providers.animation.shrimp.bilibili_credentials import (
     set_credential_slot_status,
     set_slot_selection_priority,
 )
+from app.providers.animation.shrimp.bilibili_incidents import (
+    apply_approved_recovery,
+    decide_recovery,
+    deliver_notifications,
+    incident_timeline,
+    list_incidents,
+    list_notifications,
+    list_recovery_approvals,
+    queue_notification,
+    request_recovery,
+    sync_critical_incidents,
+)
 from app.providers.animation.shrimp.bilibili_recovery_policy import (
     evaluate_account_circuit,
     list_circuit_breakers,
@@ -366,6 +378,16 @@ class ShrimpPublishAuthorizationDecision(BaseModel):
     plan_sha256: str = Field(min_length=64,max_length=64)
     dry_run_sha256: str = Field(min_length=64,max_length=64)
 
+class ShrimpBilibiliIncidentAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(default="shrimp-incident-api",min_length=1,max_length=200)
+
+class ShrimpBilibiliRecoveryDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["APPROVE","REJECT"]
+    reason: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(default="shrimp-recovery-approver",min_length=1,max_length=200)
+
 class ShrimpBilibiliCircuitEvaluateAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     actor: str = Field(
@@ -532,6 +554,24 @@ def _require_shrimp_bilibili_live_acceptance_key(
             status_code=403,
             detail="Invalid Shrimp Bilibili live acceptance key",
         )
+
+def _require_shrimp_bilibili_recovery_approval_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_bilibili_recovery_approval_key.strip()
+    if not expected:
+        raise HTTPException(status_code=503,detail="Bilibili recovery approval gate is not configured")
+    forbidden=(
+        settings.shrimp_human_review_key.strip(),
+        settings.shrimp_publish_authorization_key.strip(),
+        settings.shrimp_publish_execution_key.strip(),
+        settings.shrimp_bilibili_live_acceptance_key.strip(),
+    )
+    if any(value and secrets.compare_digest(expected,value) for value in forbidden):
+        raise HTTPException(status_code=503,detail="Bilibili recovery approval key must be independent")
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(status_code=403,detail="Invalid Bilibili recovery approval key")
+
 
 def _shrimp_bilibili_live_acceptance_readiness() -> dict[str, Any]:
     vercel_env=(os.getenv("VERCEL_ENV") or "").strip().lower()
@@ -959,10 +999,32 @@ def shrimp_animation_bilibili_recovery_policy(
             status_code=403,
             detail="Invalid Bilibili recovery policy authorization",
         )
-    return run_recovery_policy(
+    policy=run_recovery_policy(
         actor="scheduled-bilibili-recovery-policy",
         auto_readback=True,
     )
+    incidents=sync_critical_incidents(
+        actor="scheduled-bilibili-incident-sync"
+    )
+    for incident in incidents:
+        queue_notification(
+            incident_id=incident["id"],
+            notification_type="INCIDENT_OPENED",
+            severity="CRITICAL",
+            payload={
+                "incident_id":incident["id"],
+                "incident_key":incident["incident_key"],
+                "operations_path":"/animation/operations",
+            },
+        )
+    notifications=deliver_notifications(
+        actor="scheduled-bilibili-notifications"
+    )
+    return {
+        "policy":policy,
+        "incidents":incidents,
+        "notifications":notifications,
+    }
 
 
 @app.post(
@@ -1329,6 +1391,105 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-incidents")
+def shrimp_animation_bilibili_incidents(status: str | None = None, limit: int = 100):
+    return list_incidents(status=status,limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-incidents/{incident_id}/timeline")
+def shrimp_animation_bilibili_incident_timeline(incident_id: UUID):
+    return incident_timeline(incident_id)
+
+
+@app.get("/v1/shrimp-animation/bilibili-recovery-approvals")
+def shrimp_animation_bilibili_recovery_approvals(limit: int = 100):
+    return list_recovery_approvals(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-notifications")
+def shrimp_animation_bilibili_notifications(limit: int = 100):
+    return list_notifications(limit=limit)
+
+
+@app.post("/v1/shrimp-animation/bilibili-incidents/{incident_id}/recovery-request")
+def shrimp_animation_bilibili_recovery_request(
+    incident_id: UUID,
+    payload: ShrimpBilibiliIncidentAction,
+    x_shrimp_bilibili_live_acceptance_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Live-Acceptance-Key"),
+):
+    _require_shrimp_bilibili_live_acceptance_key(x_shrimp_bilibili_live_acceptance_key)
+    try:
+        result=request_recovery(incident_id,actor=payload.actor)
+        queue_notification(
+            incident_id=incident_id,
+            notification_type="RECOVERY_REQUIRED",
+            severity="CRITICAL",
+            payload={
+                "incident_id":str(incident_id),
+                "approval_id":result["id"],
+                "operations_path":"/animation/operations",
+            },
+        )
+        return result
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-recovery-approvals/{approval_id}/decision")
+def shrimp_animation_bilibili_recovery_decision(
+    approval_id: UUID,
+    payload: ShrimpBilibiliRecoveryDecision,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Recovery-Approval-Key"),
+):
+    _require_shrimp_bilibili_recovery_approval_key(x_key)
+    return decide_recovery(
+        approval_id,
+        decision=payload.decision,
+        reason=payload.reason,
+        actor=payload.actor,
+    )
+
+
+@app.post("/v1/shrimp-animation/bilibili-recovery-approvals/{approval_id}/apply")
+def shrimp_animation_bilibili_recovery_apply(
+    approval_id: UUID,
+    payload: ShrimpBilibiliIncidentAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Live-Acceptance-Key"),
+):
+    _require_shrimp_bilibili_live_acceptance_key(x_key)
+    with engine.connect() as db:
+        fresh=db.execute(text("""
+          SELECT EXISTS(
+            SELECT 1
+            FROM shrimp_bilibili_recovery_approvals r
+            JOIN shrimp_bilibili_credential_slots cs
+              ON cs.account_id=r.account_id
+            WHERE r.id=CAST(:approval_id AS uuid)
+              AND cs.last_checked_at IS NOT NULL
+              AND cs.last_checked_at >= (
+                now() - (:max_age * interval '1 minute')
+              )
+          )
+        """),{
+          "approval_id":approval_id,
+          "max_age":max(
+            1,
+            int(settings.shrimp_bilibili_health_max_age_minutes),
+          ),
+        }).scalar_one()
+    if not fresh:
+        raise HTTPException(
+            status_code=409,
+            detail="Recovery health evidence is stale",
+        )
+    return apply_approved_recovery(
+        approval_id,
+        actor=payload.actor,
+    )
 
 
 @app.get("/v1/shrimp-animation/bilibili-operations-console")

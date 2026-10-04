@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     shrimp_bilibili_circuit_ambiguity_threshold: int = 3
     shrimp_bilibili_circuit_provider_failure_threshold: int = 3
     shrimp_bilibili_circuit_cooldown_minutes: int = 60
+    shrimp_bilibili_recovery_approval_key: str = ""
+    shrimp_bilibili_notification_webhook_url: str = ""
+    shrimp_bilibili_notification_webhook_token: str = ""
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""

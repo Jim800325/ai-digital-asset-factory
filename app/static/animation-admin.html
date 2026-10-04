@@ -222,6 +222,21 @@
         </div>
 
         <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">PUBLISHER INCIDENTS</div><h2>Incident Timeline / Recovery Approval</h2></div><span class="safe-badge">Human gated recovery</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Incident</th><th>Account</th><th>Severity</th><th>Status</th><th>Opened</th><th>Evidence</th><th>操作</th></tr></thead><tbody id="incidentRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">RECOVERY APPROVALS</div><h2>人工恢复审批</h2></div><span class="safe-badge">Independent approval key</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Incident</th><th>Account</th><th>Status</th><th>Requested</th><th>Decision</th><th>Evidence</th><th>操作</th></tr></thead><tbody id="recoveryApprovalRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">OPERATIONS NOTIFICATIONS</div><h2>通知 Outbox</h2></div><span class="safe-badge">No recovery authority</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Time</th><th>Incident</th><th>Type</th><th>Severity</th><th>Destination</th><th>Status</th><th>Attempts</th></tr></thead><tbody id="notificationRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
           <div class="section-title-row"><div><div class="card-kicker">CLAIM ESCALATIONS</div><h2>异常 Claim 告警</h2></div><span class="safe-badge">INFO / WARNING / CRITICAL</span></div>
           <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Level</th><th>Account</th><th>Target</th><th>Execution</th><th>Age</th><th>Ambiguity</th><th>Status</th><th>Action</th></tr></thead><tbody id="escalationRows"></tbody></table></div>
         </section>
