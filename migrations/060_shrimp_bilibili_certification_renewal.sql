@@ -67,6 +67,18 @@ ALTER TABLE shrimp_bilibili_post_restore_certifications
 ALTER TABLE shrimp_bilibili_post_restore_certifications
   ALTER COLUMN attestation_sequence SET NOT NULL;
 
+WITH chained AS (
+  SELECT id,
+         LAG(id) OVER (ORDER BY certified_at,id) AS previous_id
+  FROM shrimp_bilibili_post_restore_certifications
+)
+UPDATE shrimp_bilibili_post_restore_certifications c
+SET previous_certification_id=chained.previous_id
+FROM chained
+WHERE c.id=chained.id
+  AND c.previous_certification_id IS NULL
+  AND chained.previous_id IS NOT NULL;
+
 ALTER TABLE shrimp_bilibili_post_restore_certifications
   DROP CONSTRAINT IF EXISTS shrimp_bilibili_post_restore_certifications_previous_certification_id_fkey;
 ALTER TABLE shrimp_bilibili_post_restore_certifications
