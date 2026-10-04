@@ -31,4 +31,9 @@ jobs:
           curl --fail --silent --show-error \
             --request POST \
             --header "X-Shrimp-Health-Monitor-Key: $MONITOR_KEY" \
+            "$MONITOR_URL/internal/shrimp-animation/bilibili-post-restore-certification-cycle"
+
+          curl --fail --silent --show-error \
+            --request POST \
+            --header "X-Shrimp-Health-Monitor-Key: $MONITOR_KEY" \
             "$MONITOR_URL/internal/shrimp-animation/bilibili-reliability-governance-review"

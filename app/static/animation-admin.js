@@ -2,7 +2,7 @@
 const byId=id=>document.getElementById(id);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const clear=n=>n.replaceChildren();
-const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null,reliabilityTrend:null,governance:null,policyChange:null,safeUnfreeze:null,observation:null};
+const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null,reliabilityTrend:null,governance:null,policyChange:null,safeUnfreeze:null,observation:null,certification:null};
 function toast(msg,bad=false){const n=byId("toast");n.textContent=msg;n.className="toast"+(bad?" bad":"");n.classList.remove("hidden");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.add("hidden"),3200)}
 async function api(url,opts={}){const r=await fetch(url,{cache:"no-store",...opts,headers:{"Accept":"application/json",...(opts.headers||{})}});const b=await r.json().catch(()=>({detail:"Invalid response"}));if(!r.ok)throw new Error(b.detail||("HTTP "+r.status));return b}
 function pill(v){const s=String(v||"UNKNOWN").toUpperCase();const cls=/READY|SUCCESS|APPROVED|AUTHORIZED|PUBLISHED|CURRENT|ACTIVE|PASS|CONFIGURED/.test(s)?"good":/BLOCKED|FAILED|REJECTED|STALE|DISABLED|MISSING|INACTIVE|EXPIRED|UNHEALTHY|MISMATCH|LOGGED_OUT|DENIED/.test(s)?"bad":"warn";return el("span","pill "+cls,s)}
@@ -645,11 +645,56 @@ function renderGovernance(){
   const acceptances=Array.isArray(obs.acceptances)?obs.acceptances:[];
   if(!acceptances.length)empty(acceptanceBody,6,"尚无 Restore Acceptance");
   acceptances.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",String(x.session_id||"").slice(0,12)+"…"));const st=document.createElement("td");st.appendChild(pill(x.acceptance_status));tr.appendChild(st);tr.append(el("td","",x.current_stage??"—"),el("td","",(x.current_quota_percent??"—")+"%"),el("td","",x.accepted_by||"—"),el("td","",x.accepted_at?new Date(x.accepted_at).toLocaleString():"—"));acceptanceBody.appendChild(tr)});
+
+  const certData=state.certification||{},cert=certData.current_certification||null;
+  const certSummary=byId("certificationSummary");clear(certSummary);
+  row(certSummary,"Certification",cert?.certification_key||"NONE");
+  row(certSummary,"Status",cert?.certification_status||"—");
+  row(certSummary,"Certified",cert?.certified_at?new Date(cert.certified_at).toLocaleString():"—");
+  row(certSummary,"Certification SHA",cert?.certification_sha256||"—");
+  row(certSummary,"Baseline SHA",cert?.baseline_sha256||"—");
+  row(certSummary,"Automatic Policy Change",certData.automatic_policy_change?"ENABLED":"DISABLED");
+  row(certSummary,"Human Governance Reopen",certData.human_governance_required_for_reopen?"REQUIRED":"UNKNOWN");
+
+  const baseline=cert?.stability_baseline||{},slo=cert?.promoted_slo||{},reopenPolicy=cert?.reopen_policy||{};
+  const baselineRoot=byId("certificationBaseline");clear(baselineRoot);
+  row(baselineRoot,"Baseline Score",baseline.reliability_score??"—");
+  row(baselineRoot,"Grade",baseline.reliability_grade||"—");
+  row(baselineRoot,"ACK Success",baseline.ack_success_rate!=null?(baseline.ack_success_rate+"%"):"—");
+  row(baselineRoot,"Recovery Success",baseline.recovery_success_rate!=null?(baseline.recovery_success_rate+"%"):"—");
+  row(baselineRoot,"Ambiguity",baseline.ambiguity_rate_percent!=null?(baseline.ambiguity_rate_percent+"%"):"—");
+  row(baselineRoot,"P95 MTTR",baseline.p95_mttr_minutes!=null?(baseline.p95_mttr_minutes+" min"):"—");
+
+  const sloRoot=byId("certificationSlo");clear(sloRoot);
+  row(sloRoot,"ACK SLO ≥",slo.ack_success_target_percent!=null?(slo.ack_success_target_percent+"%"):"—");
+  row(sloRoot,"Recovery SLO ≥",slo.recovery_success_target_percent!=null?(slo.recovery_success_target_percent+"%"):"—");
+  row(sloRoot,"Ambiguity ≤",slo.ambiguity_max_percent!=null?(slo.ambiguity_max_percent+"%"):"—");
+  row(sloRoot,"Reliability Score ≥",slo.reliability_score_min??"—");
+  row(sloRoot,"Burn",slo.burn_required||"—");
+  row(sloRoot,"Open Regression Max",slo.open_regression_max??"—");
+
+  const reopenRoot=byId("certificationReopenPolicy");clear(reopenRoot);
+  row(reopenRoot,"Score Floor",reopenPolicy.reliability_score_floor??"—");
+  row(reopenRoot,"Score Drop Trigger",reopenPolicy.reliability_score_drop_points!=null?(reopenPolicy.reliability_score_drop_points+" pts"):"—");
+  row(reopenRoot,"ACK Below",reopenPolicy.ack_success_below_percent!=null?(reopenPolicy.ack_success_below_percent+"%"):"—");
+  row(reopenRoot,"Recovery Below",reopenPolicy.recovery_success_below_percent!=null?(reopenPolicy.recovery_success_below_percent+"%"):"—");
+  row(reopenRoot,"Ambiguity Above",reopenPolicy.ambiguity_above_percent!=null?(reopenPolicy.ambiguity_above_percent+"%"):"—");
+  row(reopenRoot,"Automatic Policy Change",reopenPolicy.automatic_policy_change?"YES":"NO");
+
+  const certEvalBody=byId("certificationEvaluationRows");clear(certEvalBody);
+  const certEvals=Array.isArray(certData.reopen_evaluations)?certData.reopen_evaluations:[];
+  if(!certEvals.length)empty(certEvalBody,5,"尚无 Certification Reopen Evaluation");
+  certEvals.slice(0,100).forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.certification_key||String(x.certification_id||"").slice(0,12)));const st=document.createElement("td");st.appendChild(pill(x.evaluation_status));tr.appendChild(st);tr.append(el("td","",Array.isArray(x.trigger_codes)&&x.trigger_codes.length?x.trigger_codes.join(", "):"—"),el("td","mono",String(x.current_evidence_sha256||"").slice(0,12)+"…"),el("td","",x.evaluated_at?new Date(x.evaluated_at).toLocaleString():"—"));certEvalBody.appendChild(tr)});
+
+  const reopenBody=byId("certificationReopenRows");clear(reopenBody);
+  const reopenEvents=Array.isArray(certData.reopen_events)?certData.reopen_events:[];
+  if(!reopenEvents.length)empty(reopenBody,5,"尚无 Certification Reopen Event");
+  reopenEvents.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.certification_key||String(x.certification_id||"").slice(0,12)),el("td","mono",String(x.event_sha256||"").slice(0,12)+"…"));const st=document.createElement("td");st.appendChild(pill(x.event_status));tr.appendChild(st);tr.append(el("td","",Array.isArray(x.trigger_codes)&&x.trigger_codes.length?x.trigger_codes.join(", "):"—"),el("td","",x.opened_at?new Date(x.opened_at).toLocaleString():"—"));reopenBody.appendChild(tr)});
 }
 
 function renderSettings(){const s=state.summary||{},sys=s.system||{},r=s.bilibili?.readiness||{},c=r.checks||{};const groups=[["runtimeSettings",[["Vercel Env",sys.vercel_env||"—"],["Database",sys.database_available?"AVAILABLE":"UNAVAILABLE"],["Database Source",sys.database_source||"—"],["Preview Isolated",sys.preview_isolated?"YES":"NO"],["Migrations",sys.migration_status||"—"]]],["publisherSettings",[["Adapter",sys.publisher_adapter||"—"],["Executor",c.publish_executor_enabled?"ENABLED":"DISABLED"],["Step 9 Gate",c.publish_authorization_gate?"READY":"BLOCKED"],["Step 10 Gate",c.publish_execution_gate?"READY":"BLOCKED"]]],["bilibiliSettings",[["Account Profiles",state.accounts.length],["Controlled Adapter",c.bilibili_controlled_adapter?"READY":"BLOCKED"],["Live Acceptance",c.bilibili_live_acceptance_enabled?"ENABLED":"DISABLED"],["Cookie Bundle",c.bilibili_cookie_credentials_present?"CONFIGURED":"MISSING"]]],["securitySettings",[["Secrets Redacted",r.secrets_redacted?"YES":"NO"],["Account Allowlist",c.sacrificial_account_allowlist_present?"SET":"MISSING"],["Account Denylist",c.real_account_denylist_present?"SET":"MISSING"],["Target Allowlist",c.sacrificial_target_allowlist_present?"SET":"MISSING"],["Target Denylist",c.real_target_denylist_present?"SET":"MISSING"]]]];groups.forEach(([id,items])=>{const root=byId(id);clear(root);items.forEach(([k,v])=>row(root,k,v))})}
 async function load(){byId("refreshButton").disabled=true;try{
-  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability,reliabilityTrend,governance,policyChange,safeUnfreeze,observation]=await Promise.all([
+  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability,reliabilityTrend,governance,policyChange,safeUnfreeze,observation,certification]=await Promise.all([
     api("/v1/shrimp-animation/control-center/summary"),
     api("/v1/shrimp-animation/publish-targets"),
     api("/v1/shrimp-animation/bilibili-accounts"),
@@ -674,11 +719,12 @@ async function load(){byId("refreshButton").disabled=true;try{
     api("/v1/shrimp-animation/bilibili-reliability-governance"),
     api("/v1/shrimp-animation/bilibili-reliability-policy-change"),
     api("/v1/shrimp-animation/bilibili-reliability-safe-unfreeze"),
-    api("/v1/shrimp-animation/bilibili-post-unfreeze-observation")
+    api("/v1/shrimp-animation/bilibili-post-unfreeze-observation"),
+    api("/v1/shrimp-animation/bilibili-post-restore-certification")
   ]);
   let selection=null;
   try{selection=await api("/v1/shrimp-animation/bilibili-account-selection/healthy")}catch(_){}
-  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};state.reliabilityTrend=reliabilityTrend||{};state.governance=governance||{};state.policyChange=policyChange||{};state.safeUnfreeze=safeUnfreeze||{};state.observation=observation||{};
+  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};state.reliabilityTrend=reliabilityTrend||{};state.governance=governance||{};state.policyChange=policyChange||{};state.safeUnfreeze=safeUnfreeze||{};state.observation=observation||{};state.certification=certification||{};
   renderAccounts();renderJobs();renderExecutions();renderQuota();renderOperations();renderReliability();renderGovernance();renderSettings();
 }catch(e){toast("载入失败："+e.message,true)}finally{byId("refreshButton").disabled=false}}
 byId("accountForm").addEventListener("submit",async e=>{

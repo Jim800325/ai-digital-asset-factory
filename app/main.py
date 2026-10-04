@@ -158,6 +158,16 @@ from app.providers.animation.shrimp.bilibili_incidents import (
     request_recovery,
     sync_critical_incidents,
 )
+from app.providers.animation.shrimp.bilibili_post_restore_certification import (
+    certification_dashboard,
+    evaluate_certification,
+    generate_certification,
+    get_certification,
+    list_certifications,
+    list_reopen_evaluations,
+    list_reopen_events,
+    run_certification_cycle,
+)
 from app.providers.animation.shrimp.bilibili_post_unfreeze_observation import (
     accept_restore,
     evaluate_observation,
@@ -1416,6 +1426,43 @@ def shrimp_animation_bilibili_reliability_governance_review_generate(
 
 
 @app.post(
+    "/internal/shrimp-animation/bilibili-post-restore-certification-cycle",
+    include_in_schema=False,
+)
+def shrimp_animation_bilibili_post_restore_certification_cycle(
+    authorization: str | None = Header(default=None,alias="Authorization"),
+    x_shrimp_health_monitor_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Health-Monitor-Key",
+    ),
+):
+    provided=(x_shrimp_health_monitor_key or "").strip()
+    bearer=(authorization or "").strip()
+    expected=settings.shrimp_bilibili_health_monitor_key.strip()
+    cron=settings.cron_secret.strip()
+    manual_ok=bool(expected) and secrets.compare_digest(provided,expected)
+    cron_ok=bool(cron) and bearer.startswith("Bearer ") and secrets.compare_digest(
+        bearer[7:].strip(),cron
+    )
+    if not (manual_ok or cron_ok):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili certification cycle authorization",
+        )
+    try:
+        return {
+            "status":"EVALUATED",
+            "result":run_certification_cycle(
+                actor="scheduled-bilibili-post-restore-certification"
+            ),
+        }
+    except RuntimeError as exc:
+        if "No active post-restore certification" in str(exc):
+            return {"status":"NO_ACTIVE_CERTIFICATION","result":None}
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
     "/internal/shrimp-animation/bilibili-post-unfreeze-observation-evaluate",
     include_in_schema=False,
 )
@@ -1880,6 +1927,40 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-post-restore-certification")
+def shrimp_animation_bilibili_post_restore_certification():
+    return certification_dashboard()
+
+
+@app.get("/v1/shrimp-animation/bilibili-post-restore-certifications")
+def shrimp_animation_bilibili_post_restore_certifications(limit: int = 100):
+    return list_certifications(limit=limit)
+
+
+@app.get(
+    "/v1/shrimp-animation/bilibili-post-restore-certifications/{certification_id}"
+)
+def shrimp_animation_bilibili_post_restore_certification_detail(
+    certification_id: UUID,
+):
+    try:
+        return get_certification(certification_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-certification-reopen-evaluations")
+def shrimp_animation_bilibili_certification_reopen_evaluations(
+    limit: int = 200,
+):
+    return list_reopen_evaluations(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-certification-reopen-events")
+def shrimp_animation_bilibili_certification_reopen_events(limit: int = 100):
+    return list_reopen_events(limit=limit)
 
 
 @app.get("/v1/shrimp-animation/bilibili-post-unfreeze-observation")

@@ -20,6 +20,9 @@ from app.providers.animation.shrimp.bilibili_reliability_restore import (
 from app.providers.animation.shrimp.bilibili_reliability_trend import (
     trend_dashboard,
 )
+from app.providers.animation.shrimp.bilibili_post_restore_certification import (
+    generate_certification,
+)
 
 
 def _sha(value: Any) -> str:
@@ -583,10 +586,21 @@ def accept_restore(session_id:UUID, *,actor:str)->dict:
             "sha":_sha(event),
             "actor":actor.strip()[:200],
         })
+    certification=None
+    certification_error=None
+    try:
+        certification=generate_certification(
+            session_id,
+            actor=actor.strip()+"-certification",
+        )
+    except RuntimeError as exc:
+        certification_error=str(exc)
     return {
         "session_id":str(session_id),
         "acceptance_status":"ACCEPTED",
         "policy_control":_ser(updated),
+        "certification":certification,
+        "certification_error":certification_error,
         "provider_write_count":0,
     }
 
