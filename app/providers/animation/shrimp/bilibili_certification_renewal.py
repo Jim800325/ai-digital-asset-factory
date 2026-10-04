@@ -201,15 +201,19 @@ def generate_recertification_candidate(
     candidate_sha=_sha(candidate_material)
 
     with engine.begin() as db:
-        same_candidate=db.execute(text("""
+        same_evidence=db.execute(text("""
           SELECT * FROM shrimp_bilibili_recertification_candidates
-          WHERE candidate_sha256=:candidate_sha
+          WHERE source_certification_id=:source_id
+            AND new_evidence_sha256=:evidence_sha
           ORDER BY generated_at DESC
           LIMIT 1
-        """),{"candidate_sha":candidate_sha}).mappings().one_or_none()
-        if same_candidate is not None:
-            if same_candidate["candidate_status"]=="PENDING_APPROVAL":
-                return _ser(same_candidate)
+        """),{
+            "source_id":source["id"],
+            "evidence_sha":new_evidence_sha,
+        }).mappings().one_or_none()
+        if same_evidence is not None:
+            if same_evidence["candidate_status"]=="PENDING_APPROVAL":
+                return _ser(same_evidence)
             raise RuntimeError(
                 "This re-certification evidence was already decided; "
                 "wait for newer reliability evidence"
