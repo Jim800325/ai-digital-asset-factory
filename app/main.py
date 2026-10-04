@@ -1349,7 +1349,7 @@ def _shrimp_control_center_summary() -> dict[str, Any]:
             "recent_acceptances":acceptances[:10],
         },
         "navigation":[
-            {"label":"Control Center","href":"/"},
+            {"label":"Control Center","href":"/admin"},
             {"label":"Animation Review","href":"/animation-review"},
             {"label":"Publishing Authorization","href":"/animation-publishing"},
             {"label":"Software Review","href":"/review"},
