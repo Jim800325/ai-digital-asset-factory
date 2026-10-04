@@ -233,6 +233,7 @@ def _normalize_publish_metadata(
         "visibility",
         "cover_artifact_sha256",
         "scheduled_for",
+        "copyright",
     }
     unknown = sorted(set(value) - allowed)
     if unknown:
@@ -280,6 +281,9 @@ def _normalize_publish_metadata(
         raise ValueError("cover_artifact_sha256 must be a 64-character SHA-256")
 
     scheduled_for = str(value.get("scheduled_for") or "").strip() or None
+    copyright_value = str(value.get("copyright") or "").upper().strip() or None
+    if copyright_value not in {None, "ORIGINAL", "REPOST"}:
+        raise ValueError("publish metadata copyright must be ORIGINAL or REPOST")
 
     return {
         "title": title,
@@ -289,6 +293,7 @@ def _normalize_publish_metadata(
         "visibility": visibility,
         "cover_artifact_sha256": cover_sha,
         "scheduled_for": scheduled_for,
+        "copyright": copyright_value,
     }
 
 
