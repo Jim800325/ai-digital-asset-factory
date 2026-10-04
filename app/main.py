@@ -166,6 +166,18 @@ from app.providers.animation.shrimp.bilibili_certification_trust_audit import (
     run_trust_audit_cycle,
     trust_audit_dashboard,
 )
+from app.providers.animation.shrimp.bilibili_external_verification import (
+    append_export_registry,
+    create_signed_proof_bundle,
+    external_verification_dashboard,
+    get_proof_bundle,
+    list_export_registry,
+    list_external_anchors,
+    list_proof_bundles,
+    register_external_anchor,
+    verify_export_registry_chain,
+    verify_proof_bundle,
+)
 from app.providers.animation.shrimp.bilibili_certification_renewal import (
     decide_recertification,
     evaluate_certification_expiry,
@@ -554,6 +566,34 @@ class ShrimpBilibiliReliabilityChangeDecision(BaseModel):
     )
     plan_sha256: str = Field(min_length=64,max_length=64)
     dry_run_sha256: str = Field(min_length=64,max_length=64)
+
+class ShrimpBilibiliAuditBundleAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(
+        default="shrimp-audit-proof-bundle",
+        min_length=1,
+        max_length=200,
+    )
+
+class ShrimpBilibiliExternalAnchorCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    anchor_provider: str = Field(min_length=2,max_length=120)
+    anchor_reference: str = Field(min_length=2,max_length=500)
+    anchor_digest_sha256: str = Field(min_length=64,max_length=64)
+    receipt: dict[str, Any] = Field(default_factory=dict)
+    actor: str = Field(
+        default="shrimp-external-anchor",
+        min_length=1,
+        max_length=200,
+    )
+
+class ShrimpBilibiliExportRegistryAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(
+        default="shrimp-audit-export",
+        min_length=1,
+        max_length=200,
+    )
 
 class ShrimpBilibiliGovernanceDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -2087,6 +2127,113 @@ def shrimp_animation_bilibili_certification_audit_proof_latest():
             detail="No certification audit proof has been generated yet",
         )
     return proofs[0]
+
+
+@app.get("/v1/shrimp-animation/bilibili-external-verification")
+def shrimp_animation_bilibili_external_verification():
+    return external_verification_dashboard()
+
+
+@app.get("/v1/shrimp-animation/bilibili-audit-proof-bundles")
+def shrimp_animation_bilibili_audit_proof_bundles(limit: int = 100):
+    return list_proof_bundles(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-audit-proof-bundles/{bundle_id}")
+def shrimp_animation_bilibili_audit_proof_bundle(bundle_id: UUID):
+    try:
+        return get_proof_bundle(bundle_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-audit-proof-bundles/{bundle_id}/verify")
+def shrimp_animation_bilibili_audit_proof_bundle_verify(bundle_id: UUID):
+    try:
+        return verify_proof_bundle(bundle_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-audit-proof-bundles",status_code=201)
+def shrimp_animation_bilibili_audit_proof_bundle_create(
+    payload: ShrimpBilibiliAuditBundleAction,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Reliability-Governance-Key",
+    ),
+):
+    _require_shrimp_bilibili_reliability_governance_key(x_key)
+    try:
+        return create_signed_proof_bundle(actor=payload.actor)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/bilibili-audit-proof-bundles/{bundle_id}/anchors",
+    status_code=201,
+)
+def shrimp_animation_bilibili_external_anchor_create(
+    bundle_id: UUID,
+    payload: ShrimpBilibiliExternalAnchorCreate,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Reliability-Governance-Key",
+    ),
+):
+    _require_shrimp_bilibili_reliability_governance_key(x_key)
+    try:
+        return register_external_anchor(
+            bundle_id,
+            anchor_provider=payload.anchor_provider,
+            anchor_reference=payload.anchor_reference,
+            anchor_digest_sha256=payload.anchor_digest_sha256,
+            receipt=payload.receipt,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-external-verification-anchors")
+def shrimp_animation_bilibili_external_anchors(limit: int = 100):
+    return list_external_anchors(limit=limit)
+
+
+@app.post(
+    "/v1/shrimp-animation/bilibili-audit-proof-bundles/{bundle_id}/export",
+    status_code=201,
+)
+def shrimp_animation_bilibili_export_registry_append(
+    bundle_id: UUID,
+    payload: ShrimpBilibiliExportRegistryAction,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Reliability-Governance-Key",
+    ),
+):
+    _require_shrimp_bilibili_reliability_governance_key(x_key)
+    try:
+        return append_export_registry(bundle_id,actor=payload.actor)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-audit-export-registry")
+def shrimp_animation_bilibili_audit_export_registry(limit: int = 100):
+    return list_export_registry(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-audit-export-registry/verify")
+def shrimp_animation_bilibili_audit_export_registry_verify():
+    return verify_export_registry_chain()
 
 
 @app.get("/v1/shrimp-animation/bilibili-certification-renewal")
