@@ -439,6 +439,23 @@ def generate_certification(
             "sequence":sequence,
             "actor":actor[:200],
         }).mappings().one()
+        if previous is not None:
+            previous_superseded=_append_attestation(
+                db,
+                certification_id=previous["id"],
+                previous_attestation_id=previous_attestation,
+                attestation_type="SUPERSEDED",
+                attestation_sequence=int(previous["attestation_sequence"]),
+                attestation_status="SUPERSEDED",
+                evidence_snapshot={
+                    "source_certification_id":str(previous["id"]),
+                    "new_certification_id":str(row["id"]),
+                    "new_certification_key":row["certification_key"],
+                    "reason":"NEW_RESTORE_CERTIFICATION",
+                },
+                actor=actor,
+            )
+            previous_attestation=previous_superseded["id"]
         _append_attestation(
             db,
             certification_id=row["id"],
