@@ -444,6 +444,23 @@
         </section>
 
         <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">CERTIFICATION VALIDITY</div><h2>Expiry / Renewal Status</h2></div><span class="safe-badge">Finite validity</span></div>
+          <div id="certificationValidity" class="settings-list"></div>
+          <div class="notice">Certification 有效期结束后不再作为当前健康证明；到期本身不会自动冻结或修改 quota。</div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">BASELINE RENEWAL</div><h2>Governance Re-Certification</h2></div><span class="safe-badge">Independent human gate</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Certification</th><th>Status</th><th>Old Baseline</th><th>New Baseline</th><th>Evidence</th><th>Generated</th><th>操作</th></tr></thead><tbody id="recertificationCandidateRows"></tbody></table></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Certification</th><th>Decision</th><th>Actor</th><th>Reason</th><th>Decided</th></tr></thead><tbody id="recertificationDecisionRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">ATTESTATION HISTORY</div><h2>Reliability Attestation Chain</h2></div><span class="safe-badge">Immutable history</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Seq</th><th>Certification</th><th>Type</th><th>Status</th><th>Evidence SHA</th><th>Created</th></tr></thead><tbody id="attestationRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
           <div class="section-title-row"><div><div class="card-kicker">REVIEW HISTORY</div><h2>Governance Reviews</h2></div><span class="safe-badge">Evidence SHA</span></div>
           <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Review</th><th>Recommendation</th><th>Status</th><th>Evidence</th><th>Generated</th></tr></thead><tbody id="governanceReviewRows"></tbody></table></div>
         </section>
@@ -460,7 +477,7 @@
           <div class="card-kicker">SECRET MANAGEMENT</div><h2>敏感凭证管理原则</h2>
           <p class="muted">以下变量只应通过 Vercel Preview Environment Variables 设置，不在本后台保存明文。</p>
           <div class="env-chip-grid">
-            <code>SHRIMP_BILIBILI_SESSDATA</code><code>SHRIMP_BILIBILI_BILI_JCT</code><code>SHRIMP_BILIBILI_DEDE_USER_ID</code><code>SHRIMP_BILIBILI_DEDE_USER_ID_CKMD5</code><code>SHRIMP_PUBLISH_AUTHORIZATION_KEY</code><code>SHRIMP_PUBLISH_EXECUTION_KEY</code><code>SHRIMP_BILIBILI_LIVE_ACCEPTANCE_KEY</code><code>SHRIMP_BILIBILI_INCIDENT_OPS_KEY</code><code>SHRIMP_BILIBILI_RECOVERY_APPROVAL_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_GOVERNANCE_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_POLICY_APPLY_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_RESTORE_APPROVAL_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_RESTORE_APPLY_KEY</code><code>SHRIMP_BILIBILI_RESTORE_ACCEPTANCE_KEY</code>
+            <code>SHRIMP_BILIBILI_SESSDATA</code><code>SHRIMP_BILIBILI_BILI_JCT</code><code>SHRIMP_BILIBILI_DEDE_USER_ID</code><code>SHRIMP_BILIBILI_DEDE_USER_ID_CKMD5</code><code>SHRIMP_PUBLISH_AUTHORIZATION_KEY</code><code>SHRIMP_PUBLISH_EXECUTION_KEY</code><code>SHRIMP_BILIBILI_LIVE_ACCEPTANCE_KEY</code><code>SHRIMP_BILIBILI_INCIDENT_OPS_KEY</code><code>SHRIMP_BILIBILI_RECOVERY_APPROVAL_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_GOVERNANCE_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_POLICY_APPLY_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_RESTORE_APPROVAL_KEY</code><code>SHRIMP_BILIBILI_RELIABILITY_RESTORE_APPLY_KEY</code><code>SHRIMP_BILIBILI_RESTORE_ACCEPTANCE_KEY</code><code>SHRIMP_BILIBILI_RECERTIFICATION_KEY</code>
           </div>
         </section>
       </section>
