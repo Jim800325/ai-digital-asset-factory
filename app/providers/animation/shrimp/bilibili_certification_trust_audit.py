@@ -398,7 +398,11 @@ def evaluate_renewal_sla(*,actor:str)->dict:
 def list_renewal_escalations(*,limit:int=100)->list[dict]:
     with engine.connect() as db:
         rows=db.execute(text("""
-          SELECT e.*,c.certification_key
+          SELECT e.*,c.certification_key,
+                 GREATEST(
+                   0,
+                   FLOOR(EXTRACT(EPOCH FROM (now()-e.due_at))/60)
+                 )::integer AS current_overdue_minutes
           FROM shrimp_bilibili_renewal_sla_escalations e
           JOIN shrimp_bilibili_post_restore_certifications c
             ON c.id=e.certification_id
