@@ -1405,6 +1405,21 @@ def shrimp_animation_bilibili_recovery_request(
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
+@app.post("/v1/shrimp-animation/bilibili-recovery-approvals/{approval_id}/decision")
+def shrimp_animation_bilibili_recovery_decision(
+    approval_id: UUID,
+    payload: ShrimpBilibiliRecoveryDecision,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Recovery-Approval-Key"),
+):
+    _require_shrimp_bilibili_recovery_approval_key(x_key)
+    return decide_recovery(
+        approval_id,
+        decision=payload.decision,
+        reason=payload.reason,
+        actor=payload.actor,
+    )
+
+
 @app.get("/v1/shrimp-animation/bilibili-operations-console")
 def shrimp_animation_bilibili_operations_console():
     return operations_console()
