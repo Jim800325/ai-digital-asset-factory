@@ -576,6 +576,13 @@ def decide_recertification(
         }
         cert_sha=_sha(snapshot)
         cert_key="cert-"+cert_sha[:20]
+
+        db.execute(text("""
+          UPDATE shrimp_bilibili_post_restore_certifications
+          SET certification_status='SUPERSEDED',superseded_at=now()
+          WHERE id=:id
+        """),{"id":source["id"]})
+
         new_cert=db.execute(text("""
           INSERT INTO shrimp_bilibili_post_restore_certifications(
             certification_key,observation_session_id,restore_acceptance_id,
@@ -607,11 +614,6 @@ def decide_recertification(
             "actor":actor.strip()[:200],
         }).mappings().one()
 
-        db.execute(text("""
-          UPDATE shrimp_bilibili_post_restore_certifications
-          SET certification_status='SUPERSEDED',superseded_at=now()
-          WHERE id=:id
-        """),{"id":source["id"]})
         db.execute(text("""
           UPDATE shrimp_bilibili_certification_reopen_events
           SET event_status='SUPERSEDED',closed_at=now()
