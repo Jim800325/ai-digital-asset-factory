@@ -2,13 +2,13 @@
 const byId=id=>document.getElementById(id);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const clear=n=>n.replaceChildren();
-const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null,reliabilityTrend:null};
+const state={summary:null,targets:[],accounts:[],slots:[],selection:null,editing:null,quota:null,reservations:[],claims:[],ledger:[],audits:[],operations:null,circuitEvents:[],incidents:[],approvals:[],notifications:[],incidentOps:null,oncallRoutes:[],slaEvents:[],pirs:[],correctiveActions:[],reliability:null,reliabilityTrend:null,governance:null};
 function toast(msg,bad=false){const n=byId("toast");n.textContent=msg;n.className="toast"+(bad?" bad":"");n.classList.remove("hidden");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.add("hidden"),3200)}
 async function api(url,opts={}){const r=await fetch(url,{cache:"no-store",...opts,headers:{"Accept":"application/json",...(opts.headers||{})}});const b=await r.json().catch(()=>({detail:"Invalid response"}));if(!r.ok)throw new Error(b.detail||("HTTP "+r.status));return b}
 function pill(v){const s=String(v||"UNKNOWN").toUpperCase();const cls=/READY|SUCCESS|APPROVED|AUTHORIZED|PUBLISHED|CURRENT|ACTIVE|PASS|CONFIGURED/.test(s)?"good":/BLOCKED|FAILED|REJECTED|STALE|DISABLED|MISSING|INACTIVE|EXPIRED|UNHEALTHY|MISMATCH|LOGGED_OUT|DENIED/.test(s)?"bad":"warn";return el("span","pill "+cls,s)}
 function row(root,key,value){const n=el("div","setting-row");n.append(el("span","setting-key",key),el("span","setting-value",value));root.appendChild(n)}
 function empty(tbody,cols,msg){const tr=document.createElement("tr"),td=el("td","empty-row",msg);td.colSpan=cols;tr.appendChild(td);tbody.appendChild(tr)}
-function currentPage(){const p=location.pathname;return p.includes("/accounts")?"accounts":p.includes("/jobs")?"jobs":p.includes("/executions")?"executions":p.includes("/quota")?"quota":p.includes("/operations")?"operations":p.includes("/reliability")?"reliability":"settings"}
+function currentPage(){const p=location.pathname;return p.includes("/accounts")?"accounts":p.includes("/jobs")?"jobs":p.includes("/executions")?"executions":p.includes("/quota")?"quota":p.includes("/operations")?"operations":p.includes("/reliability-review")?"governance":p.includes("/reliability")?"reliability":"settings"}
 const meta={
  accounts:["Bilibili 账号管理","多账号 Registry、默认投稿配置、发布窗口、每日限额与账号级安全策略。"],
  jobs:["动画任务中心","查看 Shrimp Animation pipeline 任务并快速进入 Review / Publishing。"],
@@ -16,6 +16,7 @@ const meta={
  quota:["额度运营中心","查看账号日额度、Reservation / Claim 生命周期、Stuck Claim reconciliation 与 Daily Reset Audit。"],
  operations:["Publisher Operations Console","Claim Escalation、Automatic Recovery Policy 与 Account Circuit Breaker。"],
  reliability:["Reliability Scorecard","30 天 SLO / Error Budget / MTTR / Ambiguity / Circuit / Root Cause recurrence。"],
+ governance:["Reliability Governance Review","人工审查 NORMAL / CAUTION / FREEZE_RECOMMENDED，并生成不可执行 Policy Intent。"],
  settings:["增强设置","集中查看运行环境、发布器、Bilibili 与 Gate 配置；敏感值永不回显。"]
 };
 function showPage(){const p=currentPage();document.querySelectorAll(".admin-page").forEach(x=>x.classList.add("hidden"));byId(p+"Page").classList.remove("hidden");document.querySelectorAll(".admin-nav [data-page]").forEach(a=>a.classList.toggle("active",a.dataset.page===p));byId("pageTitle").textContent=meta[p][0];byId("pageSubtitle").textContent=meta[p][1]}
@@ -375,9 +376,95 @@ function renderReliability(){
   clusters.forEach(x=>{const tr=document.createElement("tr");const st=document.createElement("td");st.appendChild(pill(x.recurrence_status));tr.appendChild(st);tr.append(el("td","",x.normalized_root_cause||"—"),el("td","",x.occurrence_count??0),el("td","",x.critical_occurrence_count??0),el("td","",Array.isArray(x.account_keys)?x.account_keys.join(" · "):"—"),el("td","",x.first_observed_at?new Date(x.first_observed_at).toLocaleString():"—"),el("td","",x.last_observed_at?new Date(x.last_observed_at).toLocaleString():"—"),el("td","mono",String(x.root_cause_fingerprint||"").slice(0,12)+"…"));recurrenceBody.appendChild(tr)});
 }
 
+async function decideGovernance(review,decision){
+  const key=prompt("输入独立 Reliability Governance Key：");
+  if(!key)return;
+  const reason=prompt("Human Policy Decision 原因：","Reviewed reliability evidence snapshot");
+  if(!reason)return;
+  try{
+    await api("/v1/shrimp-animation/bilibili-reliability-governance/reviews/"+encodeURIComponent(review.id)+"/decision",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-Shrimp-Bilibili-Reliability-Governance-Key":key},
+      body:JSON.stringify({decision,reason,actor:"shrimp-control-center-governance-v0.1"})
+    });
+    toast("Governance Decision 已记录；未执行任何策略变更");
+    await load();
+  }catch(e){toast("Governance Decision 失败："+e.message,true)}
+}
+
+function renderGovernance(){
+  const data=state.governance||{},review=data.current_review||null;
+  const badge=byId("governanceRecommendationBadge");
+  badge.textContent=review?.recommendation||"NO REVIEW";
+  badge.className="pill "+(review?.recommendation==="NORMAL"?"good":review?.recommendation==="FREEZE_RECOMMENDED"?"bad":"warn");
+
+  const metrics=byId("governanceMetrics");clear(metrics);
+  [
+    ["Human Gate",data.human_gate_required?"REQUIRED":"UNKNOWN"],
+    ["Execution Supported",data.execution_supported?"YES":"NO"],
+    ["Changes Applied",data.changes_applied?"YES":"NO"],
+    ["Review Status",review?.review_status||"NONE"]
+  ].forEach(([k,v])=>{const card=el("div","metric-card");card.append(el("div","metric-label",k),el("div","metric-value small",v));metrics.appendChild(card)});
+
+  const current=byId("governanceCurrentReview");clear(current);
+  if(!review){
+    row(current,"Current Review","尚未生成 Governance Review");
+  }else{
+    row(current,"Review Key",review.review_key||"—");
+    row(current,"Recommendation",review.recommendation||"—");
+    row(current,"Reason",review.recommendation_reason||"—");
+    row(current,"Status",review.review_status||"—");
+    row(current,"Evidence SHA",review.evidence_sha256||"—");
+    row(current,"Generated",review.generated_at?new Date(review.generated_at).toLocaleString():"—");
+  }
+
+  const actions=byId("governanceDecisionActions");clear(actions);
+  if(review&&review.review_status==="PENDING_DECISION"){
+    const allowed=review.recommendation==="NORMAL"
+      ?["ACCEPT_NORMAL","REJECT_RECOMMENDATION"]
+      :review.recommendation==="CAUTION"
+        ?["ACCEPT_CAUTION","REJECT_RECOMMENDATION"]
+        :["AUTHORIZE_FREEZE_INTENT","REJECT_RECOMMENDATION"];
+    allowed.forEach(decision=>{
+      const b=el("button","button "+(decision==="AUTHORIZE_FREEZE_INTENT"?"danger":"ghost"),decision);
+      b.type="button";
+      b.addEventListener("click",()=>decideGovernance(review,decision));
+      actions.appendChild(b);
+    });
+  }else{
+    actions.appendChild(el("span","muted","当前没有可决策的 Governance Review"));
+  }
+
+  const evidence=byId("governanceEvidence");clear(evidence);
+  const snap=review?.evidence_snapshot||{},score=snap.scorecard||{},burn=snap.burn||{};
+  row(evidence,"Reliability Score",score.reliability_score??"—");
+  row(evidence,"Grade",score.reliability_grade||"—");
+  row(evidence,"Burn Status",burn.burn_status||"—");
+  row(evidence,"ACK Burn Short / Long",(burn.ack_short_burn_rate??"—")+" / "+(burn.ack_long_burn_rate??"—"));
+  row(evidence,"Recovery Burn Short / Long",(burn.recovery_short_burn_rate??"—")+" / "+(burn.recovery_long_burn_rate??"—"));
+  row(evidence,"Open Regressions",Array.isArray(snap.open_regressions)?snap.open_regressions.length:0);
+  row(evidence,"Recurrence Signals",Array.isArray(snap.recurrence_clusters)?snap.recurrence_clusters.length:0);
+  row(evidence,"Policy Recommendations",Array.isArray(snap.policy_recommendations)?snap.policy_recommendations.length:0);
+
+  const reviewBody=byId("governanceReviewRows");clear(reviewBody);
+  const reviews=Array.isArray(data.reviews)?data.reviews:[];
+  if(!reviews.length)empty(reviewBody,5,"尚无 Governance Review");
+  reviews.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.review_key||String(x.id).slice(0,12)));const rec=document.createElement("td");rec.appendChild(pill(x.recommendation));tr.appendChild(rec);const st=document.createElement("td");st.appendChild(pill(x.review_status));tr.appendChild(st);tr.append(el("td","mono",String(x.evidence_sha256||"").slice(0,12)+"…"),el("td","",x.generated_at?new Date(x.generated_at).toLocaleString():"—"));reviewBody.appendChild(tr)});
+
+  const decisionBody=byId("governanceDecisionRows");clear(decisionBody);
+  const decisions=Array.isArray(data.decisions)?data.decisions:[];
+  if(!decisions.length)empty(decisionBody,6,"尚无 Human Policy Decision");
+  decisions.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.review_key||"—"));const rec=document.createElement("td");rec.appendChild(pill(x.recommendation));tr.appendChild(rec);const dec=document.createElement("td");dec.appendChild(pill(x.decision));tr.appendChild(dec);tr.append(el("td","",x.actor||"—"),el("td","",x.reason||"—"),el("td","",x.decided_at?new Date(x.decided_at).toLocaleString():"—"));decisionBody.appendChild(tr)});
+
+  const intentBody=byId("governanceIntentRows");clear(intentBody);
+  const intents=Array.isArray(data.policy_intents)?data.policy_intents:[];
+  if(!intents.length)empty(intentBody,6,"尚无 Policy Intent");
+  intents.forEach(x=>{const tr=document.createElement("tr");tr.append(el("td","mono",x.review_key||"—"),el("td","",x.intent_type||"—"));const st=document.createElement("td");st.appendChild(pill(x.intent_status));tr.appendChild(st);tr.append(el("td","",x.execution_enabled?"ENABLED":"DISABLED"),el("td","",x.changes_applied?"YES":"NO"),el("td","",x.authorized_at?new Date(x.authorized_at).toLocaleString():"—"));intentBody.appendChild(tr)});
+}
+
 function renderSettings(){const s=state.summary||{},sys=s.system||{},r=s.bilibili?.readiness||{},c=r.checks||{};const groups=[["runtimeSettings",[["Vercel Env",sys.vercel_env||"—"],["Database",sys.database_available?"AVAILABLE":"UNAVAILABLE"],["Database Source",sys.database_source||"—"],["Preview Isolated",sys.preview_isolated?"YES":"NO"],["Migrations",sys.migration_status||"—"]]],["publisherSettings",[["Adapter",sys.publisher_adapter||"—"],["Executor",c.publish_executor_enabled?"ENABLED":"DISABLED"],["Step 9 Gate",c.publish_authorization_gate?"READY":"BLOCKED"],["Step 10 Gate",c.publish_execution_gate?"READY":"BLOCKED"]]],["bilibiliSettings",[["Account Profiles",state.accounts.length],["Controlled Adapter",c.bilibili_controlled_adapter?"READY":"BLOCKED"],["Live Acceptance",c.bilibili_live_acceptance_enabled?"ENABLED":"DISABLED"],["Cookie Bundle",c.bilibili_cookie_credentials_present?"CONFIGURED":"MISSING"]]],["securitySettings",[["Secrets Redacted",r.secrets_redacted?"YES":"NO"],["Account Allowlist",c.sacrificial_account_allowlist_present?"SET":"MISSING"],["Account Denylist",c.real_account_denylist_present?"SET":"MISSING"],["Target Allowlist",c.sacrificial_target_allowlist_present?"SET":"MISSING"],["Target Denylist",c.real_target_denylist_present?"SET":"MISSING"]]]];groups.forEach(([id,items])=>{const root=byId(id);clear(root);items.forEach(([k,v])=>row(root,k,v))})}
 async function load(){byId("refreshButton").disabled=true;try{
-  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability,reliabilityTrend]=await Promise.all([
+  const [summary,targets,accounts,slots,quota,reservations,claims,ledger,audits,operations,circuitEvents,incidents,approvals,notifications,incidentOps,oncallRoutes,slaEvents,pirs,correctiveActions,reliability,reliabilityTrend,governance]=await Promise.all([
     api("/v1/shrimp-animation/control-center/summary"),
     api("/v1/shrimp-animation/publish-targets"),
     api("/v1/shrimp-animation/bilibili-accounts"),
@@ -398,12 +485,13 @@ async function load(){byId("refreshButton").disabled=true;try{
     api("/v1/shrimp-animation/bilibili-post-incident-reviews?limit=100"),
     api("/v1/shrimp-animation/bilibili-corrective-actions?limit=100"),
     api("/v1/shrimp-animation/bilibili-reliability-dashboard"),
-    api("/v1/shrimp-animation/bilibili-reliability-trend-dashboard")
+    api("/v1/shrimp-animation/bilibili-reliability-trend-dashboard"),
+    api("/v1/shrimp-animation/bilibili-reliability-governance")
   ]);
   let selection=null;
   try{selection=await api("/v1/shrimp-animation/bilibili-account-selection/healthy")}catch(_){}
-  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};state.reliabilityTrend=reliabilityTrend||{};
-  renderAccounts();renderJobs();renderExecutions();renderQuota();renderOperations();renderReliability();renderSettings();
+  state.summary=summary;state.targets=Array.isArray(targets)?targets:[];state.accounts=Array.isArray(accounts)?accounts:[];state.slots=Array.isArray(slots)?slots:[];state.selection=selection;state.quota=quota||{};state.reservations=Array.isArray(reservations)?reservations:[];state.claims=Array.isArray(claims)?claims:[];state.ledger=Array.isArray(ledger)?ledger:[];state.audits=Array.isArray(audits)?audits:[];state.operations=operations||{};state.circuitEvents=Array.isArray(circuitEvents)?circuitEvents:[];state.incidents=Array.isArray(incidents)?incidents:[];state.approvals=Array.isArray(approvals)?approvals:[];state.notifications=Array.isArray(notifications)?notifications:[];state.incidentOps=incidentOps||{};state.oncallRoutes=Array.isArray(oncallRoutes)?oncallRoutes:[];state.slaEvents=Array.isArray(slaEvents)?slaEvents:[];state.pirs=Array.isArray(pirs)?pirs:[];state.correctiveActions=Array.isArray(correctiveActions)?correctiveActions:[];state.reliability=reliability||{};state.reliabilityTrend=reliabilityTrend||{};state.governance=governance||{};
+  renderAccounts();renderJobs();renderExecutions();renderQuota();renderOperations();renderReliability();renderGovernance();renderSettings();
 }catch(e){toast("载入失败："+e.message,true)}finally{byId("refreshButton").disabled=false}}
 byId("accountForm").addEventListener("submit",async e=>{
   e.preventDefault();const key=byId("accountPublishKey").value;
