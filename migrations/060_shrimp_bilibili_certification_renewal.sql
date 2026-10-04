@@ -91,6 +91,10 @@ CREATE INDEX IF NOT EXISTS idx_shrimp_bilibili_certification_expiry
     certification_status,renewal_due_at,expires_at
   );
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_shrimp_bilibili_current_certification
+  ON shrimp_bilibili_post_restore_certifications((1))
+  WHERE certification_status<>'SUPERSEDED';
+
 CREATE TABLE IF NOT EXISTS shrimp_bilibili_recertification_candidates (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source_certification_id uuid NOT NULL
