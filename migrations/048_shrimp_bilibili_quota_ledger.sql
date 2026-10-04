@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS shrimp_bilibili_quota_ledger (
     entry_type IN (
       'CLAIM_CREATED',
       'PLAN_RELEASED',
+      'RESERVATION_EXPIRED',
       'PUBLISH_COMMITTED',
       'CLEANUP_SETTLED',
       'CLAIM_RELEASED'
@@ -174,3 +175,50 @@ CREATE TRIGGER trg_record_bilibili_reservation_release_ledger
 AFTER UPDATE OF reservation_status ON shrimp_bilibili_publish_reservations
 FOR EACH ROW
 EXECUTE FUNCTION record_bilibili_reservation_release_ledger();
+
+
+CREATE OR REPLACE FUNCTION record_bilibili_reservation_expiry_ledger()
+RETURNS trigger AS $$
+DECLARE tz text;
+DECLARE local_day date;
+DECLARE payload jsonb;
+DECLARE entry_hash text;
+BEGIN
+  IF OLD.reservation_status='HELD'
+     AND NEW.reservation_status='EXPIRED'
+  THEN
+    SELECT timezone INTO tz
+    FROM shrimp_bilibili_accounts
+    WHERE id=NEW.account_id;
+
+    local_day=(now() AT TIME ZONE COALESCE(tz,'Asia/Shanghai'))::date;
+    payload=jsonb_build_object(
+      'schema_version','shrimp-bilibili-quota-ledger-v0.1',
+      'entry_type','RESERVATION_EXPIRED',
+      'reservation_id',NEW.id::text,
+      'account_id',NEW.account_id::text,
+      'reason',COALESCE(NEW.released_reason,'TTL_EXPIRED'),
+      'selection_sha256',NEW.selection_sha256
+    );
+    entry_hash=encode(digest(payload::text,'sha256'),'hex');
+
+    INSERT INTO shrimp_bilibili_quota_ledger(
+      account_id,reservation_id,entry_type,quota_units,
+      local_quota_date,account_timezone,source_sha256,
+      entry_payload,entry_sha256,created_by)
+    VALUES(
+      NEW.account_id,NEW.id,'RESERVATION_EXPIRED',0,
+      local_day,COALESCE(tz,'Asia/Shanghai'),NEW.selection_sha256,
+      payload,entry_hash,'reservation-expiry-trigger')
+    ON CONFLICT (entry_sha256) DO NOTHING;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_record_bilibili_reservation_expiry_ledger
+  ON shrimp_bilibili_publish_reservations;
+CREATE TRIGGER trg_record_bilibili_reservation_expiry_ledger
+AFTER UPDATE OF reservation_status ON shrimp_bilibili_publish_reservations
+FOR EACH ROW
+EXECUTE FUNCTION record_bilibili_reservation_expiry_ledger();
