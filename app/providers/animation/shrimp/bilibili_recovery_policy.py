@@ -508,12 +508,31 @@ def list_claim_escalations(*,status: str|None=None,limit:int=100)->list[dict]:
 def list_circuit_breakers(*,limit:int=100)->list[dict]:
     with engine.connect() as db:
         rows=db.execute(text("""
-          SELECT c.*,a.account_key,a.display_name
-          FROM shrimp_bilibili_account_circuit_breakers c
-          JOIN shrimp_bilibili_accounts a ON a.id=c.account_id
-          ORDER BY CASE c.circuit_status WHEN 'OPEN' THEN 1
-                   WHEN 'RECOVERY_PENDING' THEN 2 ELSE 3 END,
-                   c.updated_at DESC
+          SELECT
+            c.id,
+            a.id AS account_id,
+            a.account_key,
+            a.display_name,
+            COALESCE(c.circuit_status,'CLOSED') AS circuit_status,
+            c.open_reason,
+            COALESCE(c.ambiguity_score,0) AS ambiguity_score,
+            COALESCE(c.provider_failure_score,0) AS provider_failure_score,
+            c.opened_at,
+            c.recovery_not_before,
+            c.closed_at,
+            c.last_evidence_type,
+            c.last_evidence_sha256,
+            COALESCE(c.state_version,0) AS state_version,
+            c.updated_at
+          FROM shrimp_bilibili_accounts a
+          LEFT JOIN shrimp_bilibili_account_circuit_breakers c
+            ON c.account_id=a.id
+          WHERE a.account_status='ACTIVE'
+          ORDER BY CASE COALESCE(c.circuit_status,'CLOSED')
+                     WHEN 'OPEN' THEN 1
+                     WHEN 'RECOVERY_PENDING' THEN 2 ELSE 3 END,
+                   c.updated_at DESC NULLS LAST,
+                   a.account_key
           LIMIT :limit
         """),{"limit":max(1,min(int(limit),500))}).mappings().all()
     return [_serialize(x) for x in rows]
