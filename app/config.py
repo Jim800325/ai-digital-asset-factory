@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     shrimp_bilibili_recovery_approval_key: str = ""
     shrimp_bilibili_notification_webhook_url: str = ""
     shrimp_bilibili_notification_webhook_token: str = ""
+    shrimp_bilibili_incident_ack_sla_minutes: int = 15
+    shrimp_bilibili_incident_recovery_sla_minutes: int = 120
+    shrimp_bilibili_incident_default_owner: str = "publisher-oncall"
+    shrimp_bilibili_incident_secondary_owner: str = "publisher-backup"
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
