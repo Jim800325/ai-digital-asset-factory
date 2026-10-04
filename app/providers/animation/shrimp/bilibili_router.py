@@ -18,6 +18,9 @@ from app.providers.animation.shrimp.bilibili_credentials import (
 from app.providers.animation.shrimp.bilibili_quota import (
     quota_usage_for_account,
 )
+from app.providers.animation.shrimp.bilibili_recovery_policy import (
+    account_circuit_allows_reservation,
+)
 
 def _sha256(value:Any)->str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
@@ -106,6 +109,11 @@ def create_pre_publish_reservation(
                   WHERE account_key=:account_key
                   FOR UPDATE
                 """),{"account_key":candidate["account_key"]}).mappings().one()
+                if not account_circuit_allows_reservation(
+                    db,
+                    account["id"],
+                ):
+                    continue
                 if not _account_quota_available(db,dict(account)):
                     continue
 
