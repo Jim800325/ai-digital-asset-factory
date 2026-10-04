@@ -31,8 +31,19 @@ def _ser(row: Any) -> dict:
     return out
 
 
+def _ensure_policy_control(db) -> None:
+    db.execute(text("""
+      INSERT INTO shrimp_bilibili_reliability_policy_controls(
+        control_key,automation_exposure,quota_multiplier_percent,
+        new_reservation_allowed,control_version,updated_by)
+      VALUES('GLOBAL','NORMAL',100,true,1,'runtime-bootstrap')
+      ON CONFLICT (control_key) DO NOTHING
+    """))
+
+
 def get_policy_control() -> dict:
-    with engine.connect() as db:
+    with engine.begin() as db:
+        _ensure_policy_control(db)
         row=db.execute(text("""
           SELECT * FROM shrimp_bilibili_reliability_policy_controls
           WHERE control_key='GLOBAL'
@@ -422,6 +433,7 @@ def policy_change_dashboard() -> dict:
 
 
 def reservation_policy(db) -> dict:
+    _ensure_policy_control(db)
     row=db.execute(text("""
       SELECT automation_exposure,quota_multiplier_percent,
              new_reservation_allowed,control_version
