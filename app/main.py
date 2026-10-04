@@ -139,6 +139,7 @@ from app.providers.animation.shrimp.bilibili_incident_ops import (
     evaluate_incident_slas,
     incident_ops_summary,
     list_corrective_actions,
+    list_oncall_routes,
     list_incident_sla_events,
     list_post_incident_reviews,
     update_pir,
@@ -1065,12 +1066,20 @@ def shrimp_animation_bilibili_recovery_policy(
                 "operations_path":"/animation/operations",
             },
         )
+    incident_ops=bootstrap_incident_operations(
+        actor="scheduled-bilibili-incident-ops"
+    )
+    sla=evaluate_incident_slas(
+        actor="scheduled-bilibili-sla"
+    )
     notifications=deliver_notifications(
         actor="scheduled-bilibili-notifications"
     )
     return {
         "policy":policy,
         "incidents":incidents,
+        "incident_ops":incident_ops,
+        "sla":sla,
         "notifications":notifications,
     }
 
@@ -1439,6 +1448,102 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.get("/v1/shrimp-animation/bilibili-incident-ops-summary")
+def shrimp_animation_bilibili_incident_ops_summary():
+    return incident_ops_summary()
+
+
+@app.get("/v1/shrimp-animation/bilibili-oncall-routes")
+def shrimp_animation_bilibili_oncall_routes(limit: int = 100):
+    return list_oncall_routes(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-incident-sla-events")
+def shrimp_animation_bilibili_incident_sla_events(limit: int = 100):
+    return list_incident_sla_events(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-post-incident-reviews")
+def shrimp_animation_bilibili_post_incident_reviews(limit: int = 100):
+    return list_post_incident_reviews(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-corrective-actions")
+def shrimp_animation_bilibili_corrective_actions(limit: int = 100):
+    return list_corrective_actions(limit=limit)
+
+
+@app.post("/v1/shrimp-animation/bilibili-incidents/{incident_id}/acknowledge")
+def shrimp_animation_bilibili_incident_acknowledge(
+    incident_id: UUID,
+    payload: ShrimpBilibiliIncidentAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Incident-Ops-Key"),
+):
+    _require_shrimp_bilibili_incident_ops_key(x_key)
+    try:
+        return acknowledge_incident(incident_id,actor=payload.actor)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-incidents/{incident_id}/owner")
+def shrimp_animation_bilibili_incident_owner(
+    incident_id: UUID,
+    payload: ShrimpBilibiliIncidentOwnerAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Incident-Ops-Key"),
+):
+    _require_shrimp_bilibili_incident_ops_key(x_key)
+    try:
+        return assign_incident_owner(
+            incident_id,
+            owner_ref=payload.owner_ref,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-incidents/{incident_id}/pir/complete")
+def shrimp_animation_bilibili_pir_complete(
+    incident_id: UUID,
+    payload: ShrimpBilibiliPirComplete,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Incident-Ops-Key"),
+):
+    _require_shrimp_bilibili_incident_ops_key(x_key)
+    try:
+        return update_pir(
+            incident_id,
+            root_cause=payload.root_cause,
+            lessons_learned=payload.lessons_learned,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-incidents/{incident_id}/corrective-actions")
+def shrimp_animation_bilibili_corrective_action_create(
+    incident_id: UUID,
+    payload: ShrimpBilibiliCorrectiveActionCreate,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Bilibili-Incident-Ops-Key"),
+):
+    _require_shrimp_bilibili_incident_ops_key(x_key)
+    try:
+        return add_corrective_action(
+            incident_id,
+            description=payload.description,
+            owner_ref=payload.owner_ref,
+            due_at=payload.due_at,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
 
 
 @app.get("/v1/shrimp-animation/bilibili-incidents")
