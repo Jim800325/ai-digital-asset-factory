@@ -70,6 +70,14 @@ class Settings(BaseSettings):
     shrimp_publish_execution_denied_account_refs: str = ""
     shrimp_publish_execution_allowed_target_keys: str = ""
     shrimp_publish_execution_denied_target_keys: str = ""
+    shrimp_bilibili_live_acceptance_enabled: bool = False
+    shrimp_bilibili_live_acceptance_key: str = ""
+    shrimp_bilibili_sessdata: str = ""
+    shrimp_bilibili_bili_jct: str = ""
+    shrimp_bilibili_dede_user_id: str = ""
+    shrimp_bilibili_dede_user_id_ckmd5: str = ""
+    shrimp_bilibili_default_tid: int = 122
+    shrimp_bilibili_live_acceptance_max_media_bytes: int = 52428800
     human_approval_key: str = ""
     human_release_key: str = ""
     human_deployment_key: str = ""
