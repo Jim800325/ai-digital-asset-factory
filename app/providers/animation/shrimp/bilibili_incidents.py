@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from app.config import settings
 from app.db import engine
 from app.providers.animation.models import canonical_json
 from app.providers.animation.shrimp.bilibili_recovery_policy import (
