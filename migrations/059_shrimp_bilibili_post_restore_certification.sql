@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS shrimp_bilibili_post_restore_certifications (
   promoted_slo jsonb NOT NULL,
   reopen_policy jsonb NOT NULL,
   certification_sha256 char(64) NOT NULL UNIQUE,
-  baseline_sha256 char(64) NOT NULL UNIQUE,
+  baseline_sha256 char(64) NOT NULL,
   generated_by text NOT NULL,
   certified_at timestamptz NOT NULL DEFAULT now(),
   superseded_at timestamptz,
