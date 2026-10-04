@@ -13,6 +13,12 @@ from app.providers.animation.shrimp.bilibili_accounts import (
     apply_account_defaults_and_guard,
     resolve_account_for_target,
 )
+from app.providers.animation.shrimp.bilibili_credentials import (
+    credential_slot_is_fresh,
+    credential_slot_snapshot,
+    resolve_credential_slot_for_account,
+    slot_snapshot_sha256,
+)
 from app.providers.animation.shrimp.human_review import (
     get_episode_bundle_file,
     get_episode_player_file,
@@ -469,6 +475,9 @@ def create_publish_plan(
         account_profile = resolve_account_for_target(db, target)
         account_snapshot = None
         account_profile_sha256 = None
+        credential_slot = None
+        credential_slot_snapshot_value = None
+        credential_slot_sha = None
         effective_metadata = dict(publish_metadata or {})
         if target["platform"] == "BILIBILI" and account_profile is not None:
             (
@@ -480,6 +489,40 @@ def create_publish_plan(
                 account_profile,
                 effective_metadata,
             )
+            credential_slot = resolve_credential_slot_for_account(
+                db,
+                account_profile["id"],
+            )
+            if credential_slot is not None:
+                if credential_slot["slot_status"] != "ACTIVE":
+                    raise RuntimeError("Bilibili credential slot is INACTIVE")
+                if credential_slot["health_status"] != "HEALTHY":
+                    raise RuntimeError(
+                        "Bilibili credential slot is not HEALTHY"
+                    )
+                if not credential_slot_is_fresh(
+                    credential_slot
+                ):
+                    raise RuntimeError(
+                        "Bilibili credential health check is stale"
+                    )
+                if credential_slot["mid_status"] != "MATCH":
+                    raise RuntimeError(
+                        "Bilibili credential slot MID is not verified"
+                    )
+                if (
+                    credential_slot["publish_permission_status"]
+                    != "ALLOWED"
+                ):
+                    raise RuntimeError(
+                        "Bilibili credential slot lacks publish permission"
+                    )
+                credential_slot_snapshot_value = credential_slot_snapshot(
+                    credential_slot
+                )
+                credential_slot_sha = slot_snapshot_sha256(
+                    credential_slot
+                )
 
         dry_run = _build_dry_run(
             source=source,
@@ -507,6 +550,10 @@ def create_publish_plan(
                 str(account_profile["id"]) if account_profile else None,
             "account_profile_sha256": account_profile_sha256,
             "account_profile_snapshot": account_snapshot,
+            "credential_slot_id":
+                str(credential_slot["id"]) if credential_slot else None,
+            "credential_slot_sha256": credential_slot_sha,
+            "credential_slot_snapshot": credential_slot_snapshot_value,
             "publish_metadata": dry_run["publish_metadata"],
             "dry_run_sha256": dry_run["dry_run_sha256"],
             "dry_run_status": "VERIFIED",
@@ -544,7 +591,8 @@ def create_publish_plan(
                 platform,target_key,review_decision_sha256,
                 episode_bundle_sha256,release_review_package_sha256,
                 target_snapshot_sha256,account_profile_id,
-                account_profile_sha256,publish_metadata,
+                account_profile_sha256,credential_slot_id,
+                credential_slot_sha256,publish_metadata,
                 dry_run_snapshot,dry_run_sha256,dry_run_status,
                 plan_payload,plan_sha256,plan_status,
                 execution_enabled,publish_performed,created_by)
@@ -553,7 +601,8 @@ def create_publish_plan(
                 :platform,:target_key,:review_decision_sha256,
                 :episode_bundle_sha256,:release_review_package_sha256,
                 :target_snapshot_sha256,:account_profile_id,
-                :account_profile_sha256,CAST(:publish_metadata AS jsonb),
+                :account_profile_sha256,:credential_slot_id,
+                :credential_slot_sha256,CAST(:publish_metadata AS jsonb),
                 CAST(:dry_run_snapshot AS jsonb),:dry_run_sha256,'VERIFIED',
                 CAST(:plan_payload AS jsonb),:plan_sha256,
                 'PENDING_AUTHORIZATION',false,false,:actor)
@@ -573,6 +622,9 @@ def create_publish_plan(
                 "account_profile_id":
                     account_profile["id"] if account_profile else None,
                 "account_profile_sha256": account_profile_sha256,
+                "credential_slot_id":
+                    credential_slot["id"] if credential_slot else None,
+                "credential_slot_sha256": credential_slot_sha,
                 "publish_metadata": canonical_json(
                     dry_run["publish_metadata"]
                 ),

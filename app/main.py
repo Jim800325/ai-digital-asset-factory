@@ -117,6 +117,15 @@ from app.providers.animation.shrimp.publisher_execution import (
     reconcile_published_media,
     upload_publish_media,
 )
+from app.providers.animation.shrimp.bilibili_credentials import (
+    create_credential_slot,
+    get_credential_slot,
+    list_credential_slots,
+    list_health_checks,
+    run_credential_health_check,
+    select_healthy_sacrificial_account,
+    set_credential_slot_status,
+)
 from app.providers.animation.shrimp.bilibili_accounts import (
     create_bilibili_account,
     get_bilibili_account,
@@ -208,6 +217,22 @@ class ShrimpHumanReviewDecision(BaseModel):
         default_factory=list,
         max_length=20,
     )
+
+class ShrimpBilibiliCredentialSlotCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    account_key: str = Field(min_length=3,max_length=120)
+    slot_key: str = Field(min_length=3,max_length=120)
+    env_prefix: str = Field(min_length=3,max_length=121)
+    actor: str = Field(default="shrimp-credential-slot-api",min_length=1,max_length=200)
+
+class ShrimpBilibiliCredentialSlotUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slot_status: Literal["ACTIVE","INACTIVE"]
+    actor: str = Field(default="shrimp-credential-slot-api",min_length=1,max_length=200)
+
+class ShrimpBilibiliHealthCheckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(default="shrimp-credential-health",min_length=1,max_length=200)
 
 class ShrimpBilibiliAccountCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -480,6 +505,8 @@ def _shrimp_bilibili_live_acceptance_readiness() -> dict[str, Any]:
         "authorized_bilibili_plans":0,
         "bilibili_controlled_executions":0,
         "runnable_bilibili_executions":0,
+        "bilibili_credential_slots":0,
+        "healthy_bilibili_credential_slots":0,
     }
     try:
         with engine.connect() as db:
@@ -518,6 +545,21 @@ def _shrimp_bilibili_live_acceptance_readiness() -> dict[str, Any]:
                   'PUBLISH_UNKNOWN','PUBLISHED'
                 )
             """)).scalar_one()
+            counts["bilibili_credential_slots"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_bilibili_credential_slots
+              WHERE slot_status='ACTIVE'
+            """)).scalar_one()
+            counts["healthy_bilibili_credential_slots"]=db.execute(text("""
+              SELECT COUNT(*)
+              FROM shrimp_bilibili_credential_slots
+              WHERE slot_status='ACTIVE'
+                AND health_status='HEALTHY'
+                AND credential_status='CONFIGURED'
+                AND login_status='LOGGED_IN'
+                AND mid_status='MATCH'
+                AND publish_permission_status='ALLOWED'
+            """)).scalar_one()
     except Exception:
         counts={key:None for key in counts}
 
@@ -531,7 +573,9 @@ def _shrimp_bilibili_live_acceptance_readiness() -> dict[str, Any]:
         "bilibili_live_acceptance_gate":live_gate,
         "bilibili_live_acceptance_enabled":
             settings.shrimp_bilibili_live_acceptance_enabled,
-        "bilibili_cookie_credentials_present":cookies_present,
+        "bilibili_cookie_credentials_present":
+            cookies_present
+            or bool(counts["healthy_bilibili_credential_slots"]),
         "sacrificial_account_allowlist_present":bool(allowed_accounts),
         "real_account_denylist_present":bool(denied_accounts),
         "sacrificial_target_allowlist_present":bool(allowed_targets),
@@ -1127,6 +1171,107 @@ def shrimp_animation_review_decision(
     except ValueError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
+
+
+@app.post("/v1/shrimp-animation/bilibili-credential-slots", status_code=201)
+def shrimp_animation_bilibili_credential_slot_create(
+    payload: ShrimpBilibiliCredentialSlotCreate,
+    x_shrimp_publish_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Key",
+    ),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    try:
+        return create_credential_slot(
+            account_key=payload.account_key,
+            slot_key=payload.slot_key,
+            env_prefix=payload.env_prefix,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-credential-slots")
+def shrimp_animation_bilibili_credential_slots():
+    return list_credential_slots()
+
+
+@app.get("/v1/shrimp-animation/bilibili-credential-slots/{slot_key}")
+def shrimp_animation_bilibili_credential_slot(slot_key: str):
+    try:
+        return get_credential_slot(slot_key)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.patch("/v1/shrimp-animation/bilibili-credential-slots/{slot_key}")
+def shrimp_animation_bilibili_credential_slot_update(
+    slot_key: str,
+    payload: ShrimpBilibiliCredentialSlotUpdate,
+    x_shrimp_publish_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Publish-Key",
+    ),
+):
+    _require_shrimp_publish_key(x_shrimp_publish_key)
+    try:
+        return set_credential_slot_status(
+            slot_key,
+            slot_status=payload.slot_status,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-credential-slots/{slot_key}/health-check")
+def shrimp_animation_bilibili_credential_health_check(
+    slot_key: str,
+    payload: ShrimpBilibiliHealthCheckRequest,
+    x_shrimp_bilibili_live_acceptance_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Bilibili-Live-Acceptance-Key",
+    ),
+):
+    _require_shrimp_bilibili_live_acceptance_key(
+        x_shrimp_bilibili_live_acceptance_key
+    )
+    try:
+        return run_credential_health_check(
+            slot_key,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-credential-slots/{slot_key}/health-checks")
+def shrimp_animation_bilibili_credential_health_checks(
+    slot_key: str,
+    limit: int = 20,
+):
+    return list_health_checks(slot_key,limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-account-selection/healthy")
+def shrimp_animation_bilibili_healthy_account_selection():
+    selected=select_healthy_sacrificial_account()
+    if selected is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No healthy sacrificial Bilibili account is available",
+        )
+    return selected
 
 
 @app.post("/v1/shrimp-animation/bilibili-accounts", status_code=201)
