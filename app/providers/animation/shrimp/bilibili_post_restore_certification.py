@@ -529,7 +529,9 @@ def evaluate_certification(*,actor:str)->dict:
     with engine.connect() as db:
         cert=db.execute(text("""
           SELECT * FROM shrimp_bilibili_post_restore_certifications
-          WHERE certification_status IN ('CERTIFIED','REOPEN_RECOMMENDED')
+          WHERE certification_status IN (
+            'CERTIFIED','EXPIRING','REOPEN_RECOMMENDED'
+          )
           ORDER BY certified_at DESC
           LIMIT 1
         """)).mappings().one_or_none()
@@ -745,7 +747,9 @@ def certification_dashboard()->dict:
     certifications=list_certifications(limit=100)
     current=next((
         x for x in certifications
-        if x["certification_status"] in {"CERTIFIED","REOPEN_RECOMMENDED"}
+        if x["certification_status"] in {
+            "CERTIFIED","EXPIRING","REOPEN_RECOMMENDED"
+        }
     ),None)
     return {
         "current_certification":current,
