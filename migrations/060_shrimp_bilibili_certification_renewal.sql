@@ -254,7 +254,7 @@ FOR EACH ROW EXECUTE FUNCTION prevent_bilibili_recert_candidate_evidence_mutatio
 
 
 CREATE OR REPLACE FUNCTION prevent_bilibili_certification_mutation()
-RETURNS trigger AS $
+RETURNS trigger AS $certification_mutation$
 BEGIN
   IF OLD.certification_status IN (
        'CERTIFIED','EXPIRING','EXPIRED',
@@ -282,7 +282,7 @@ BEGIN
   END IF;
   RAISE EXCEPTION 'Post-restore reliability certification evidence is immutable';
 END;
-$ LANGUAGE plpgsql;
+$certification_mutation$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_prevent_bilibili_certification_mutation
 BEFORE UPDATE OR DELETE ON shrimp_bilibili_post_restore_certifications
