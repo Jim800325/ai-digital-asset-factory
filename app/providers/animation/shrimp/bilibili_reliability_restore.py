@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
 
+from app.config import settings
 from app.db import engine
 from app.providers.animation.models import canonical_json
 from app.providers.animation.shrimp.bilibili_reliability_policy_change import (
@@ -83,9 +85,32 @@ def recovery_evidence_snapshot() -> dict:
     score_ok=bool(
         score and float(score.get("reliability_score") or 0)>=85.0
     )
+    freshness_hours=max(
+        24,
+        int(settings.shrimp_bilibili_burn_long_window_hours)+12,
+    )
+    now=datetime.now(timezone.utc)
+    score_generated=(
+        datetime.fromisoformat(score["generated_at"])
+        if score and score.get("generated_at") else None
+    )
+    burn_evaluated=(
+        datetime.fromisoformat(burn["evaluated_at"])
+        if burn and burn.get("evaluated_at") else None
+    )
+    score_fresh=bool(
+        score_generated
+        and (now-score_generated).total_seconds()<=freshness_hours*3600
+    )
+    burn_fresh=bool(
+        burn_evaluated
+        and (now-burn_evaluated).total_seconds()<=freshness_hours*3600
+    )
 
     checks={
         "scorecard_present":score is not None,
+        "scorecard_fresh":score_fresh,
+        "burn_evidence_fresh":burn_fresh,
         "reliability_score_at_least_85":score_ok,
         "ack_error_budget_within_limit":ack_budget_ok,
         "recovery_error_budget_within_limit":recovery_budget_ok,
@@ -125,6 +150,15 @@ def recovery_evidence_snapshot() -> dict:
         "unresolved_incident_count":unresolved_incidents,
         "nonclosed_circuit_count":nonclosed_circuits,
         "ambiguous_claim_count":ambiguous_claims,
+        "freshness_max_hours":freshness_hours,
+        "scorecard_age_hours":(
+            round((now-score_generated).total_seconds()/3600,2)
+            if score_generated else None
+        ),
+        "burn_age_hours":(
+            round((now-burn_evaluated).total_seconds()/3600,2)
+            if burn_evaluated else None
+        ),
         "provider_writes":False,
     }
 
