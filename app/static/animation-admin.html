@@ -420,6 +420,30 @@
         </section>
 
         <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">POST-RESTORE CERTIFICATION</div><h2>Reliability Certification</h2></div><span class="safe-badge">Immutable baseline</span></div>
+          <div id="certificationSummary" class="settings-list"></div>
+          <div class="notice">Certification 只冻结已接受恢复后的稳定性事实与正式 SLO；不会修改 quota、Circuit、发布 Gate 或调用 Bilibili。</div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">STABILITY BASELINE</div><h2>Promoted Long-Term SLO</h2></div><span class="safe-badge">Frozen SHA</span></div>
+          <div id="certificationBaseline" class="settings-list"></div>
+          <div id="certificationSlo" class="settings-list"></div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">REOPEN POLICY</div><h2>Long-Term Reopen Triggers</h2></div><span class="safe-badge">Recommendation only</span></div>
+          <div id="certificationReopenPolicy" class="settings-list"></div>
+          <div class="notice warn">触发 REOPEN_RECOMMENDED 只会重新进入 Governance/Operations 审查；不会自动冻结或自动修改运行 Policy。</div>
+        </section>
+
+        <section class="panel-card">
+          <div class="section-title-row"><div><div class="card-kicker">CERTIFICATION MONITOR</div><h2>Reopen Evaluations / Events</h2></div><span class="safe-badge">Human governance required</span></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Certification</th><th>Status</th><th>Triggers</th><th>Evidence</th><th>Evaluated</th></tr></thead><tbody id="certificationEvaluationRows"></tbody></table></div>
+          <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Certification</th><th>Event</th><th>Status</th><th>Triggers</th><th>Opened</th></tr></thead><tbody id="certificationReopenRows"></tbody></table></div>
+        </section>
+
+        <section class="panel-card">
           <div class="section-title-row"><div><div class="card-kicker">REVIEW HISTORY</div><h2>Governance Reviews</h2></div><span class="safe-badge">Evidence SHA</span></div>
           <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Review</th><th>Recommendation</th><th>Status</th><th>Evidence</th><th>Generated</th></tr></thead><tbody id="governanceReviewRows"></tbody></table></div>
         </section>
