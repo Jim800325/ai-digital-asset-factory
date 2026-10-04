@@ -6,6 +6,9 @@ ALTER TABLE shrimp_bilibili_reliability_policy_control_events
   ADD CONSTRAINT shrimp_bilibili_reliability_policy_control_events_event_type_check
   CHECK (event_type IN ('PLAN_APPLIED','SAFE_UNFREEZE_APPLIED'));
 
+ALTER TABLE shrimp_bilibili_reliability_policy_control_events
+  ADD COLUMN IF NOT EXISTS restore_plan_id uuid;
+
 CREATE TABLE IF NOT EXISTS shrimp_bilibili_reliability_restore_plans (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   restore_key text NOT NULL UNIQUE,
@@ -46,6 +49,44 @@ CREATE TABLE IF NOT EXISTS shrimp_bilibili_reliability_restore_plans (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_shrimp_bilibili_pending_restore_plan
   ON shrimp_bilibili_reliability_restore_plans((1))
   WHERE plan_status IN ('PENDING_FIRST_APPROVAL','PENDING_SECOND_APPROVAL');
+
+ALTER TABLE shrimp_bilibili_reliability_policy_control_events
+  DROP CONSTRAINT IF EXISTS shrimp_bilibili_reliability_policy_control_events_restore_plan_id_fkey;
+ALTER TABLE shrimp_bilibili_reliability_policy_control_events
+  ADD CONSTRAINT shrimp_bilibili_reliability_policy_control_events_restore_plan_id_fkey
+  FOREIGN KEY (restore_plan_id)
+  REFERENCES shrimp_bilibili_reliability_restore_plans(id)
+  ON DELETE RESTRICT;
+
+CREATE OR REPLACE FUNCTION prevent_bilibili_restore_plan_evidence_mutation()
+RETURNS trigger AS $
+BEGIN
+  IF OLD.plan_status IN ('PENDING_FIRST_APPROVAL','PENDING_SECOND_APPROVAL')
+     AND NEW.plan_status IN (
+       'PENDING_SECOND_APPROVAL','APPLIED','REJECTED','STALE'
+     )
+     AND NEW.source_control_snapshot=OLD.source_control_snapshot
+     AND NEW.proposed_control_snapshot=OLD.proposed_control_snapshot
+     AND NEW.recovery_evidence_snapshot=OLD.recovery_evidence_snapshot
+     AND NEW.exact_change_set=OLD.exact_change_set
+     AND NEW.dry_run_diff=OLD.dry_run_diff
+     AND NEW.source_control_sha256=OLD.source_control_sha256
+     AND NEW.proposed_control_sha256=OLD.proposed_control_sha256
+     AND NEW.recovery_evidence_sha256=OLD.recovery_evidence_sha256
+     AND NEW.plan_sha256=OLD.plan_sha256
+     AND NEW.dry_run_sha256=OLD.dry_run_sha256
+  THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'Reliability restore plan evidence is immutable';
+END;
+$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_prevent_bilibili_restore_plan_evidence_mutation
+  ON shrimp_bilibili_reliability_restore_plans;
+CREATE TRIGGER trg_prevent_bilibili_restore_plan_evidence_mutation
+BEFORE UPDATE OR DELETE ON shrimp_bilibili_reliability_restore_plans
+FOR EACH ROW EXECUTE FUNCTION prevent_bilibili_restore_plan_evidence_mutation();
 
 CREATE TABLE IF NOT EXISTS shrimp_bilibili_reliability_restore_approvals (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
