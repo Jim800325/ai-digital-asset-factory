@@ -373,6 +373,7 @@ def release_claim_after_definitive_failure(
     return _serialize(claim)
 
 def quota_usage_for_account(db, account:dict) -> dict:
+    db.execute(text("SELECT expire_shrimp_bilibili_reservations()"))
     local_date=_local_quota_date(account)
     committed=int(db.execute(text("""
       SELECT COALESCE(SUM(quota_units),0)
