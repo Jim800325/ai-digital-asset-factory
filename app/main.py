@@ -220,6 +220,13 @@ from app.providers.animation.shrimp.bilibili_transparency_dsse import (
     verify_dsse_threshold,
     verify_offline,
 )
+from app.providers.animation.shrimp.bilibili_hsm_root_ceremony import (
+    create_root_ceremony,
+    generate_offline_root_backup,
+    hsm_root_custody_dashboard,
+    register_current_hsm_key,
+    run_restore_drill,
+)
 from app.providers.animation.shrimp.bilibili_certification_renewal import (
     decide_recertification,
     evaluate_certification_expiry,
@@ -695,6 +702,22 @@ class ShrimpBilibiliDsseSignatureCreate(BaseModel):
 class ShrimpBilibiliAttestationAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     actor: str = Field(default="shrimp-attestation-action",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliRootCeremonyAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ceremony_type: Literal["BOOTSTRAP","ROTATION","DISASTER_RECOVERY","RESTORE_VALIDATION"] = "RESTORE_VALIDATION"
+    actor: str = Field(default="shrimp-root-ceremony",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliRootBackupAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(default="shrimp-root-backup",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliRootRestoreDrillAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(default="shrimp-root-restore-drill",min_length=1,max_length=200)
 
 
 class ShrimpBilibiliExternalAnchorCreate(BaseModel):
@@ -1183,6 +1206,34 @@ def _require_shrimp_bilibili_root_transition_approver(
             detail=f"Invalid root transition approver {slot} key",
         )
     return f"root-transition-approver-{slot.lower()}"
+
+
+def _require_shrimp_bilibili_root_ceremony_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_bilibili_root_ceremony_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Root ceremony gate is not configured",
+        )
+    forbidden=(
+        settings.shrimp_bilibili_signing_key_rotation_key.strip(),
+        settings.shrimp_bilibili_root_transition_approver_a_key.strip(),
+        settings.shrimp_bilibili_root_transition_approver_b_key.strip(),
+        settings.shrimp_bilibili_reliability_governance_key.strip(),
+        settings.shrimp_publish_execution_key.strip(),
+    )
+    if any(
+        value and secrets.compare_digest(expected,value)
+        for value in forbidden
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Root ceremony key must be independent",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(status_code=403,detail="Invalid root ceremony key")
 
 def _require_shrimp_bilibili_incident_ops_key(
     provided: str | None,
@@ -2573,6 +2624,65 @@ def shrimp_animation_bilibili_key_compromise_recovery_drill(
             affected_bundle_ids=payload.affected_bundle_ids,
             actor=payload.actor,
         )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-hsm-root-custody")
+def shrimp_animation_bilibili_hsm_root_custody():
+    return hsm_root_custody_dashboard()
+
+
+@app.post("/v1/shrimp-animation/bilibili-hsm-root-custody/register",status_code=201)
+def shrimp_animation_bilibili_hsm_register(
+    payload: ShrimpBilibiliRootBackupAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Root-Ceremony-Key"),
+):
+    _require_shrimp_bilibili_root_ceremony_key(x_key)
+    try:
+        return register_current_hsm_key(actor=payload.actor)
+    except (RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-root-ceremonies",status_code=201)
+def shrimp_animation_bilibili_root_ceremony(
+    payload: ShrimpBilibiliRootCeremonyAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Root-Ceremony-Key"),
+):
+    _require_shrimp_bilibili_root_ceremony_key(x_key)
+    try:
+        return create_root_ceremony(
+            ceremony_type=payload.ceremony_type,
+            actor=payload.actor,
+        )
+    except (RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-offline-root-backups",status_code=201)
+def shrimp_animation_bilibili_offline_root_backup(
+    payload: ShrimpBilibiliRootBackupAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Root-Ceremony-Key"),
+):
+    _require_shrimp_bilibili_root_ceremony_key(x_key)
+    try:
+        return generate_offline_root_backup(actor=payload.actor)
+    except (RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-offline-root-backups/{backup_id}/restore-drill",status_code=201)
+def shrimp_animation_bilibili_root_restore_drill(
+    backup_id: UUID,
+    payload: ShrimpBilibiliRootRestoreDrillAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Root-Ceremony-Key"),
+):
+    _require_shrimp_bilibili_root_ceremony_key(x_key)
+    try:
+        return run_restore_drill(backup_id,actor=payload.actor)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
