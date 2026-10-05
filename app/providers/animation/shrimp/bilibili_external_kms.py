@@ -8,6 +8,7 @@ from typing import Any, Protocol
 import httpx
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
 
 
 @dataclass(frozen=True)
@@ -156,7 +157,7 @@ class GcpKmsProvider:
             key.verify(
                 base64.b64decode(signature.signature_b64),
                 digest,
-                ec.ECDSA(hashes.SHA256()),
+                ec.ECDSA(Prehashed(hashes.SHA256())),
             )
             return True
         except Exception:
