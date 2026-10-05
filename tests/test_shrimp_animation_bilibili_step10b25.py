@@ -84,7 +84,16 @@ def test_step10b25_real_softhsm_root_custody_ceremony_and_restore(monkeypatch,tm
     assert backup["contains_private_key"] is False
     assert backup["backup_manifest"]["containsPrivateKey"] is False
     assert "publicKeyPemB64" in backup["backup_manifest"]["hsmKey"]
-    assert "private" not in "".join(backup["backup_manifest"].keys()).lower()
+    serialized=str(backup["backup_manifest"])
+    for forbidden in (
+        "privateKeyPem",
+        "privateKeyPemB64",
+        "privateKeyBytes",
+        "secretKey",
+        "privateKeyMaterial",
+    ):
+        assert forbidden not in serialized
+    assert backup["backup_manifest"]["privateKeyRecovery"]=="HSM_OR_KMS_VENDOR_NATIVE_BACKUP_ONLY"
 
     token_dir=Path(os.environ["SOFTHSM2_TOKEN_DIR"])
     offline_copy=tmp_path/"softhsm-offline-backup"
