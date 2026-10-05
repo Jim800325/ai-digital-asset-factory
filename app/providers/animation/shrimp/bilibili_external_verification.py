@@ -24,6 +24,7 @@ from app.providers.animation.shrimp.bilibili_post_restore_certification import (
     _ser,
     _sha,
 )
+from app.providers.animation.shrimp.bilibili_signing_provider import sign_digest_sha256
 
 
 def _b64decode(value: str) -> bytes:
@@ -110,14 +111,11 @@ def _bundle_issues(bundle: dict[str,Any]) -> list[str]:
 
 
 def create_signed_proof_bundle(*,actor: str) -> dict:
-    signing_key=settings.shrimp_bilibili_audit_signing_private_key_pem_b64.strip()
-    if not signing_key:
-        raise RuntimeError("Bilibili audit signing key is not configured")
-
     proofs=list_audit_proofs(limit=1)
     proof=proofs[0] if proofs else generate_audit_proof(actor=actor+"-proof")
-    snapshot={
-        "schema_version":"shrimp-bilibili-audit-proof-bundle-v0.1",
+
+    base_snapshot={
+        "schema_version":"shrimp-bilibili-audit-proof-bundle-v0.2",
         "audit_proof_id":str(proof["id"]),
         "audit_proof_sha256":proof["proof_sha256"],
         "audit_proof_snapshot_sha256":proof["proof_snapshot_sha256"],
@@ -126,12 +124,23 @@ def create_signed_proof_bundle(*,actor: str) -> dict:
             str(proof["current_certification_id"])
             if proof.get("current_certification_id") else None
         ),
-        "verification_profile":"ED25519-SHA256-BUNDLE-V0.1",
+        "verification_profile":"ED25519-SHA256-BUNDLE-V0.2",
         "provider_writes":False,
         "automatic_policy_change":False,
     }
+    provisional_sha=_sha(base_snapshot)
+    signing=sign_digest_sha256(provisional_sha)
+    snapshot={
+        **base_snapshot,
+        "signing_provider":signing.key.provider,
+        "provider_key_name":signing.key.provider_key_name,
+        "provider_key_version":signing.key.provider_key_version,
+        "signing_key_fingerprint_sha256":signing.key.fingerprint_sha256,
+    }
     bundle_sha=_sha(snapshot)
-    signature,public_pem_b64,fingerprint=_sign_sha256(signing_key,bundle_sha)
+    if bundle_sha!=provisional_sha:
+        signing=sign_digest_sha256(bundle_sha)
+
     with engine.begin() as db:
         row=db.execute(text("""
           INSERT INTO shrimp_bilibili_audit_proof_bundles(
@@ -148,9 +157,9 @@ def create_signed_proof_bundle(*,actor: str) -> dict:
             "proof_id":proof["id"],
             "snapshot":canonical_json(snapshot),
             "bundle_sha":bundle_sha,
-            "signature":signature,
-            "public_key":public_pem_b64,
-            "fingerprint":fingerprint,
+            "signature":signing.signature_b64,
+            "public_key":signing.key.public_key_pem_b64,
+            "fingerprint":signing.key.fingerprint_sha256,
             "actor":actor[:200],
         }).mappings().one_or_none()
         if row is None:
@@ -160,8 +169,15 @@ def create_signed_proof_bundle(*,actor: str) -> dict:
               WHERE bundle_sha256=:bundle_sha
                 AND signing_key_fingerprint_sha256=:fingerprint
               ORDER BY generated_at DESC LIMIT 1
-            """),{"bundle_sha":bundle_sha,"fingerprint":fingerprint}).mappings().one()
-    return _ser(row)
+            """),{
+                "bundle_sha":bundle_sha,
+                "fingerprint":signing.key.fingerprint_sha256,
+            }).mappings().one()
+    result=_ser(row)
+    result["signing_provider"]=signing.key.provider
+    result["provider_key_version"]=signing.key.provider_key_version
+    result["provider_write_count"]=signing.provider_write_count
+    return result
 
 
 def get_proof_bundle(bundle_id: UUID) -> dict:
