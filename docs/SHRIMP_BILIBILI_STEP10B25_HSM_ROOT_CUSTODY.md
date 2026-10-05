@@ -148,3 +148,8 @@ Migration 001 → 070
 → 0 unintended Bilibili writes
 → 0 unintended Production writes
 ```
+
+
+## CI execution note
+
+The formal acceptance must run on the Pull Request workflow path, not a branch-push placeholder run. The PR workflow is the authoritative result for Migration 001→070, SoftHSM2 live custody acceptance, the complete pytest suite, and the production-disabled safety gate.
