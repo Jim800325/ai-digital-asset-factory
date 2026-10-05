@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 from datetime import datetime, timezone
 from typing import Any
@@ -473,7 +474,8 @@ def verify_exported_bundle_snapshot(snapshot:dict[str,Any]) -> dict:
     issues=[]
     att=snapshot["attestation"]
     envelope_dict=snapshot["envelope"]
-    envelope=Envelope.from_dict(dict(envelope_dict))
+    envelope_bytes=canonical_json(envelope_dict).encode("utf-8")
+    envelope=Envelope.from_dict(copy.deepcopy(envelope_dict))
     keys=[]
     for row in snapshot["signatures"]:
         try:
@@ -499,7 +501,6 @@ def verify_exported_bundle_snapshot(snapshot:dict[str,Any]) -> dict:
     except Exception:
         issues.append("DSSE_SIGNATURE_THRESHOLD_NOT_MET")
 
-    envelope_bytes=canonical_json(envelope_dict).encode("utf-8")
     trusted_times=0
     rekor_verified=False
     for row in snapshot.get("transparency_entries",[]):
