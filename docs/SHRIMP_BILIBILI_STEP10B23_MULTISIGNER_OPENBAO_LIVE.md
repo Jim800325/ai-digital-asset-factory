@@ -93,12 +93,12 @@ Migration 065 adds immutable audit tables for:
 - OpenBao live acceptances
 - compromise recovery drills
 
-Migrations 001–064 remain immutable and are not rewritten.
+Migrations 001–065 remain immutable and are not rewritten. Migration 066 only extends the already-deployed trust-root transition constraint to admit `COMPROMISE_RECOVERY`.
 
 ## Acceptance target
 
 ```
-Migration 001 → 065
+Migration 001 → 066
 → python-tuf Root continuity
 → previous threshold PASS
 → candidate threshold PASS
