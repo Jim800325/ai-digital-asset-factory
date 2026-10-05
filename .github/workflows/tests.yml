@@ -99,7 +99,7 @@ jobs:
           ffprobe -version | head -n 1
 
       - name: Compile Python
-        run: python -m compileall -q app tests
+        run: python -m compileall -q app tests scripts
 
       - name: Check Shrimp review UI JavaScript
         run: node --check app/static/shrimp-review.js
