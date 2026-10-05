@@ -191,6 +191,22 @@ from app.providers.animation.shrimp.bilibili_signing_key_lifecycle import (
     verify_bundle_with_key_registry,
     verify_trust_root_chain,
 )
+from app.providers.animation.shrimp.bilibili_multisigner_trust import (
+    add_transition_signature,
+    apply_root_transition,
+    create_root_transition_plan,
+    decide_transition,
+    get_transition_plan,
+    list_key_compromise_recovery_drills,
+    multisigner_dashboard,
+    run_key_compromise_recovery_drill,
+    transition_approval_status,
+    transition_signature_status,
+)
+from app.providers.animation.shrimp.bilibili_openbao_live_acceptance import (
+    list_openbao_live_acceptances,
+    run_openbao_live_acceptance,
+)
 from app.providers.animation.shrimp.bilibili_certification_renewal import (
     decide_recertification,
     evaluate_certification_expiry,
@@ -606,6 +622,44 @@ class ShrimpBilibiliSigningKeyRevocation(BaseModel):
     actor: str = Field(default="shrimp-signing-key-revocation",min_length=1,max_length=200)
     reason: str = Field(min_length=3,max_length=1000)
     effective_at: datetime
+
+
+class ShrimpBilibiliRootTransitionPlanCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    candidate_fingerprints: list[str] = Field(min_length=1,max_length=10)
+    candidate_threshold: int = Field(ge=1,le=10)
+    transition_type: Literal["ROTATION","COMPROMISE_RECOVERY","POLICY_UPDATE"]
+    actor: str = Field(default="shrimp-root-transition-planner",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliRootTransitionSignature(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    fingerprint: str = Field(min_length=64,max_length=64)
+    signature_b64: str = Field(min_length=16,max_length=4096)
+    actor: str = Field(default="shrimp-root-transition-signer",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliRootTransitionDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["APPROVE","REJECT"]
+    reason: str = Field(min_length=3,max_length=1000)
+
+
+class ShrimpBilibiliRootTransitionApply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(default="shrimp-root-transition-apply",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliCompromiseRecoveryDrill(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    compromised_fingerprint: str = Field(min_length=64,max_length=64)
+    affected_bundle_ids: list[UUID] = Field(min_length=1,max_length=100)
+    actor: str = Field(default="shrimp-compromise-recovery-drill",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliOpenBaoLiveAcceptance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(default="shrimp-openbao-live-acceptance",min_length=1,max_length=200)
 
 
 class ShrimpBilibiliExternalAnchorCreate(BaseModel):
@@ -1062,6 +1116,38 @@ def _require_shrimp_bilibili_signing_key_rotation_key(
             status_code=403,
             detail="Invalid Bilibili signing key rotation key",
         )
+
+
+def _require_shrimp_bilibili_root_transition_approver(
+    slot: str,
+    provided: str | None,
+) -> str:
+    a=settings.shrimp_bilibili_root_transition_approver_a_key.strip()
+    b=settings.shrimp_bilibili_root_transition_approver_b_key.strip()
+    rotation=settings.shrimp_bilibili_signing_key_rotation_key.strip()
+    if not a or not b:
+        raise HTTPException(
+            status_code=503,
+            detail="Root transition dual-control gates are not configured",
+        )
+    if secrets.compare_digest(a,b):
+        raise HTTPException(
+            status_code=503,
+            detail="Root transition approver keys must be independent",
+        )
+    for value in (a,b):
+        if rotation and secrets.compare_digest(value,rotation):
+            raise HTTPException(
+                status_code=503,
+                detail="Root transition approver keys must be independent from rotation key",
+            )
+    expected=a if slot=="A" else b
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Invalid root transition approver {slot} key",
+        )
+    return f"root-transition-approver-{slot.lower()}"
 
 def _require_shrimp_bilibili_incident_ops_key(
     provided: str | None,
@@ -2307,6 +2393,152 @@ def shrimp_animation_bilibili_signing_key_revoke(
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
     except (RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-root-transitions")
+def shrimp_animation_bilibili_root_transitions():
+    return multisigner_dashboard()
+
+
+@app.post("/v1/shrimp-animation/bilibili-root-transitions",status_code=201)
+def shrimp_animation_bilibili_root_transition_create(
+    payload: ShrimpBilibiliRootTransitionPlanCreate,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Signing-Key-Rotation-Key"),
+):
+    _require_shrimp_bilibili_signing_key_rotation_key(x_key)
+    try:
+        return create_root_transition_plan(
+            candidate_fingerprints=payload.candidate_fingerprints,
+            candidate_threshold=payload.candidate_threshold,
+            transition_type=payload.transition_type,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except (RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-root-transitions/{plan_id}")
+def shrimp_animation_bilibili_root_transition(plan_id: UUID):
+    try:
+        plan=get_transition_plan(plan_id)
+        return {
+            "plan":plan,
+            "signature_status":transition_signature_status(plan_id),
+            "approval_status":transition_approval_status(plan_id),
+        }
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-root-transitions/{plan_id}/signatures",status_code=201)
+def shrimp_animation_bilibili_root_transition_signature(
+    plan_id: UUID,
+    payload: ShrimpBilibiliRootTransitionSignature,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Signing-Key-Rotation-Key"),
+):
+    _require_shrimp_bilibili_signing_key_rotation_key(x_key)
+    try:
+        return add_transition_signature(
+            plan_id,
+            fingerprint=payload.fingerprint,
+            signature_b64=payload.signature_b64,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-root-transitions/{plan_id}/approve-a",status_code=201)
+def shrimp_animation_bilibili_root_transition_approve_a(
+    plan_id: UUID,
+    payload: ShrimpBilibiliRootTransitionDecision,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Root-Transition-Approver-A-Key"),
+):
+    approver=_require_shrimp_bilibili_root_transition_approver("A",x_key)
+    try:
+        return decide_transition(
+            plan_id,decision=payload.decision,reason=payload.reason,approver=approver
+        )
+    except (LookupError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-root-transitions/{plan_id}/approve-b",status_code=201)
+def shrimp_animation_bilibili_root_transition_approve_b(
+    plan_id: UUID,
+    payload: ShrimpBilibiliRootTransitionDecision,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Root-Transition-Approver-B-Key"),
+):
+    approver=_require_shrimp_bilibili_root_transition_approver("B",x_key)
+    try:
+        return decide_transition(
+            plan_id,decision=payload.decision,reason=payload.reason,approver=approver
+        )
+    except (LookupError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-root-transitions/{plan_id}/apply",status_code=201)
+def shrimp_animation_bilibili_root_transition_apply(
+    plan_id: UUID,
+    payload: ShrimpBilibiliRootTransitionApply,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Signing-Key-Rotation-Key"),
+):
+    _require_shrimp_bilibili_signing_key_rotation_key(x_key)
+    try:
+        return apply_root_transition(plan_id,actor=payload.actor)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-openbao-live-acceptances")
+def shrimp_animation_bilibili_openbao_live_acceptances(limit: int = 100):
+    return list_openbao_live_acceptances(limit=limit)
+
+
+@app.post("/v1/shrimp-animation/bilibili-openbao-live-acceptances",status_code=201)
+def shrimp_animation_bilibili_openbao_live_acceptance(
+    payload: ShrimpBilibiliOpenBaoLiveAcceptance,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Signing-Key-Rotation-Key"),
+):
+    _require_shrimp_bilibili_signing_key_rotation_key(x_key)
+    if not settings.shrimp_bilibili_openbao_live_acceptance_enabled:
+        raise HTTPException(status_code=409,detail="OpenBao live acceptance is disabled")
+    if not settings.shrimp_bilibili_openbao_url.strip() or not settings.shrimp_bilibili_openbao_token.strip():
+        raise HTTPException(status_code=409,detail="OpenBao live acceptance is not configured")
+    return run_openbao_live_acceptance(
+        base_url=settings.shrimp_bilibili_openbao_url,
+        token=settings.shrimp_bilibili_openbao_token,
+        key_name=settings.shrimp_bilibili_openbao_key_name,
+        actor=payload.actor,
+    )
+
+
+@app.get("/v1/shrimp-animation/bilibili-key-compromise-recovery-drills")
+def shrimp_animation_bilibili_key_compromise_recovery_drills(limit: int = 100):
+    return list_key_compromise_recovery_drills(limit=limit)
+
+
+@app.post("/v1/shrimp-animation/bilibili-key-compromise-recovery-drills",status_code=201)
+def shrimp_animation_bilibili_key_compromise_recovery_drill(
+    payload: ShrimpBilibiliCompromiseRecoveryDrill,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Signing-Key-Rotation-Key"),
+):
+    _require_shrimp_bilibili_signing_key_rotation_key(x_key)
+    try:
+        return run_key_compromise_recovery_drill(
+            compromised_fingerprint=payload.compromised_fingerprint,
+            affected_bundle_ids=payload.affected_bundle_ids,
+            actor=payload.actor,
+        )
+    except RuntimeError as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
