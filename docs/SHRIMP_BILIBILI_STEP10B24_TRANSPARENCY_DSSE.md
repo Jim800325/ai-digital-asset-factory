@@ -124,3 +124,59 @@ Migration 001 → 069
 → 0 unintended Bilibili writes
 → 0 unintended Production writes
 ```
+
+
+## Built-in Rekor-compatible baseline
+
+External Rekor remains optional, but Step 10B.24 now has a mandatory,
+network-independent transparency baseline based on the same primitives used by
+Rekor:
+
+- RFC6962 leaf hashing: `SHA256(0x00 || leaf)`
+- RFC6962 node hashing: `SHA256(0x01 || left || right)`
+- inclusion proof bound to `logIndex`, `treeSize`, and `rootHash`
+- signed-entry-timestamp style receipt binding the DSSE body SHA, integrated
+  time, index, tree size, and Merkle root
+- signed checkpoint binding origin, tree size, and root hash
+
+A transparency integrated time is trusted only when the receipt SET, Merkle
+inclusion proof, and checkpoint all verify.
+
+The local baseline uses `provider=REKOR_COMPATIBLE`. The external
+`sigstore/rekor` adapter remains available behind its explicit opt-in flag.
+
+## Standalone verifier
+
+`scripts/verify_shrimp_offline_bundle.py` consumes an exported bundle JSON and
+returns exit code 0 only when verification passes.
+
+It requires:
+
+- no PostgreSQL connection
+- no network access
+- no private key
+- no application write permission
+
+The underlying verifier module does not import the database layer.
+
+Example:
+
+```bash
+python scripts/verify_shrimp_offline_bundle.py proof-bundle.json
+```
+
+## Final acceptance additions
+
+The mandatory suite also verifies:
+
+```
+two-leaf RFC6962 tree
+→ inclusion proof PASS
+→ signed SET PASS
+→ signed checkpoint PASS
+→ integrated trusted time PASS
+→ database-free verifier PASS
+→ tampered Merkle proof FAIL
+→ tampered checkpoint FAIL
+→ tampered SET FAIL
+```
