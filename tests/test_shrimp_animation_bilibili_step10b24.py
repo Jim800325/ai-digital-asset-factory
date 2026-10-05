@@ -25,6 +25,7 @@ from app.providers.animation.shrimp.bilibili_transparency_dsse import (
     transparency_dashboard,
     verify_dsse_threshold,
     verify_exported_bundle_snapshot,
+    verify_offline,
 )
 
 
