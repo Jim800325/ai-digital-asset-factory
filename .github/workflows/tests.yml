@@ -192,7 +192,18 @@ jobs:
           EOF
           export SOFTHSM2_CONF=/tmp/softhsm2/softhsm2.conf
           softhsm2-util --init-token --free --label SHRIMP-ROOT --so-pin 12345678 --pin 1234
-          MODULE="$(dpkg -L libsofthsm2 | grep '/libsofthsm2.so
+          MODULE="$(dpkg -L libsofthsm2 | grep '/libsofthsm2.so$' | head -n 1)"
+          test -n "$MODULE"
+          echo "SOFTHSM2_CONF=/tmp/softhsm2/softhsm2.conf" >> "$GITHUB_ENV"
+          echo "SOFTHSM2_TOKEN_DIR=/tmp/softhsm2/tokens" >> "$GITHUB_ENV"
+          echo "PKCS11_CI_MODULE=$MODULE" >> "$GITHUB_ENV"
+          echo "SoftHSM module: $MODULE"
+
+      - name: Run full test suite
+        env:
+          SIGSTORE_TSA_CI_URL: http://localhost:3004
+        run: python -m pytest -q --timeout=150 --timeout-method=signal
+
       - name: Stop Sigstore Timestamp Authority
         if: always()
         run: |
