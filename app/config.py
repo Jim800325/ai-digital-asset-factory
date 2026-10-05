@@ -140,7 +140,7 @@ class Settings(BaseSettings):
     shrimp_bilibili_pkcs11_token_label: str = ""
     shrimp_bilibili_pkcs11_user_pin: str = ""
     shrimp_bilibili_pkcs11_key_label: str = "shrimp-bilibili-root"
-    shrimp_bilibili_pkcs11_key_id_hex: str = "10b25"
+    shrimp_bilibili_pkcs11_key_id_hex: str = "10b025"
     shrimp_bilibili_hsm_live_acceptance_enabled: bool = False
     shrimp_bilibili_root_ceremony_key: str = ""
     shrimp_bilibili_rekor_url: str = ""
