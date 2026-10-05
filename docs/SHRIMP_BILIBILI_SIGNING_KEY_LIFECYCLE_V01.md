@@ -122,10 +122,14 @@ SHRIMP_BILIBILI_TUF_ROOT_THRESHOLD=1
 SHRIMP_BILIBILI_SIGNING_KEY_ROTATION_KEY=
 ```
 
+## Migration discipline
+
+Migration 063 is immutable because it was already applied in Preview. Provider metadata and trust-root transition metadata are added only by forward-only Migration 064. Existing databases are never repaired by rewriting an applied migration.
+
 ## Acceptance target
 
 ```
-Migration 001 -> 063
+Migration 001 -> 064
 -> bootstrap current key
 -> TUF Root v1 PASS
 -> sign Proof Bundle
