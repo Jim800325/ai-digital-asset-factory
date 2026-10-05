@@ -16,6 +16,8 @@ from app.providers.animation.shrimp.bilibili_signing_key_lifecycle import (
     _sslib_key,
     list_signing_keys,
     list_trust_roots,
+    verify_bundle_with_key_registry,
+    verify_trust_root_chain,
 )
 
 
@@ -258,3 +260,74 @@ def multisigner_dashboard() -> dict[str,Any]:
       "minimum_human_approvals":2,
       "automatic_provider_writes":False,
     }
+
+
+def run_key_compromise_recovery_drill(
+    *,
+    compromised_fingerprint:str,
+    affected_bundle_ids:list[UUID],
+    actor:str,
+) -> dict:
+    roots=list_trust_roots(limit=1)
+    if not roots:
+        raise RuntimeError("Recovery drill requires a current TUF root")
+    current=roots[0]
+    issues=[]
+    if compromised_fingerprint in set(current["authorized_key_fingerprints"]):
+        issues.append("COMPROMISED_KEY_STILL_AUTHORIZED")
+    chain=verify_trust_root_chain()
+    if chain["verification_status"]!="PASS":
+        issues.append("TRUST_ROOT_CHAIN_INVALID")
+    bundle_results=[]
+    for bundle_id in affected_bundle_ids:
+        result=verify_bundle_with_key_registry(bundle_id)
+        bundle_results.append(result)
+        if result["verification_status"]!="FAIL":
+            issues.append("AFFECTED_BUNDLE_STILL_VALID")
+        if "KEY_REVOKED_AT_SIGNING_TIME" not in result["issue_codes"]:
+            issues.append("AFFECTED_BUNDLE_MISSING_COMPROMISE_REVOCATION")
+    issues=sorted(set(issues))
+    snapshot={
+        "schema_version":"shrimp-bilibili-key-compromise-recovery-drill-v0.1",
+        "compromised_key_fingerprint_sha256":compromised_fingerprint,
+        "current_root_version":current["root_version"],
+        "affected_bundle_ids":[str(x) for x in affected_bundle_ids],
+        "bundle_results":bundle_results,
+        "trust_root_chain":chain,
+        "issue_codes":issues,
+        "production_writes":False,
+        "automatic_provider_writes":False,
+    }
+    drill_sha=_sha(snapshot)
+    with engine.begin() as db:
+        row=db.execute(text("""
+          INSERT INTO shrimp_bilibili_key_compromise_recovery_drills(
+            compromised_key_fingerprint_sha256,recovery_root_version,
+            drill_status,issue_codes,drill_snapshot,drill_sha256,executed_by)
+          VALUES(
+            :fp,:version,:status,CAST(:issues AS jsonb),
+            CAST(:snapshot AS jsonb),:sha,:actor)
+          RETURNING *
+        """),{
+            "fp":compromised_fingerprint,
+            "version":current["root_version"],
+            "status":"PASSED" if not issues else "FAILED",
+            "issues":canonical_json(issues),
+            "snapshot":canonical_json(snapshot),
+            "sha":drill_sha,
+            "actor":actor[:200],
+        }).mappings().one()
+    result=_ser(row)
+    if issues:
+        raise RuntimeError("Key compromise recovery drill failed: "+",".join(issues))
+    return result
+
+
+def list_key_compromise_recovery_drills(*,limit:int=100) -> list[dict]:
+    with engine.connect() as db:
+        rows=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_key_compromise_recovery_drills
+          ORDER BY executed_at DESC,id DESC
+          LIMIT :limit
+        """),{"limit":max(1,min(int(limit),500))}).mappings().all()
+    return [_ser(x) for x in rows]
