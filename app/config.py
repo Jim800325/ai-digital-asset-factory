@@ -122,6 +122,15 @@ class Settings(BaseSettings):
     shrimp_bilibili_renewal_sla_hours: int = 72
     shrimp_bilibili_missed_renewal_critical_hours: int = 24
     shrimp_bilibili_audit_signing_private_key_pem_b64: str = ""
+    shrimp_bilibili_audit_signing_provider: str = "LOCAL_PEM"
+    shrimp_bilibili_openbao_url: str = ""
+    shrimp_bilibili_openbao_token: str = ""
+    shrimp_bilibili_openbao_transit_mount: str = "transit"
+    shrimp_bilibili_openbao_key_name: str = "shrimp-bilibili-audit"
+    shrimp_bilibili_openbao_timeout_seconds: float = 10.0
+    shrimp_bilibili_openbao_rotation_enabled: bool = False
+    shrimp_bilibili_tuf_root_valid_days: int = 365
+    shrimp_bilibili_tuf_root_threshold: int = 1
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
