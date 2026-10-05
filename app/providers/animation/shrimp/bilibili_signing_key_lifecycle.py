@@ -336,24 +336,33 @@ def bootstrap_signing_trust(*,actor: str,key_label: str="primary") -> dict:
 
 
 def rotate_signing_key(*,actor: str,reason: str,key_label: str="rotated") -> dict:
-    before=current_signing_key()
-    old=_get_key_by_fingerprint(before.fingerprint_sha256)
-    if old is None:
+    active=[
+        x for x in list_signing_key_states(limit=500)
+        if x["lifecycle_status"]=="ACTIVE"
+    ]
+    if not active:
         bootstrap_signing_trust(actor=actor+"-bootstrap",key_label="pre-rotation")
-        old=_get_key_by_fingerprint(before.fingerprint_sha256)
-    assert old is not None
+        active=[
+            x for x in list_signing_key_states(limit=500)
+            if x["lifecycle_status"]=="ACTIVE"
+        ]
+    if len(active)!=1:
+        raise RuntimeError("Signing rotation requires exactly one active key")
+    old=active[0]
 
+    current=current_signing_key()
     provider_write_count=0
-    if before.provider=="OPENBAO_TRANSIT":
-        after=rotate_openbao_signing_key()
-        provider_write_count=1
-    else:
-        after=current_signing_key()
-        if after.fingerprint_sha256==before.fingerprint_sha256:
+    if current.fingerprint_sha256==old["key_fingerprint_sha256"]:
+        if current.provider=="OPENBAO_TRANSIT":
+            after=rotate_openbao_signing_key()
+            provider_write_count=1
+        else:
             raise RuntimeError(
                 "LOCAL_PEM rotation requires the operator to configure a new "
                 "Ed25519 private key before applying rotation"
             )
+    else:
+        after=current
 
     new=_register_material(after,actor=actor+"-register",key_label=key_label)
     if new["key_fingerprint_sha256"]==old["key_fingerprint_sha256"]:
@@ -395,13 +404,8 @@ def revoke_signing_key(
     key=_get_key_by_fingerprint(fingerprint)
     if key is None:
         raise LookupError("Signing key not found")
-    when=effective_at.astimezone(timezone.utc)
-    event=_append_event(
-        key=key,event_type="REVOKED",effective_at=when,
-        reason=reason,actor=actor,
-    )
     latest=_latest_root()
-    root=None
+    remaining=None
     if latest and fingerprint in set(latest["authorized_key_fingerprints"]):
         remaining=[
             x for x in list_signing_keys(limit=500)
@@ -414,6 +418,14 @@ def revoke_signing_key(
             raise RuntimeError(
                 "Cannot revoke the last key authorized by the current TUF root"
             )
+
+    when=effective_at.astimezone(timezone.utc)
+    event=_append_event(
+        key=key,event_type="REVOKED",effective_at=when,
+        reason=reason,actor=actor,
+    )
+    root=None
+    if remaining is not None:
         root=_create_trust_root(
             remaining,
             transition_type="REVOCATION",
