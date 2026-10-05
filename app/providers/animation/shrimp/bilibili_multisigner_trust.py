@@ -281,7 +281,10 @@ def run_key_compromise_recovery_drill(
     bundle_results=[]
     for bundle_id in affected_bundle_ids:
         result=verify_bundle_with_key_registry(bundle_id)
-        bundle_results.append(result)
+        audit_result=dict(result)
+        if hasattr(audit_result.get("signed_at"),"isoformat"):
+            audit_result["signed_at"]=audit_result["signed_at"].isoformat()
+        bundle_results.append(audit_result)
         if result["verification_status"]!="FAIL":
             issues.append("AFFECTED_BUNDLE_STILL_VALID")
         if "KEY_REVOKED_AT_SIGNING_TIME" not in result["issue_codes"]:
