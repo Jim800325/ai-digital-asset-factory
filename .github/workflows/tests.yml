@@ -91,12 +91,13 @@ jobs:
       - name: Install pinned Remotion renderer
         run: npm install --prefix renderer/remotion --no-audit --no-fund
 
-      - name: Install FFmpeg and ffprobe
+      - name: Install FFmpeg, ffprobe and SoftHSM2
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg softhsm2 libsofthsm2
           ffmpeg -version | head -n 1
           ffprobe -version | head -n 1
+          softhsm2-util --version
 
       - name: Compile Python
         run: python -m compileall -q app tests scripts
@@ -129,7 +130,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "069_shrimp_bilibili_rekor_public_key.sql", expected
+          assert expected[-1] == "070_shrimp_bilibili_hsm_root_custody.sql", expected
           print("migrations:", actual)
           PY
 
@@ -179,6 +180,230 @@ jobs:
           done
           docker compose -f /tmp/sigstore-timestamp-authority/docker-compose.yml logs --no-color timestamp-server
           exit 1
+
+      - name: Initialize SoftHSM2 root custody token
+        run: |
+          mkdir -p /tmp/softhsm2/tokens
+          cat > /tmp/softhsm2/softhsm2.conf <<'EOF'
+          directories.tokendir = /tmp/softhsm2/tokens
+          objectstore.backend = file
+          log.level = ERROR
+          slots.removable = false
+          EOF
+          export SOFTHSM2_CONF=/tmp/softhsm2/softhsm2.conf
+          softhsm2-util --init-token --free --label SHRIMP-ROOT --so-pin 12345678 --pin 1234
+          MODULE="$(dpkg -L libsofthsm2 | grep '/libsofthsm2.so
+      - name: Stop Sigstore Timestamp Authority
+        if: always()
+        run: |
+          if [ -d /tmp/sigstore-timestamp-authority ]; then
+            docker compose -f /tmp/sigstore-timestamp-authority/docker-compose.yml down -v || true
+          fi
+
+      - name: Verify OpenHands artifact remains isolated and production-disabled
+        run: |
+          python - <<'PY'
+          from sqlalchemy import text
+          from app.db import engine
+
+          with engine.connect() as db:
+              base = db.execute(text("""
+                  SELECT o.status,o.evidence_gate_passed,o.build_readiness,
+                         o.build_proposal_status,
+                         rv.validation_status,rv.completeness_score,
+                         rv.validation_gate_passed,rv.observe_only,
+                         bp.proposal_status,bp.requires_human_approval,
+                         bp.execution_enabled,
+                         COUNT(DISTINCT d.id) AS decisions
+                  FROM digital_asset_opportunities o
+                  JOIN research_validations rv ON rv.opportunity_id=o.id
+                  JOIN build_proposals bp ON bp.opportunity_id=o.id
+                  LEFT JOIN build_proposal_decisions d ON d.proposal_id=bp.id
+                  GROUP BY o.id,rv.id,bp.id
+                  LIMIT 1
+              """)).mappings().one()
+
+              ordinary = db.execute(text("""
+                  SELECT sbr.request_status,sbr.network_policy,
+                         sr.container_network,sr.exit_code,
+                         COUNT(DISTINCT sa.id) AS artifacts,
+                         COUNT(DISTINCT str.id) FILTER (WHERE str.passed=true) AS passed_tests
+                  FROM sandbox_build_requests sbr
+                  JOIN sandbox_runs sr ON sr.request_id=sbr.id
+                  LEFT JOIN sandbox_artifacts sa ON sa.run_id=sr.id
+                  LEFT JOIN sandbox_test_results str ON str.run_id=sr.id
+                  WHERE sbr.executor_kind='ACCEPTANCE'
+                  GROUP BY sbr.id,sr.id
+                  ORDER BY sr.finished_at DESC
+                  LIMIT 1
+              """)).mappings().one()
+
+              oh = db.execute(text("""
+                  SELECT sbr.request_status,sbr.network_policy,
+                         sbr.external_side_effects,
+                         sr.container_network,sr.exit_code,
+                         oe.cli_version,oe.model_name,oe.inner_runtime,
+                         oe.network_policy AS oh_network_policy,
+                         oe.gateway_mode,oe.exit_code AS openhands_exit_code,
+                         oe.budget_status,oe.gateway_request_count,
+                         oe.total_tokens,oe.estimated_cost_usd,
+                         oe.live_model_verified,
+                         COUNT(DISTINCT sa.id) AS artifacts,
+                         COUNT(DISTINCT str.id) FILTER (WHERE str.passed=true) AS passed_tests
+                  FROM sandbox_build_requests sbr
+                  JOIN sandbox_runs sr ON sr.request_id=sbr.id
+                  JOIN openhands_executions oe ON oe.request_id=sbr.id
+                  LEFT JOIN sandbox_artifacts sa ON sa.run_id=sr.id
+                  LEFT JOIN sandbox_test_results str ON str.run_id=sr.id
+                  WHERE sbr.executor_kind='OPENHANDS'
+                    AND oe.gateway_mode='MOCK'
+                    AND oe.model_name='openai/mock-test-model'
+                  GROUP BY sbr.id,sr.id,oe.id
+                  ORDER BY sr.finished_at DESC
+                  LIMIT 1
+              """)).mappings().one()
+
+              unsafe_build_execution = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM build_proposals
+                  WHERE execution_enabled=true
+              """)).scalar_one()
+
+              unsafe_release_deployment = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM release_candidates
+                  WHERE deployment_enabled=true
+              """)).scalar_one()
+
+              unsafe_plan_execution = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM deployment_plans
+                  WHERE execution_enabled=true
+              """)).scalar_one()
+
+              unsafe_external_effects = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM sandbox_build_requests
+                  WHERE external_side_effects<>'DENY'
+              """)).scalar_one()
+
+              unsafe_production_execution = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM production_release_executions
+                  WHERE production_execution_enabled=true
+                     OR automatic_execution=true
+                     OR automatic_promotion=true
+                     OR executor_adapter NOT IN (
+                          'MOCK','VERCEL_CONTROLLED_EXECUTOR'
+                        )
+              """)).scalar_one()
+
+              unsafe_vercel_prepare = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM production_release_executions
+                  WHERE executor_adapter='VERCEL_CONTROLLED_EXECUTOR'
+                    AND (
+                      target_project_id='prj_orLCRCIm7aVfImH8ihB3gponFOEl'
+                      OR prepare_write_count>1
+                      OR production_vercel_deployment_id IS NOT NULL
+                      OR previous_production_deployment_id IS NOT NULL
+                    )
+              """)).scalar_one()
+
+              unsafe_step4a_acceptance = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM vercel_prepare_acceptance_runs
+                  WHERE production_traffic_changed=true
+                     OR production_promotion_performed=true
+                     OR production_rollback_performed=true
+                     OR sacrificial_project_id=real_project_id
+                     OR COALESCE(prepare_write_count,0)>1
+              """)).scalar_one()
+
+              unsafe_shrimp_publish_execution = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM shrimp_animation_publish_executions
+                  WHERE automatic_execution=true
+                     OR upload_write_count>1
+                     OR publish_write_count>1
+                     OR execution_adapter IN (
+                          'BILIBILI_CONTROLLED','YOUTUBE_CONTROLLED'
+                        )
+              """)).scalar_one()
+              unsafe_shrimp_bilibili_acceptance = db.execute(text("""
+                  SELECT COUNT(*)
+                  FROM shrimp_animation_bilibili_live_acceptance_runs
+                  WHERE production_account_touched=true
+                     OR public_visibility_observed=true
+                     OR cleanup_write_count>1
+                     OR (
+                       acceptance_status='CLEANED_UP'
+                       AND (
+                         provider_read_back_verified=false
+                         OR private_visibility_verified=false
+                         OR cleanup_verified=false
+                         OR cleanup_performed=false
+                         OR is_only_self<>1
+                       )
+                     )
+              """)).scalar_one()
+
+          assert base["status"] == "CANDIDATE", base
+          assert base["evidence_gate_passed"] is True, base
+          assert base["build_readiness"] == "BUILD_READY", base
+          assert base["validation_status"] == "CURRENT", base
+          assert float(base["completeness_score"]) >= 75, base
+          assert base["validation_gate_passed"] is True, base
+          assert base["observe_only"] is True, base
+          assert base["build_proposal_status"] == "APPROVED", base
+          assert base["proposal_status"] == "APPROVED", base
+          assert base["requires_human_approval"] is True, base
+          assert base["execution_enabled"] is False, base
+          assert base["decisions"] == 1, base
+
+          assert ordinary["request_status"] == "ARTIFACT_READY", ordinary
+          assert ordinary["network_policy"] == "DENY", ordinary
+          assert ordinary["container_network"] == "none", ordinary
+          assert ordinary["exit_code"] == 0, ordinary
+          assert ordinary["artifacts"] >= 2, ordinary
+          assert ordinary["passed_tests"] == 1, ordinary
+
+          assert oh["request_status"] == "ARTIFACT_READY", oh
+          assert oh["network_policy"] == "INTERNAL_GATEWAY_ONLY", oh
+          assert oh["external_side_effects"] == "DENY", oh
+          assert oh["container_network"] == "internal-gateway", oh
+          assert oh["exit_code"] == 0, oh
+          assert oh["cli_version"] == "1.16.0", oh
+          assert oh["model_name"] == "openai/mock-test-model", oh
+          assert oh["inner_runtime"] == "process", oh
+          assert oh["oh_network_policy"] == "INTERNAL_GATEWAY_ONLY", oh
+          assert oh["gateway_mode"] == "MOCK", oh
+          assert oh["openhands_exit_code"] == 0, oh
+          assert oh["budget_status"] in ("NOT_EVALUATED","WITHIN_BUDGET"), oh
+          assert oh["live_model_verified"] is False, oh
+          assert oh["artifacts"] >= 2, oh
+          assert oh["passed_tests"] == 1, oh
+
+          assert unsafe_build_execution == 0, unsafe_build_execution
+          assert unsafe_release_deployment == 0, unsafe_release_deployment
+          assert unsafe_plan_execution == 0, unsafe_plan_execution
+          assert unsafe_external_effects == 0, unsafe_external_effects
+          assert unsafe_production_execution == 0, unsafe_production_execution
+          assert unsafe_vercel_prepare == 0, unsafe_vercel_prepare
+          assert unsafe_step4a_acceptance == 0, unsafe_step4a_acceptance
+          assert unsafe_shrimp_publish_execution == 0, unsafe_shrimp_publish_execution
+          assert unsafe_shrimp_bilibili_acceptance == 0, unsafe_shrimp_bilibili_acceptance
+
+          print("base:", dict(base))
+          print("ordinary_sandbox:", dict(ordinary))
+          print("openhands:", dict(oh))
+          PY
+ | head -n 1)"
+          test -n "$MODULE"
+          echo "SOFTHSM2_CONF=/tmp/softhsm2/softhsm2.conf" >> "$GITHUB_ENV"
+          echo "SOFTHSM2_TOKEN_DIR=/tmp/softhsm2/tokens" >> "$GITHUB_ENV"
+          echo "PKCS11_CI_MODULE=$MODULE" >> "$GITHUB_ENV"
+          echo "SoftHSM module: $MODULE"
 
       - name: Run full test suite
         env:
