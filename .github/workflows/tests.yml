@@ -35,6 +35,13 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      openbao:
+        image: openbao/openbao:latest
+        env:
+          BAO_DEV_ROOT_TOKEN_ID: ci-openbao-root
+          BAO_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+        ports:
+          - 8200:8200
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
@@ -64,6 +71,8 @@ jobs:
       OPENHANDS_GATEWAY_IMAGE: python:3.12-slim
       OPENHANDS_MODEL: openai/mock-test-model
       SHRIMP_STEP5_REAL_REMOTION_SMOKE: "1"
+      OPENBAO_CI_URL: http://localhost:8200
+      OPENBAO_CI_TOKEN: ci-openbao-root
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -120,7 +129,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "064_shrimp_bilibili_signing_provider_metadata.sql", expected
+          assert expected[-1] == "065_shrimp_bilibili_multisigner_openbao_live.sql", expected
           print("migrations:", actual)
           PY
 
