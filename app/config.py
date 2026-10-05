@@ -143,6 +143,13 @@ class Settings(BaseSettings):
     shrimp_bilibili_pkcs11_key_id_hex: str = "10b025"
     shrimp_bilibili_hsm_live_acceptance_enabled: bool = False
     shrimp_bilibili_root_ceremony_key: str = ""
+    shrimp_bilibili_external_kms_enabled: bool = False
+    shrimp_bilibili_external_kms_failover_enabled: bool = False
+    shrimp_bilibili_aws_kms_key_id: str = ""
+    shrimp_bilibili_aws_kms_region: str = ""
+    shrimp_bilibili_gcp_kms_key_version: str = ""
+    shrimp_bilibili_azure_key_id: str = ""
+    shrimp_bilibili_openbao_external_key_name: str = ""
     shrimp_bilibili_rekor_url: str = ""
     shrimp_bilibili_rekor_enabled: bool = False
     shrimp_bilibili_rekor_timeout_seconds: float = 10.0
