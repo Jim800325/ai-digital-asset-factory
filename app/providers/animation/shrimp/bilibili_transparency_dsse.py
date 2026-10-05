@@ -538,138 +538,19 @@ def _verify_tsa_record(row:dict,envelope_bytes:bytes) -> bool:
     return True
 
 
-def verify_offline(attestation_id:UUID) -> dict:
-    att=_get_attestation(attestation_id)
-    envelope=_complete_envelope_dict(attestation_id)
-    envelope_bytes=canonical_json(envelope).encode("utf-8")
-    issues=[]
-    trusted_times=0
-    rekor_verified=False
-    with engine.connect() as db:
-        timestamps=[
-            _ser(x) for x in db.execute(text("""
-              SELECT * FROM shrimp_bilibili_trusted_timestamps
-              WHERE attestation_id=:id ORDER BY recorded_at,id
-            """),{"id":attestation_id}).mappings().all()
-        ]
-        entries=[
-            _ser(x) for x in db.execute(text("""
-              SELECT * FROM shrimp_bilibili_transparency_entries
-              WHERE attestation_id=:id ORDER BY recorded_at,id
-            """),{"id":attestation_id}).mappings().all()
-        ]
-    for row in entries:
-        try:
-            entry=TransparencyLogEntry._from_v1_response(row["receipt_snapshot"])
-            entry._verify(_rekor_keyring(row["rekor_public_key_pem"]))
-            rekor_verified=True
-            trusted_times+=1
-        except Exception:
-            issues.append("REKOR_INCLUSION_OR_CHECKPOINT_INVALID")
-    for row in timestamps:
-        if row["timestamp_source"]!="RFC3161_TSA":
-            continue
-        try:
-            if _verify_tsa_record(row,envelope_bytes):
-                trusted_times+=1
-        except Exception:
-            issues.append("RFC3161_TIMESTAMP_INVALID")
-    if trusted_times<1:
-        issues.append("NO_VERIFIED_TRUSTED_TIME")
-    if entries and not rekor_verified:
-        issues.append("NO_VERIFIED_TRANSPARENCY_ENTRY")
-    issues=sorted(set(issues))
-    return {
-        "verification_status":"PASS" if not issues else "FAIL",
-        "issue_codes":issues,
-        "attestation_id":str(attestation_id),
-        "dsse":verify_dsse_threshold(attestation_id),
-        "trusted_time_source_count":trusted_times,
-        "rekor_verified":rekor_verified,
-        "offline":True,
-        "requires_private_key":False,
-        "requires_database_write":False,
-        "provider_writes":False,
-        "production_writes":False,
-        "verification_stack":[
-            "in-toto/attestation",
-            "secure-systems-lab/securesystemslib",
-            "sigstore/sigstore-python",
-            "sigstore/rekor",
-            "sigstore/timestamp-authority",
-        ],
-    }
+def _clean_export_value(value:Any):
+    if isinstance(value,UUID):
+        return str(value)
+    if hasattr(value,"isoformat"):
+        return value.isoformat()
+    if isinstance(value,dict):
+        return {str(k):_clean_export_value(v) for k,v in value.items()}
+    if isinstance(value,(list,tuple)):
+        return [_clean_export_value(v) for v in value]
+    return value
 
 
-
-def verify_exported_bundle_snapshot(snapshot:dict[str,Any]) -> dict:
-    issues=[]
-    att=snapshot["attestation"]
-    envelope_dict=snapshot["envelope"]
-    envelope_bytes=canonical_json(envelope_dict).encode("utf-8")
-    envelope=Envelope.from_dict(copy.deepcopy(envelope_dict))
-    keys=[]
-    for row in snapshot["signatures"]:
-        try:
-            raw_pem=base64.b64decode(row["public_key_pem_b64"].encode("ascii"),validate=True)
-            key=serialization.load_pem_public_key(raw_pem)
-            der=key.public_bytes(
-                encoding=serialization.Encoding.DER,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo,
-            )
-            fingerprint=hashlib.sha256(der).hexdigest()
-            if fingerprint!=row["key_fingerprint_sha256"]:
-                issues.append("DSSE_PUBLIC_KEY_FINGERPRINT_MISMATCH")
-                continue
-            reg={
-                "key_fingerprint_sha256":fingerprint,
-                "public_key_pem_b64":row["public_key_pem_b64"],
-            }
-            keys.append(_sslib_key(reg))
-        except Exception:
-            issues.append("DSSE_PUBLIC_KEY_INVALID")
-    try:
-        envelope.verify(keys,int(att["signature_threshold"]))
-    except Exception:
-        issues.append("DSSE_SIGNATURE_THRESHOLD_NOT_MET")
-
-    trusted_times=0
-    rekor_verified=False
-    for row in snapshot.get("transparency_entries",[]):
-        try:
-            entry=TransparencyLogEntry._from_v1_response(row["receipt_snapshot"])
-            entry._verify(_rekor_keyring(row["rekor_public_key_pem"]))
-            rekor_verified=True
-            trusted_times+=1
-        except Exception:
-            issues.append("REKOR_INCLUSION_OR_CHECKPOINT_INVALID")
-    for row in snapshot.get("trusted_timestamps",[]):
-        if row.get("timestamp_source")!="RFC3161_TSA":
-            continue
-        try:
-            if _verify_tsa_record(row,envelope_bytes):
-                trusted_times+=1
-        except Exception:
-            issues.append("RFC3161_TIMESTAMP_INVALID")
-    if trusted_times<1:
-        issues.append("NO_VERIFIED_TRUSTED_TIME")
-    if snapshot.get("transparency_entries") and not rekor_verified:
-        issues.append("NO_VERIFIED_TRANSPARENCY_ENTRY")
-    issues=sorted(set(issues))
-    return {
-        "verification_status":"PASS" if not issues else "FAIL",
-        "issue_codes":issues,
-        "trusted_time_source_count":trusted_times,
-        "rekor_verified":rekor_verified,
-        "offline":True,
-        "requires_private_key":False,
-        "requires_database":False,
-        "requires_network":False,
-    }
-
-
-def export_offline_bundle(attestation_id:UUID,*,actor:str) -> dict:
-    verification=verify_offline(attestation_id)
+def _offline_material_snapshot(attestation_id:UUID) -> dict:
     att=_get_attestation(attestation_id)
     envelope=_complete_envelope_dict(attestation_id)
     with engine.connect() as db:
@@ -681,25 +562,49 @@ def export_offline_bundle(attestation_id:UUID,*,actor:str) -> dict:
           SELECT * FROM shrimp_bilibili_transparency_entries
           WHERE attestation_id=:id ORDER BY recorded_at,id
         """),{"id":attestation_id}).mappings().all()]
-    def clean(value):
-        if isinstance(value,UUID):
-            return str(value)
-        if hasattr(value,"isoformat"):
-            return value.isoformat()
-        if isinstance(value,dict):
-            return {str(k):clean(v) for k,v in value.items()}
-        if isinstance(value,(list,tuple)):
-            return [clean(v) for v in value]
-        return value
-    snapshot={
-        "schema_version":"shrimp-bilibili-offline-verification-bundle-v0.1",
-        "attestation":clean(att),
+    return {
+        "schema_version":"shrimp-bilibili-offline-verification-bundle-v0.2",
+        "attestation":_clean_export_value(att),
         "envelope":envelope,
-        "signatures":[clean(x) for x in _signature_rows(attestation_id)],
-        "trusted_timestamps":[clean(x) for x in timestamps],
-        "transparency_entries":[clean(x) for x in entries],
-        "verification":verification,
+        "signatures":[
+            _clean_export_value(x) for x in _signature_rows(attestation_id)
+        ],
+        "trusted_timestamps":[
+            _clean_export_value(x) for x in timestamps
+        ],
+        "transparency_entries":[
+            _clean_export_value(x) for x in entries
+        ],
     }
+
+
+def verify_offline(attestation_id:UUID) -> dict:
+    result=verify_database_free_bundle(
+        _offline_material_snapshot(attestation_id)
+    )
+    return {
+        **result,
+        "attestation_id":str(attestation_id),
+        "provider_writes":False,
+        "production_writes":False,
+        "verification_stack":[
+            "in-toto/attestation",
+            "secure-systems-lab/securesystemslib",
+            "sigstore trusted-time semantics",
+            "sigstore/rekor RFC6962 receipt model",
+        ],
+    }
+
+
+
+def verify_exported_bundle_snapshot(snapshot:dict[str,Any]) -> dict:
+    return verify_database_free_bundle(snapshot)
+
+
+def export_offline_bundle(attestation_id:UUID,*,actor:str) -> dict:
+    snapshot=_offline_material_snapshot(attestation_id)
+    verification=verify_database_free_bundle(snapshot)
+    snapshot["verification"]=verification
     sha=_sha(snapshot)
     with engine.begin() as db:
         row=db.execute(text("""
