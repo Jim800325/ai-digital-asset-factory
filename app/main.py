@@ -211,6 +211,7 @@ from app.providers.animation.shrimp.bilibili_openbao_live_acceptance import (
 from app.providers.animation.shrimp.bilibili_transparency_dsse import (
     add_dsse_signature,
     append_to_rekor,
+    append_to_rekor_compatible,
     create_dsse_attestation,
     export_offline_bundle,
     request_trusted_timestamp,
@@ -2662,6 +2663,19 @@ def shrimp_animation_bilibili_dsse_rekor(
     try:
         return append_to_rekor(attestation_id,actor=payload.actor)
     except (LookupError,RuntimeError,ValueError,httpx.HTTPError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-dsse-attestations/{attestation_id}/rekor-compatible",status_code=201)
+def shrimp_animation_bilibili_dsse_rekor_compatible(
+    attestation_id: UUID,
+    payload: ShrimpBilibiliAttestationAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Reliability-Governance-Key"),
+):
+    _require_shrimp_bilibili_reliability_governance_key(x_key)
+    try:
+        return append_to_rekor_compatible(attestation_id,actor=payload.actor)
+    except (LookupError,RuntimeError,ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
