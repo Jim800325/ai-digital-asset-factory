@@ -24,7 +24,10 @@ from app.providers.animation.shrimp.bilibili_post_restore_certification import (
     _ser,
     _sha,
 )
-from app.providers.animation.shrimp.bilibili_signing_provider import sign_digest_sha256
+from app.providers.animation.shrimp.bilibili_signing_provider import (
+    current_signing_key,
+    sign_digest_sha256,
+)
 
 
 def _b64decode(value: str) -> bytes:
@@ -113,8 +116,8 @@ def _bundle_issues(bundle: dict[str,Any]) -> list[str]:
 def create_signed_proof_bundle(*,actor: str) -> dict:
     proofs=list_audit_proofs(limit=1)
     proof=proofs[0] if proofs else generate_audit_proof(actor=actor+"-proof")
-
-    base_snapshot={
+    key=current_signing_key()
+    snapshot={
         "schema_version":"shrimp-bilibili-audit-proof-bundle-v0.2",
         "audit_proof_id":str(proof["id"]),
         "audit_proof_sha256":proof["proof_sha256"],
@@ -125,21 +128,21 @@ def create_signed_proof_bundle(*,actor: str) -> dict:
             if proof.get("current_certification_id") else None
         ),
         "verification_profile":"ED25519-SHA256-BUNDLE-V0.2",
+        "signing_provider":key.provider,
+        "provider_key_name":key.provider_key_name,
+        "provider_key_version":key.provider_key_version,
+        "signing_key_fingerprint_sha256":key.fingerprint_sha256,
         "provider_writes":False,
         "automatic_policy_change":False,
     }
-    provisional_sha=_sha(base_snapshot)
-    signing=sign_digest_sha256(provisional_sha)
-    snapshot={
-        **base_snapshot,
-        "signing_provider":signing.key.provider,
-        "provider_key_name":signing.key.provider_key_name,
-        "provider_key_version":signing.key.provider_key_version,
-        "signing_key_fingerprint_sha256":signing.key.fingerprint_sha256,
-    }
     bundle_sha=_sha(snapshot)
-    if bundle_sha!=provisional_sha:
-        signing=sign_digest_sha256(bundle_sha)
+    signing=sign_digest_sha256(bundle_sha)
+    if (
+        signing.key.fingerprint_sha256!=key.fingerprint_sha256
+        or signing.key.provider_key_version!=key.provider_key_version
+        or signing.key.provider!=key.provider
+    ):
+        raise RuntimeError("Signing key changed while proof bundle was being signed")
 
     with engine.begin() as db:
         row=db.execute(text("""
