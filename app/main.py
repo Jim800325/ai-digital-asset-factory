@@ -207,6 +207,17 @@ from app.providers.animation.shrimp.bilibili_openbao_live_acceptance import (
     list_openbao_live_acceptances,
     run_openbao_live_acceptance,
 )
+from app.providers.animation.shrimp.bilibili_transparency_dsse import (
+    add_dsse_signature,
+    append_to_rekor,
+    create_dsse_attestation,
+    export_offline_bundle,
+    request_trusted_timestamp,
+    sign_dsse_attestation_current,
+    transparency_dashboard,
+    verify_dsse_threshold,
+    verify_offline,
+)
 from app.providers.animation.shrimp.bilibili_certification_renewal import (
     decide_recertification,
     evaluate_certification_expiry,
@@ -660,6 +671,28 @@ class ShrimpBilibiliCompromiseRecoveryDrill(BaseModel):
 class ShrimpBilibiliOpenBaoLiveAcceptance(BaseModel):
     model_config = ConfigDict(extra="forbid")
     actor: str = Field(default="shrimp-openbao-live-acceptance",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliDsseAttestationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    subject_type: str = Field(min_length=1,max_length=100)
+    subject_id: str = Field(min_length=1,max_length=500)
+    subject_sha256: str = Field(min_length=64,max_length=64)
+    predicate: dict[str,Any] = Field(default_factory=dict)
+    actor: str = Field(default="shrimp-dsse-attestation",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliDsseSignatureCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    fingerprint: str = Field(min_length=64,max_length=64)
+    signature_b64: str = Field(min_length=16,max_length=4096)
+    public_key_pem_b64: str = Field(min_length=16,max_length=16000)
+    actor: str = Field(default="shrimp-dsse-signer",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliAttestationAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(default="shrimp-attestation-action",min_length=1,max_length=200)
 
 
 class ShrimpBilibiliExternalAnchorCreate(BaseModel):
@@ -2539,6 +2572,116 @@ def shrimp_animation_bilibili_key_compromise_recovery_drill(
             actor=payload.actor,
         )
     except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-transparency")
+def shrimp_animation_bilibili_transparency():
+    return transparency_dashboard()
+
+
+@app.post("/v1/shrimp-animation/bilibili-dsse-attestations",status_code=201)
+def shrimp_animation_bilibili_dsse_attestation_create(
+    payload: ShrimpBilibiliDsseAttestationCreate,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Reliability-Governance-Key"),
+):
+    _require_shrimp_bilibili_reliability_governance_key(x_key)
+    try:
+        return create_dsse_attestation(
+            subject_type=payload.subject_type,
+            subject_id=payload.subject_id,
+            subject_sha256=payload.subject_sha256,
+            predicate=payload.predicate,
+            actor=payload.actor,
+        )
+    except (RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-dsse-attestations/{attestation_id}/sign-current",status_code=201)
+def shrimp_animation_bilibili_dsse_sign_current(
+    attestation_id: UUID,
+    payload: ShrimpBilibiliAttestationAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Reliability-Governance-Key"),
+):
+    _require_shrimp_bilibili_reliability_governance_key(x_key)
+    try:
+        return sign_dsse_attestation_current(attestation_id,actor=payload.actor)
+    except (LookupError,RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-dsse-attestations/{attestation_id}/signatures",status_code=201)
+def shrimp_animation_bilibili_dsse_signature_add(
+    attestation_id: UUID,
+    payload: ShrimpBilibiliDsseSignatureCreate,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Reliability-Governance-Key"),
+):
+    _require_shrimp_bilibili_reliability_governance_key(x_key)
+    try:
+        return add_dsse_signature(
+            attestation_id,
+            fingerprint=payload.fingerprint,
+            signature_b64=payload.signature_b64,
+            public_key_pem_b64=payload.public_key_pem_b64,
+            actor=payload.actor,
+        )
+    except (LookupError,RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-dsse-attestations/{attestation_id}/verify")
+def shrimp_animation_bilibili_dsse_verify(attestation_id: UUID):
+    try:
+        return verify_dsse_threshold(attestation_id)
+    except (LookupError,RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-dsse-attestations/{attestation_id}/timestamp",status_code=201)
+def shrimp_animation_bilibili_dsse_timestamp(
+    attestation_id: UUID,
+    payload: ShrimpBilibiliAttestationAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Reliability-Governance-Key"),
+):
+    _require_shrimp_bilibili_reliability_governance_key(x_key)
+    try:
+        return request_trusted_timestamp(attestation_id,actor=payload.actor)
+    except (LookupError,RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-dsse-attestations/{attestation_id}/rekor",status_code=201)
+def shrimp_animation_bilibili_dsse_rekor(
+    attestation_id: UUID,
+    payload: ShrimpBilibiliAttestationAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Reliability-Governance-Key"),
+):
+    _require_shrimp_bilibili_reliability_governance_key(x_key)
+    try:
+        return append_to_rekor(attestation_id,actor=payload.actor)
+    except (LookupError,RuntimeError,ValueError,httpx.HTTPError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-dsse-attestations/{attestation_id}/verify-offline")
+def shrimp_animation_bilibili_dsse_verify_offline(attestation_id: UUID):
+    try:
+        return verify_offline(attestation_id)
+    except (LookupError,RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-dsse-attestations/{attestation_id}/offline-bundle",status_code=201)
+def shrimp_animation_bilibili_dsse_offline_bundle(
+    attestation_id: UUID,
+    payload: ShrimpBilibiliAttestationAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Reliability-Governance-Key"),
+):
+    _require_shrimp_bilibili_reliability_governance_key(x_key)
+    try:
+        return export_offline_bundle(attestation_id,actor=payload.actor)
+    except (LookupError,RuntimeError,ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
