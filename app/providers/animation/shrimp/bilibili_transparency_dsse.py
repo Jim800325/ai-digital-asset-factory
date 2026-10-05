@@ -468,6 +468,73 @@ def verify_offline(attestation_id:UUID) -> dict:
     }
 
 
+
+def verify_exported_bundle_snapshot(snapshot:dict[str,Any]) -> dict:
+    issues=[]
+    att=snapshot["attestation"]
+    envelope_dict=snapshot["envelope"]
+    envelope=Envelope.from_dict(dict(envelope_dict))
+    keys=[]
+    for row in snapshot["signatures"]:
+        try:
+            raw_pem=base64.b64decode(row["public_key_pem_b64"].encode("ascii"),validate=True)
+            key=serialization.load_pem_public_key(raw_pem)
+            der=key.public_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+            fingerprint=hashlib.sha256(der).hexdigest()
+            if fingerprint!=row["key_fingerprint_sha256"]:
+                issues.append("DSSE_PUBLIC_KEY_FINGERPRINT_MISMATCH")
+                continue
+            reg={
+                "key_fingerprint_sha256":fingerprint,
+                "public_key_pem_b64":row["public_key_pem_b64"],
+            }
+            keys.append(_sslib_key(reg))
+        except Exception:
+            issues.append("DSSE_PUBLIC_KEY_INVALID")
+    try:
+        envelope.verify(keys,int(att["signature_threshold"]))
+    except Exception:
+        issues.append("DSSE_SIGNATURE_THRESHOLD_NOT_MET")
+
+    envelope_bytes=canonical_json(envelope_dict).encode("utf-8")
+    trusted_times=0
+    rekor_verified=False
+    for row in snapshot.get("transparency_entries",[]):
+        try:
+            entry=TransparencyLogEntry._from_v1_response(row["receipt_snapshot"])
+            entry._verify(_rekor_keyring(row["rekor_public_key_pem"]))
+            rekor_verified=True
+            trusted_times+=1
+        except Exception:
+            issues.append("REKOR_INCLUSION_OR_CHECKPOINT_INVALID")
+    for row in snapshot.get("trusted_timestamps",[]):
+        if row.get("timestamp_source")!="RFC3161_TSA":
+            continue
+        try:
+            if _verify_tsa_record(row,envelope_bytes):
+                trusted_times+=1
+        except Exception:
+            issues.append("RFC3161_TIMESTAMP_INVALID")
+    if trusted_times<1:
+        issues.append("NO_VERIFIED_TRUSTED_TIME")
+    if snapshot.get("transparency_entries") and not rekor_verified:
+        issues.append("NO_VERIFIED_TRANSPARENCY_ENTRY")
+    issues=sorted(set(issues))
+    return {
+        "verification_status":"PASS" if not issues else "FAIL",
+        "issue_codes":issues,
+        "trusted_time_source_count":trusted_times,
+        "rekor_verified":rekor_verified,
+        "offline":True,
+        "requires_private_key":False,
+        "requires_database":False,
+        "requires_network":False,
+    }
+
+
 def export_offline_bundle(attestation_id:UUID,*,actor:str) -> dict:
     verification=verify_offline(attestation_id)
     att=_get_attestation(attestation_id)
