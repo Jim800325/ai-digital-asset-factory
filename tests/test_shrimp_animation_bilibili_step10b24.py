@@ -179,7 +179,10 @@ def test_step10b24_rekor_compatible_merkle_checkpoint_and_offline_tamper(monkeyp
         second["id"],actor="step10b24-local-export"
     )
     snapshot=exported["bundle_snapshot"]
-    independent=verify_database_free_bundle(snapshot)
+    independent=verify_database_free_bundle(
+        snapshot,
+        expected_trust_root_sha256=snapshot["trust_root"]["root_sha256"],
+    )
     assert independent["verification_status"]=="PASS"
 
     tampered_proof=copy.deepcopy(snapshot)
@@ -205,3 +208,16 @@ def test_step10b24_rekor_compatible_merkle_checkpoint_and_offline_tamper(monkeyp
     broken_set=verify_database_free_bundle(tampered_set)
     assert broken_set["verification_status"]=="FAIL"
     assert "REKOR_COMPATIBLE_SET_INVALID" in broken_set["issue_codes"]
+
+    wrong_pin=verify_database_free_bundle(
+        snapshot,
+        expected_trust_root_sha256="00"*32,
+    )
+    assert wrong_pin["verification_status"]=="FAIL"
+    assert "TUF_ROOT_PIN_MISMATCH" in wrong_pin["issue_codes"]
+
+    tampered_root=copy.deepcopy(snapshot)
+    tampered_root["trust_root"]["root_snapshot"]["version"]+=1
+    broken_root=verify_database_free_bundle(tampered_root)
+    assert broken_root["verification_status"]=="FAIL"
+    assert "TUF_TRUST_ROOT_SHA_MISMATCH" in broken_root["issue_codes"]
