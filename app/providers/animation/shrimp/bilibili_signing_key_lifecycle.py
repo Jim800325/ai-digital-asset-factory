@@ -123,16 +123,15 @@ def _register_material(
     existing=_get_key_by_fingerprint(material.fingerprint_sha256)
     if existing is not None:
         return existing
-    tuf_key=_sslib_key(material)
     with engine.begin() as db:
         row=db.execute(text("""
           INSERT INTO shrimp_bilibili_signing_keys(
             key_fingerprint_sha256,algorithm,public_key_pem_b64,
-            provider,provider_key_name,provider_key_version,tuf_keyid,
+            provider,provider_key_name,provider_key_version,
             key_label,registered_by)
           VALUES(
             :fingerprint,'ED25519',:public_key,
-            :provider,:provider_name,:provider_version,:tuf_keyid,
+            :provider,:provider_name,:provider_version,
             :label,:actor)
           RETURNING *
         """),{
@@ -141,7 +140,6 @@ def _register_material(
             "provider":material.provider,
             "provider_name":material.provider_key_name,
             "provider_version":material.provider_key_version,
-            "tuf_keyid":tuf_key.keyid,
             "label":key_label[:200],
             "actor":actor[:200],
         }).mappings().one()
