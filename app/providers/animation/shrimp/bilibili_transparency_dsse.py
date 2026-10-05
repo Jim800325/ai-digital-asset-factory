@@ -24,6 +24,12 @@ from app.config import settings
 from app.db import engine
 from app.providers.animation.models import canonical_json
 from app.providers.animation.shrimp.bilibili_post_restore_certification import _ser,_sha
+from app.providers.animation.shrimp.bilibili_offline_verifier import (
+    canonical_json as offline_canonical_json,
+    rfc6962_inclusion_proof,
+    rfc6962_root,
+    verify_exported_bundle as verify_database_free_bundle,
+)
 from app.providers.animation.shrimp.bilibili_signing_key_lifecycle import (
     _get_key_by_fingerprint,
     _sslib_key,
@@ -268,6 +274,132 @@ def request_trusted_timestamp(attestation_id:UUID,*,actor:str) -> dict:
             "chain":chain_pem,"snapshot":canonical_json(snapshot),
             "sha":sha,"actor":actor[:200],
         }).mappings().one()
+    return _ser(row)
+
+
+
+def append_to_rekor_compatible(attestation_id:UUID,*,actor:str) -> dict:
+    envelope=_complete_envelope_dict(attestation_id)
+    body=offline_canonical_json(envelope).encode("utf-8")
+    with engine.connect() as db:
+        previous=[
+            base64.b64decode(x[0].encode("ascii"),validate=True)
+            for x in db.execute(text("""
+              SELECT canonicalized_body_b64
+              FROM shrimp_bilibili_transparency_entries
+              WHERE provider='REKOR_COMPATIBLE'
+              ORDER BY log_index,id
+            """)).all()
+        ]
+    leaves=previous+[body]
+    log_index=len(previous)
+    tree_size=len(leaves)
+    root_hash=rfc6962_root(leaves).hex()
+    proof=[x.hex() for x in rfc6962_inclusion_proof(leaves,log_index)]
+    integrated=datetime.now(timezone.utc)
+    integrated_epoch=int(integrated.timestamp())
+    body_sha=hashlib.sha256(body).hexdigest()
+
+    key=current_signing_key()
+    entry={
+        "bodySha256":body_sha,
+        "integratedTime":integrated_epoch,
+        "logIndex":log_index,
+        "treeSize":tree_size,
+        "rootHash":root_hash,
+    }
+    set_sign=sign_bytes(offline_canonical_json(entry).encode("utf-8"))
+    if set_sign.key.fingerprint_sha256!=key.fingerprint_sha256:
+        raise RuntimeError("Transparency signing key changed during SET creation")
+
+    checkpoint_payload={
+        "origin":"ai-digital-asset-factory/shrimp-bilibili",
+        "treeSize":tree_size,
+        "rootHash":root_hash,
+    }
+    checkpoint_sign=sign_bytes(
+        offline_canonical_json(checkpoint_payload).encode("utf-8")
+    )
+    if checkpoint_sign.key.fingerprint_sha256!=key.fingerprint_sha256:
+        raise RuntimeError("Transparency signing key changed during checkpoint creation")
+
+    receipt={
+        "kind":"rekor-compatible-v1",
+        "entry":entry,
+        "verification":{
+            "signedEntryTimestamp":{
+                "signature":set_sign.signature_b64,
+                "keyFingerprintSha256":key.fingerprint_sha256,
+                "publicKeyPemB64":key.public_key_pem_b64,
+            },
+            "inclusionProof":{
+                "logIndex":log_index,
+                "treeSize":tree_size,
+                "rootHash":root_hash,
+                "hashes":proof,
+            },
+            "checkpoint":{
+                **checkpoint_payload,
+                "signature":checkpoint_sign.signature_b64,
+                "keyFingerprintSha256":key.fingerprint_sha256,
+                "publicKeyPemB64":key.public_key_pem_b64,
+            },
+        },
+        "writeBudget":{
+            "setSignWrites":set_sign.provider_write_count,
+            "checkpointSignWrites":checkpoint_sign.provider_write_count,
+            "bilibiliWrites":0,
+            "productionWrites":0,
+        },
+    }
+    receipt_sha=_sha(receipt)
+    public_pem=base64.b64decode(
+        key.public_key_pem_b64.encode("ascii"),validate=True
+    ).decode("ascii")
+    with engine.begin() as db:
+        row=db.execute(text("""
+          INSERT INTO shrimp_bilibili_transparency_entries(
+            attestation_id,provider,entry_uuid,log_index,tree_size,root_hash,
+            inclusion_hashes,checkpoint,integrated_time,
+            canonicalized_body_b64,receipt_snapshot,receipt_sha256,
+            rekor_public_key_pem,recorded_by)
+          VALUES(
+            :id,'REKOR_COMPATIBLE',NULL,:index,:size,:root,
+            CAST(:hashes AS jsonb),:checkpoint,:integrated,:body,
+            CAST(:receipt AS jsonb),:sha,:pub,:actor)
+          RETURNING *
+        """),{
+            "id":attestation_id,"index":log_index,"size":tree_size,
+            "root":root_hash,"hashes":canonical_json(proof),
+            "checkpoint":offline_canonical_json(checkpoint_payload),
+            "integrated":integrated,
+            "body":base64.b64encode(body).decode("ascii"),
+            "receipt":canonical_json(receipt),"sha":receipt_sha,
+            "pub":public_pem,"actor":actor[:200],
+        }).mappings().one()
+        ts_snapshot={
+            "schema_version":"shrimp-bilibili-trusted-timestamp-v0.2",
+            "attestation_id":str(attestation_id),
+            "source":"TRANSPARENCY_LOG_INTEGRATED_TIME",
+            "trusted_time":integrated.isoformat(),
+            "receipt_sha256":receipt_sha,
+            "checkpoint_root_hash":root_hash,
+            "checkpoint_tree_size":tree_size,
+            "sigstore_semantics":"integrated_time_with_cryptographic_inclusion_promise",
+        }
+        db.execute(text("""
+          INSERT INTO shrimp_bilibili_trusted_timestamps(
+            attestation_id,timestamp_source,trusted_time,
+            timestamp_response_b64,timestamp_chain_pem,
+            timestamp_snapshot,timestamp_sha256,recorded_by)
+          VALUES(
+            :id,'TRANSPARENCY_LOG_INTEGRATED_TIME',:time,NULL,NULL,
+            CAST(:snapshot AS jsonb),:sha,:actor)
+        """),{
+            "id":attestation_id,"time":integrated,
+            "snapshot":canonical_json(ts_snapshot),
+            "sha":_sha(ts_snapshot),"actor":actor[:200],
+        })
     return _ser(row)
 
 
