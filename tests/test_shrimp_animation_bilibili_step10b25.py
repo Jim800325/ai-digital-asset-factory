@@ -51,7 +51,7 @@ def _configure(monkeypatch):
     monkeypatch.setattr(settings,"shrimp_bilibili_pkcs11_token_label","SHRIMP-ROOT")
     monkeypatch.setattr(settings,"shrimp_bilibili_pkcs11_user_pin","1234")
     monkeypatch.setattr(settings,"shrimp_bilibili_pkcs11_key_label","shrimp-root-ed25519")
-    monkeypatch.setattr(settings,"shrimp_bilibili_pkcs11_key_id_hex","10b25")
+    monkeypatch.setattr(settings,"shrimp_bilibili_pkcs11_key_id_hex","10b025")
 
 
 @pytest.mark.skipif(
