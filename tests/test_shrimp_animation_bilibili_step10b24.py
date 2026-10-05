@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import os
 
 import pytest
@@ -11,8 +12,12 @@ from app.config import settings
 from app.providers.animation.shrimp.bilibili_signing_key_lifecycle import (
     bootstrap_signing_trust,
 )
+from app.providers.animation.shrimp.bilibili_offline_verifier import (
+    verify_exported_bundle as verify_database_free_bundle,
+)
 from app.providers.animation.shrimp.bilibili_transparency_dsse import (
     PAYLOAD_TYPE,
+    append_to_rekor_compatible,
     create_dsse_attestation,
     export_offline_bundle,
     request_trusted_timestamp,
@@ -126,3 +131,77 @@ def test_step10b24_dashboard_stays_provider_write_safe():
     assert dashboard["automatic_provider_writes"] is False
     assert dashboard["references"]["attestation"]=="in-toto/attestation"
     assert dashboard["references"]["transparency"]=="sigstore/rekor"
+
+
+def test_step10b24_rekor_compatible_merkle_checkpoint_and_offline_tamper(monkeypatch):
+    _bootstrap(monkeypatch)
+
+    first=create_dsse_attestation(
+        subject_type="AUDIT_PROOF_BUNDLE",
+        subject_id="rekor-compatible-1",
+        subject_sha256="d"*64,
+        predicate={"sequence":1},
+        actor="step10b24-local-create-1",
+    )
+    sign_dsse_attestation_current(first["id"],actor="step10b24-local-sign-1")
+    entry1=append_to_rekor_compatible(
+        first["id"],actor="step10b24-local-log-1"
+    )
+    assert entry1["provider"]=="REKOR_COMPATIBLE"
+    assert entry1["log_index"]==0
+    assert entry1["tree_size"]==1
+
+    second=create_dsse_attestation(
+        subject_type="AUDIT_PROOF_BUNDLE",
+        subject_id="rekor-compatible-2",
+        subject_sha256="e"*64,
+        predicate={"sequence":2},
+        actor="step10b24-local-create-2",
+    )
+    sign_dsse_attestation_current(second["id"],actor="step10b24-local-sign-2")
+    entry2=append_to_rekor_compatible(
+        second["id"],actor="step10b24-local-log-2"
+    )
+    assert entry2["provider"]=="REKOR_COMPATIBLE"
+    assert entry2["log_index"]==1
+    assert entry2["tree_size"]==2
+    assert len(entry2["inclusion_hashes"])==1
+
+    verified=verify_offline(second["id"])
+    assert verified["verification_status"]=="PASS"
+    assert verified["trusted_time_source_count"]>=1
+    assert verified["transparency_verified"] is True
+    assert verified["requires_database"] is False
+    assert verified["requires_network"] is False
+    assert verified["requires_private_key"] is False
+
+    exported=export_offline_bundle(
+        second["id"],actor="step10b24-local-export"
+    )
+    snapshot=exported["bundle_snapshot"]
+    independent=verify_database_free_bundle(snapshot)
+    assert independent["verification_status"]=="PASS"
+
+    tampered_proof=copy.deepcopy(snapshot)
+    tampered_proof["transparency_entries"][0]["inclusion_hashes"][0]="00"*32
+    broken_proof=verify_database_free_bundle(tampered_proof)
+    assert broken_proof["verification_status"]=="FAIL"
+    assert "REKOR_COMPATIBLE_INCLUSION_INVALID" in broken_proof["issue_codes"]
+
+    tampered_checkpoint=copy.deepcopy(snapshot)
+    receipt=tampered_checkpoint["transparency_entries"][0]["receipt_snapshot"]
+    receipt["verification"]["checkpoint"]["signature"]=base64.b64encode(
+        b"x"*64
+    ).decode("ascii")
+    broken_checkpoint=verify_database_free_bundle(tampered_checkpoint)
+    assert broken_checkpoint["verification_status"]=="FAIL"
+    assert "REKOR_COMPATIBLE_CHECKPOINT_INVALID" in broken_checkpoint["issue_codes"]
+
+    tampered_set=copy.deepcopy(snapshot)
+    receipt=tampered_set["transparency_entries"][0]["receipt_snapshot"]
+    receipt["verification"]["signedEntryTimestamp"]["signature"]=base64.b64encode(
+        b"y"*64
+    ).decode("ascii")
+    broken_set=verify_database_free_bundle(tampered_set)
+    assert broken_set["verification_status"]=="FAIL"
+    assert "REKOR_COMPATIBLE_SET_INVALID" in broken_set["issue_codes"]
