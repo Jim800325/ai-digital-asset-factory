@@ -548,11 +548,16 @@ def export_offline_bundle(attestation_id:UUID,*,actor:str) -> dict:
           SELECT * FROM shrimp_bilibili_transparency_entries
           WHERE attestation_id=:id ORDER BY recorded_at,id
         """),{"id":attestation_id}).mappings().all()]
-    def clean(row:dict) -> dict:
-        return {
-            k:(v.isoformat() if hasattr(v,"isoformat") else v)
-            for k,v in row.items()
-        }
+    def clean(value):
+        if isinstance(value,UUID):
+            return str(value)
+        if hasattr(value,"isoformat"):
+            return value.isoformat()
+        if isinstance(value,dict):
+            return {str(k):clean(v) for k,v in value.items()}
+        if isinstance(value,(list,tuple)):
+            return [clean(v) for v in value]
+        return value
     snapshot={
         "schema_version":"shrimp-bilibili-offline-verification-bundle-v0.1",
         "attestation":clean(att),
