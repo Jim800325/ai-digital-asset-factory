@@ -135,6 +135,12 @@ class Settings(BaseSettings):
     shrimp_bilibili_root_transition_approver_a_key: str = ""
     shrimp_bilibili_root_transition_approver_b_key: str = ""
     shrimp_bilibili_openbao_live_acceptance_enabled: bool = False
+    shrimp_bilibili_rekor_url: str = ""
+    shrimp_bilibili_rekor_enabled: bool = False
+    shrimp_bilibili_rekor_timeout_seconds: float = 10.0
+    shrimp_bilibili_tsa_url: str = ""
+    shrimp_bilibili_tsa_enabled: bool = False
+    shrimp_bilibili_tsa_timeout_seconds: float = 10.0
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
