@@ -162,7 +162,8 @@ The underlying verifier module does not import the database layer.
 Example:
 
 ```bash
-python scripts/verify_shrimp_offline_bundle.py proof-bundle.json
+python scripts/verify_shrimp_offline_bundle.py proof-bundle.json \\
+  --trusted-root-sha256 <known-good-root-sha256>
 ```
 
 ## Final acceptance additions
@@ -180,3 +181,9 @@ two-leaf RFC6962 tree
 → tampered checkpoint FAIL
 → tampered SET FAIL
 ```
+
+
+The exported bundle includes the corresponding TUF Root snapshot for internal
+consistency checks. For a true external trust decision, the verifier SHOULD
+supply a previously trusted Root SHA-256 with `--trusted-root-sha256`.
+The verifier then rejects a bundle whose embedded Root does not match that pin.
