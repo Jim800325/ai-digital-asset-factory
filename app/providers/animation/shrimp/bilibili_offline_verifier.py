@@ -109,8 +109,22 @@ def _public_key(pem_b64:str) -> tuple[Ed25519PublicKey,str,SSlibKey]:
 
 def verify_dsse_snapshot(snapshot:dict[str,Any]) -> tuple[list[str],dict]:
     issues=[]
+    att=snapshot["attestation"]
     envelope_dict=copy.deepcopy(snapshot["envelope"])
     envelope=Envelope.from_dict(envelope_dict)
+
+    try:
+        statement_bytes=base64.b64decode(
+            envelope_dict["payload"].encode("ascii"),validate=True
+        )
+        if hashlib.sha256(statement_bytes).hexdigest()!=att["statement_sha256"]:
+            issues.append("IN_TOTO_STATEMENT_SHA_MISMATCH")
+        if statement_bytes!=canonical_json(att["statement_snapshot"]).encode("utf-8"):
+            issues.append("IN_TOTO_STATEMENT_SNAPSHOT_MISMATCH")
+    except Exception:
+        issues.append("IN_TOTO_STATEMENT_PAYLOAD_INVALID")
+
+    allowed=set(att["signer_fingerprints"])
     keys=[]
     for row in snapshot.get("signatures",[]):
         try:
@@ -118,10 +132,13 @@ def verify_dsse_snapshot(snapshot:dict[str,Any]) -> tuple[list[str],dict]:
             if fp!=row["key_fingerprint_sha256"]:
                 issues.append("DSSE_PUBLIC_KEY_FINGERPRINT_MISMATCH")
                 continue
+            if fp not in allowed:
+                issues.append("DSSE_SIGNER_NOT_AUTHORIZED_BY_TUF_ROOT")
+                continue
             keys.append(sslib)
         except Exception:
             issues.append("DSSE_PUBLIC_KEY_INVALID")
-    threshold=int(snapshot["attestation"]["signature_threshold"])
+    threshold=int(att["signature_threshold"])
     accepted={}
     try:
         accepted=envelope.verify(keys,threshold)
@@ -245,8 +262,39 @@ def verify_rfc3161_timestamp(row:dict[str,Any],message:bytes) -> bool:
     return True
 
 
-def verify_exported_bundle(snapshot:dict[str,Any]) -> dict[str,Any]:
+def verify_exported_bundle(
+    snapshot:dict[str,Any],
+    *,
+    expected_trust_root_sha256:str | None=None,
+) -> dict[str,Any]:
     issues,dsse=verify_dsse_snapshot(snapshot)
+    att=snapshot["attestation"]
+    trust_root=snapshot.get("trust_root")
+    if not isinstance(trust_root,dict):
+        issues.append("TUF_TRUST_ROOT_MISSING")
+    else:
+        root_snapshot=trust_root.get("root_snapshot")
+        root_sha=trust_root.get("root_sha256")
+        if not isinstance(root_snapshot,dict) or not isinstance(root_sha,str):
+            issues.append("TUF_TRUST_ROOT_INVALID")
+        else:
+            if hashlib.sha256(
+                canonical_json(root_snapshot).encode("utf-8")
+            ).hexdigest()!=root_sha:
+                issues.append("TUF_TRUST_ROOT_SHA_MISMATCH")
+            role=(root_snapshot.get("roles") or {}).get("root") or {}
+            root_keyids=set(role.get("keyids") or [])
+            if root_keyids!=set(att.get("signer_fingerprints") or []):
+                issues.append("TUF_ROOT_SIGNER_SET_MISMATCH")
+            if int(role.get("threshold") or 0)!=int(att["signature_threshold"]):
+                issues.append("TUF_ROOT_THRESHOLD_MISMATCH")
+            predicate=(att.get("statement_snapshot") or {}).get("predicate") or {}
+            if int(predicate.get("trustRootVersion") or 0)!=int(trust_root.get("root_version") or 0):
+                issues.append("TUF_ROOT_VERSION_MISMATCH")
+            if predicate.get("trustRootSha256")!=root_sha:
+                issues.append("TUF_ROOT_STATEMENT_BINDING_MISMATCH")
+            if expected_trust_root_sha256 and root_sha!=expected_trust_root_sha256:
+                issues.append("TUF_ROOT_PIN_MISMATCH")
     envelope_dict=snapshot["envelope"]
     envelope_bytes=canonical_json(envelope_dict).encode("utf-8")
     trusted_times=0
