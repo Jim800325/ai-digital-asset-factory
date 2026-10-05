@@ -15,10 +15,18 @@ def main() -> int:
         description="Verify a Shrimp Bilibili offline attestation bundle."
     )
     parser.add_argument("bundle",type=Path)
+    parser.add_argument(
+        "--trusted-root-sha256",
+        default=None,
+        help="Optional externally pinned TUF Root SHA-256.",
+    )
     args=parser.parse_args()
 
     snapshot=json.loads(args.bundle.read_text(encoding="utf-8"))
-    result=verify_exported_bundle(snapshot)
+    result=verify_exported_bundle(
+        snapshot,
+        expected_trust_root_sha256=args.trusted_root_sha256,
+    )
     print(json.dumps(result,ensure_ascii=False,indent=2,sort_keys=True))
     return 0 if result["verification_status"]=="PASS" else 2
 
