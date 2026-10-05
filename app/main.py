@@ -1,6 +1,7 @@
 import hashlib
 import os
 import secrets
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -177,6 +178,18 @@ from app.providers.animation.shrimp.bilibili_external_verification import (
     register_external_anchor,
     verify_export_registry_chain,
     verify_proof_bundle,
+)
+from app.providers.animation.shrimp.bilibili_signing_key_lifecycle import (
+    bootstrap_signing_trust,
+    list_signing_key_events,
+    list_signing_key_states,
+    list_trust_roots,
+    revoke_signing_key,
+    rotate_signing_key,
+    signing_key_lifecycle_dashboard,
+    verify_all_bundles_with_key_registry,
+    verify_bundle_with_key_registry,
+    verify_trust_root_chain,
 )
 from app.providers.animation.shrimp.bilibili_certification_renewal import (
     decide_recertification,
@@ -574,6 +587,26 @@ class ShrimpBilibiliAuditBundleAction(BaseModel):
         min_length=1,
         max_length=200,
     )
+
+class ShrimpBilibiliSigningTrustBootstrap(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(default="shrimp-signing-trust-bootstrap",min_length=1,max_length=200)
+    key_label: str = Field(default="primary",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliSigningKeyRotation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(default="shrimp-signing-key-rotation",min_length=1,max_length=200)
+    reason: str = Field(min_length=3,max_length=1000)
+    key_label: str = Field(default="rotated",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliSigningKeyRevocation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(default="shrimp-signing-key-revocation",min_length=1,max_length=200)
+    reason: str = Field(min_length=3,max_length=1000)
+    effective_at: datetime
+
 
 class ShrimpBilibiliExternalAnchorCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -996,6 +1029,39 @@ def _require_shrimp_bilibili_reliability_governance_key(
             detail="Invalid Bilibili reliability governance key",
         )
 
+
+
+def _require_shrimp_bilibili_signing_key_rotation_key(
+    provided: str | None,
+) -> None:
+    expected=settings.shrimp_bilibili_signing_key_rotation_key.strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Bilibili signing key rotation gate is not configured",
+        )
+    forbidden=(
+        settings.shrimp_bilibili_reliability_governance_key.strip(),
+        settings.shrimp_bilibili_reliability_policy_apply_key.strip(),
+        settings.shrimp_bilibili_reliability_restore_apply_key.strip(),
+        settings.shrimp_bilibili_live_acceptance_key.strip(),
+        settings.shrimp_publish_authorization_key.strip(),
+        settings.shrimp_publish_execution_key.strip(),
+        settings.shrimp_human_review_key.strip(),
+    )
+    if any(
+        value and secrets.compare_digest(expected,value)
+        for value in forbidden
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Bilibili signing key rotation key must be independent",
+        )
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid Bilibili signing key rotation key",
+        )
 
 def _require_shrimp_bilibili_incident_ops_key(
     provided: str | None,
@@ -2132,6 +2198,116 @@ def shrimp_animation_bilibili_certification_audit_proof_latest():
 @app.get("/v1/shrimp-animation/bilibili-external-verification")
 def shrimp_animation_bilibili_external_verification():
     return external_verification_dashboard()
+
+
+@app.get("/v1/shrimp-animation/bilibili-signing-key-lifecycle")
+def shrimp_animation_bilibili_signing_key_lifecycle():
+    return signing_key_lifecycle_dashboard()
+
+
+@app.get("/v1/shrimp-animation/bilibili-signing-keys")
+def shrimp_animation_bilibili_signing_keys(limit: int = 100):
+    return list_signing_key_states(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-signing-key-events")
+def shrimp_animation_bilibili_signing_key_events(limit: int = 200):
+    return list_signing_key_events(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-signing-trust-roots")
+def shrimp_animation_bilibili_signing_trust_roots(limit: int = 100):
+    return list_trust_roots(limit=limit)
+
+
+@app.get("/v1/shrimp-animation/bilibili-signing-trust-roots/verify")
+def shrimp_animation_bilibili_signing_trust_roots_verify():
+    return verify_trust_root_chain()
+
+
+@app.get("/v1/shrimp-animation/bilibili-signing-key-lifecycle/verify-all")
+def shrimp_animation_bilibili_signing_verify_all(limit: int = 500):
+    return verify_all_bundles_with_key_registry(limit=limit)
+
+
+@app.get(
+    "/v1/shrimp-animation/bilibili-audit-proof-bundles/"
+    "{bundle_id}/verify-signing-trust"
+)
+def shrimp_animation_bilibili_bundle_verify_signing_trust(bundle_id: UUID):
+    try:
+        return verify_bundle_with_key_registry(bundle_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/bilibili-signing-key-lifecycle/bootstrap",
+    status_code=201,
+)
+def shrimp_animation_bilibili_signing_trust_bootstrap(
+    payload: ShrimpBilibiliSigningTrustBootstrap,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Reliability-Governance-Key",
+    ),
+):
+    _require_shrimp_bilibili_reliability_governance_key(x_key)
+    try:
+        return bootstrap_signing_trust(
+            actor=payload.actor,
+            key_label=payload.key_label,
+        )
+    except (RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/bilibili-signing-key-lifecycle/rotate",
+    status_code=201,
+)
+def shrimp_animation_bilibili_signing_key_rotate(
+    payload: ShrimpBilibiliSigningKeyRotation,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Signing-Key-Rotation-Key",
+    ),
+):
+    _require_shrimp_bilibili_signing_key_rotation_key(x_key)
+    try:
+        return rotate_signing_key(
+            actor=payload.actor,
+            reason=payload.reason,
+            key_label=payload.key_label,
+        )
+    except (RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/shrimp-animation/bilibili-signing-keys/{fingerprint}/revoke",
+    status_code=201,
+)
+def shrimp_animation_bilibili_signing_key_revoke(
+    fingerprint: str,
+    payload: ShrimpBilibiliSigningKeyRevocation,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Signing-Key-Rotation-Key",
+    ),
+):
+    _require_shrimp_bilibili_signing_key_rotation_key(x_key)
+    try:
+        return revoke_signing_key(
+            fingerprint,
+            effective_at=payload.effective_at,
+            reason=payload.reason,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except (RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
 @app.get("/v1/shrimp-animation/bilibili-audit-proof-bundles")
