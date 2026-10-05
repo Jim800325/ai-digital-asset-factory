@@ -99,7 +99,7 @@ jobs:
           ffprobe -version | head -n 1
 
       - name: Compile Python
-        run: python -m compileall -q app tests
+        run: python -m compileall -q app tests scripts
 
       - name: Check Shrimp review UI JavaScript
         run: node --check app/static/shrimp-review.js
@@ -129,7 +129,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "066_shrimp_bilibili_compromise_recovery_transition.sql", expected
+          assert expected[-1] == "069_shrimp_bilibili_rekor_public_key.sql", expected
           print("migrations:", actual)
           PY
 
@@ -167,8 +167,30 @@ jobs:
         run: |
           docker run --rm --entrypoint openhands asset-factory-openhands:1.16.0 --version
 
+      - name: Start Sigstore Timestamp Authority
+        run: |
+          git clone --depth 1 https://github.com/sigstore/timestamp-authority.git /tmp/sigstore-timestamp-authority
+          docker compose -f /tmp/sigstore-timestamp-authority/docker-compose.yml up -d timestamp-server
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3004/ping >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -f /tmp/sigstore-timestamp-authority/docker-compose.yml logs --no-color timestamp-server
+          exit 1
+
       - name: Run full test suite
+        env:
+          SIGSTORE_TSA_CI_URL: http://localhost:3004
         run: python -m pytest -q --timeout=150 --timeout-method=signal
+
+      - name: Stop Sigstore Timestamp Authority
+        if: always()
+        run: |
+          if [ -d /tmp/sigstore-timestamp-authority ]; then
+            docker compose -f /tmp/sigstore-timestamp-authority/docker-compose.yml down -v || true
+          fi
 
       - name: Verify OpenHands artifact remains isolated and production-disabled
         run: |

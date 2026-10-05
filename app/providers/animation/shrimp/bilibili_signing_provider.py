@@ -153,6 +153,44 @@ def current_signing_key() -> SigningKeyMaterial:
     raise RuntimeError(f"Unsupported audit signing provider: {provider}")
 
 
+
+def sign_bytes(payload_bytes: bytes) -> SigningResult:
+    key=current_signing_key()
+    if key.provider=="LOCAL_PEM":
+        signature=_local_private_key().sign(payload_bytes)
+        return SigningResult(
+            signature_b64=base64.b64encode(signature).decode("ascii"),
+            key=key,
+            provider_write_count=0,
+        )
+
+    body=_openbao_request(
+        "POST",
+        f"sign/{key.provider_key_name}",
+        json={
+            "input":base64.b64encode(payload_bytes).decode("ascii"),
+            "key_version":key.provider_key_version,
+            "hash_algorithm":"none",
+        },
+    )
+    signature=str((body.get("data") or {}).get("signature") or "")
+    parts=signature.split(":",2)
+    if len(parts)!=3 or parts[0] not in ("vault","bao"):
+        raise RuntimeError("OpenBao Transit returned an invalid signature envelope")
+    try:
+        returned_version=int(parts[1].lstrip("v"))
+        raw_signature=base64.b64decode(parts[2].encode("ascii"),validate=True)
+    except (ValueError,TypeError) as exc:
+        raise RuntimeError("OpenBao Transit signature envelope is invalid") from exc
+    if returned_version!=key.provider_key_version:
+        raise RuntimeError("OpenBao Transit signed with an unexpected key version")
+    return SigningResult(
+        signature_b64=base64.b64encode(raw_signature).decode("ascii"),
+        key=key,
+        provider_write_count=1,
+    )
+
+
 def sign_digest_sha256(digest_sha256: str) -> SigningResult:
     if len(digest_sha256)!=64:
         raise ValueError("Digest must be a SHA-256 hex value")
