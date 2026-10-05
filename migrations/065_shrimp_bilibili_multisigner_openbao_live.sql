@@ -116,9 +116,9 @@ BEGIN
     'shrimp_bilibili_key_compromise_recovery_drills'
   ]
   LOOP
-    EXECUTE format('DROP TRIGGER IF EXISTS trg_step10b23_immutable ON %I',t);
+    EXECUTE format('DROP TRIGGER IF EXISTS trg_step10b23_immutable ON %%I',t);
     EXECUTE format(
-      'CREATE TRIGGER trg_step10b23_immutable BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION prevent_bilibili_step10b23_mutation()',
+      'CREATE TRIGGER trg_step10b23_immutable BEFORE UPDATE OR DELETE ON %%I FOR EACH ROW EXECUTE FUNCTION prevent_bilibili_step10b23_mutation()',
       t
     );
   END LOOP;
