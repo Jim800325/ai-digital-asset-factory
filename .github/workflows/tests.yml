@@ -91,12 +91,13 @@ jobs:
       - name: Install pinned Remotion renderer
         run: npm install --prefix renderer/remotion --no-audit --no-fund
 
-      - name: Install FFmpeg and ffprobe
+      - name: Install FFmpeg, ffprobe and SoftHSM2
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg softhsm2 libsofthsm2
           ffmpeg -version | head -n 1
           ffprobe -version | head -n 1
+          softhsm2-util --version
 
       - name: Compile Python
         run: python -m compileall -q app tests scripts
@@ -129,7 +130,7 @@ jobs:
                   text("SELECT version FROM schema_migrations ORDER BY version")
               ).all()]
           assert actual == expected, (actual, expected)
-          assert expected[-1] == "069_shrimp_bilibili_rekor_public_key.sql", expected
+          assert expected[-1] == "070_shrimp_bilibili_hsm_root_custody.sql", expected
           print("migrations:", actual)
           PY
 
@@ -179,6 +180,19 @@ jobs:
           done
           docker compose -f /tmp/sigstore-timestamp-authority/docker-compose.yml logs --no-color timestamp-server
           exit 1
+
+      - name: Initialize SoftHSM2 root custody token
+        run: |
+          mkdir -p /tmp/softhsm2/tokens
+          printf '%s\n' 'directories.tokendir = /tmp/softhsm2/tokens' 'objectstore.backend = file' 'log.level = ERROR' 'slots.removable = false' > /tmp/softhsm2/softhsm2.conf
+          export SOFTHSM2_CONF=/tmp/softhsm2/softhsm2.conf
+          softhsm2-util --init-token --free --label SHRIMP-ROOT --so-pin 12345678 --pin 1234
+          MODULE=$(find /usr -name libsofthsm2.so -type f | head -n 1)
+          test -n "$MODULE"
+          echo "SOFTHSM2_CONF=/tmp/softhsm2/softhsm2.conf" >> "$GITHUB_ENV"
+          echo "SOFTHSM2_TOKEN_DIR=/tmp/softhsm2/tokens" >> "$GITHUB_ENV"
+          echo "PKCS11_CI_MODULE=$MODULE" >> "$GITHUB_ENV"
+          echo "SoftHSM module: $MODULE"
 
       - name: Run full test suite
         env:
