@@ -281,7 +281,22 @@ def request_trusted_timestamp(attestation_id:UUID,*,actor:str) -> dict:
 def append_to_rekor_compatible(attestation_id:UUID,*,actor:str) -> dict:
     envelope=_complete_envelope_dict(attestation_id)
     body=offline_canonical_json(envelope).encode("utf-8")
-    with engine.connect() as db:
+    with engine.begin() as db:
+        db.execute(text("""
+          SELECT pg_advisory_xact_lock(
+            hashtext('shrimp_bilibili_rekor_compatible_log')
+          )
+        """))
+        existing=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_transparency_entries
+          WHERE provider='REKOR_COMPATIBLE'
+            AND attestation_id=:id
+          ORDER BY recorded_at,id
+          LIMIT 1
+        """),{"id":attestation_id}).mappings().one_or_none()
+        if existing is not None:
+            return _ser(existing)
+
         previous=[
             base64.b64decode(x[0].encode("ascii"),validate=True)
             for x in db.execute(text("""
@@ -291,72 +306,71 @@ def append_to_rekor_compatible(attestation_id:UUID,*,actor:str) -> dict:
               ORDER BY log_index,id
             """)).all()
         ]
-    leaves=previous+[body]
-    log_index=len(previous)
-    tree_size=len(leaves)
-    root_hash=rfc6962_root(leaves).hex()
-    proof=[x.hex() for x in rfc6962_inclusion_proof(leaves,log_index)]
-    integrated=datetime.now(timezone.utc)
-    integrated_epoch=int(integrated.timestamp())
-    body_sha=hashlib.sha256(body).hexdigest()
+        leaves=previous+[body]
+        log_index=len(previous)
+        tree_size=len(leaves)
+        root_hash=rfc6962_root(leaves).hex()
+        proof=[x.hex() for x in rfc6962_inclusion_proof(leaves,log_index)]
+        integrated=datetime.now(timezone.utc)
+        integrated_epoch=int(integrated.timestamp())
+        body_sha=hashlib.sha256(body).hexdigest()
 
-    key=current_signing_key()
-    entry={
-        "bodySha256":body_sha,
-        "integratedTime":integrated_epoch,
-        "logIndex":log_index,
-        "treeSize":tree_size,
-        "rootHash":root_hash,
-    }
-    set_sign=sign_bytes(offline_canonical_json(entry).encode("utf-8"))
-    if set_sign.key.fingerprint_sha256!=key.fingerprint_sha256:
-        raise RuntimeError("Transparency signing key changed during SET creation")
+        key=current_signing_key()
+        entry={
+            "bodySha256":body_sha,
+            "integratedTime":integrated_epoch,
+            "logIndex":log_index,
+            "treeSize":tree_size,
+            "rootHash":root_hash,
+        }
+        set_sign=sign_bytes(offline_canonical_json(entry).encode("utf-8"))
+        if set_sign.key.fingerprint_sha256!=key.fingerprint_sha256:
+            raise RuntimeError("Transparency signing key changed during SET creation")
 
-    checkpoint_payload={
-        "origin":"ai-digital-asset-factory/shrimp-bilibili",
-        "treeSize":tree_size,
-        "rootHash":root_hash,
-    }
-    checkpoint_sign=sign_bytes(
-        offline_canonical_json(checkpoint_payload).encode("utf-8")
-    )
-    if checkpoint_sign.key.fingerprint_sha256!=key.fingerprint_sha256:
-        raise RuntimeError("Transparency signing key changed during checkpoint creation")
+        checkpoint_payload={
+            "origin":"ai-digital-asset-factory/shrimp-bilibili",
+            "treeSize":tree_size,
+            "rootHash":root_hash,
+        }
+        checkpoint_sign=sign_bytes(
+            offline_canonical_json(checkpoint_payload).encode("utf-8")
+        )
+        if checkpoint_sign.key.fingerprint_sha256!=key.fingerprint_sha256:
+            raise RuntimeError("Transparency signing key changed during checkpoint creation")
 
-    receipt={
-        "kind":"rekor-compatible-v1",
-        "entry":entry,
-        "verification":{
-            "signedEntryTimestamp":{
-                "signature":set_sign.signature_b64,
-                "keyFingerprintSha256":key.fingerprint_sha256,
-                "publicKeyPemB64":key.public_key_pem_b64,
+        receipt={
+            "kind":"rekor-compatible-v1",
+            "entry":entry,
+            "verification":{
+                "signedEntryTimestamp":{
+                    "signature":set_sign.signature_b64,
+                    "keyFingerprintSha256":key.fingerprint_sha256,
+                    "publicKeyPemB64":key.public_key_pem_b64,
+                },
+                "inclusionProof":{
+                    "logIndex":log_index,
+                    "treeSize":tree_size,
+                    "rootHash":root_hash,
+                    "hashes":proof,
+                },
+                "checkpoint":{
+                    **checkpoint_payload,
+                    "signature":checkpoint_sign.signature_b64,
+                    "keyFingerprintSha256":key.fingerprint_sha256,
+                    "publicKeyPemB64":key.public_key_pem_b64,
+                },
             },
-            "inclusionProof":{
-                "logIndex":log_index,
-                "treeSize":tree_size,
-                "rootHash":root_hash,
-                "hashes":proof,
+            "writeBudget":{
+                "setSignWrites":set_sign.provider_write_count,
+                "checkpointSignWrites":checkpoint_sign.provider_write_count,
+                "bilibiliWrites":0,
+                "productionWrites":0,
             },
-            "checkpoint":{
-                **checkpoint_payload,
-                "signature":checkpoint_sign.signature_b64,
-                "keyFingerprintSha256":key.fingerprint_sha256,
-                "publicKeyPemB64":key.public_key_pem_b64,
-            },
-        },
-        "writeBudget":{
-            "setSignWrites":set_sign.provider_write_count,
-            "checkpointSignWrites":checkpoint_sign.provider_write_count,
-            "bilibiliWrites":0,
-            "productionWrites":0,
-        },
-    }
-    receipt_sha=_sha(receipt)
-    public_pem=base64.b64decode(
-        key.public_key_pem_b64.encode("ascii"),validate=True
-    ).decode("ascii")
-    with engine.begin() as db:
+        }
+        receipt_sha=_sha(receipt)
+        public_pem=base64.b64decode(
+            key.public_key_pem_b64.encode("ascii"),validate=True
+        ).decode("ascii")
         row=db.execute(text("""
           INSERT INTO shrimp_bilibili_transparency_entries(
             attestation_id,provider,entry_uuid,log_index,tree_size,root_hash,
