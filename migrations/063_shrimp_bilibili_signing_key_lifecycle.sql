@@ -5,18 +5,11 @@ CREATE TABLE IF NOT EXISTS shrimp_bilibili_signing_keys (
   key_fingerprint_sha256 char(64) NOT NULL UNIQUE,
   algorithm text NOT NULL,
   public_key_pem_b64 text NOT NULL,
-  provider text NOT NULL,
-  provider_key_name text NOT NULL,
-  provider_key_version integer NOT NULL,
-  tuf_keyid text NOT NULL,
   key_label text NOT NULL,
   registered_by text NOT NULL,
   registered_at timestamptz NOT NULL DEFAULT now(),
   CHECK (algorithm='ED25519'),
-  CHECK (provider IN ('LOCAL_PEM','OPENBAO_TRANSIT')),
-  CHECK (provider_key_version>=1),
-  CHECK (char_length(key_fingerprint_sha256)=64),
-  CHECK (char_length(tuf_keyid)>=16)
+  CHECK (char_length(key_fingerprint_sha256)=64)
 );
 
 CREATE TABLE IF NOT EXISTS shrimp_bilibili_signing_key_events (
@@ -51,12 +44,10 @@ CREATE TABLE IF NOT EXISTS shrimp_bilibili_signing_trust_roots (
   authorized_key_fingerprints jsonb NOT NULL,
   root_snapshot jsonb NOT NULL,
   root_sha256 char(64) NOT NULL UNIQUE,
-  transition_type text NOT NULL,
   generated_by text NOT NULL,
   generated_at timestamptz NOT NULL DEFAULT now(),
   CHECK (root_version>=1),
   CHECK (root_threshold>=1),
-  CHECK (transition_type IN ('BOOTSTRAP','ROTATION','REVOCATION','POLICY_UPDATE')),
   CHECK (jsonb_typeof(authorized_key_fingerprints)='array'),
   CHECK (jsonb_typeof(root_snapshot)='object'),
   CHECK (char_length(root_sha256)=64)
