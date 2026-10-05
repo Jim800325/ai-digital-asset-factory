@@ -227,6 +227,11 @@ from app.providers.animation.shrimp.bilibili_hsm_root_ceremony import (
     register_current_hsm_key,
     run_restore_drill,
 )
+from app.providers.animation.shrimp.bilibili_external_kms_registry import (
+    create_cross_kms_root_ceremony,
+    external_kms_dashboard,
+    sync_configured_provider_registry,
+)
 from app.providers.animation.shrimp.bilibili_certification_renewal import (
     decide_recertification,
     evaluate_certification_expiry,
@@ -718,6 +723,18 @@ class ShrimpBilibiliRootBackupAction(BaseModel):
 class ShrimpBilibiliRootRestoreDrillAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     actor: str = Field(default="shrimp-root-restore-drill",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliExternalKmsSyncAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(default="shrimp-external-kms-sync",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliCrossKmsCeremonyAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_refs: list[str] = Field(min_length=2,max_length=10)
+    threshold: int = Field(default=2,ge=2,le=10)
+    actor: str = Field(default="shrimp-cross-kms-ceremony",min_length=1,max_length=200)
 
 
 class ShrimpBilibiliExternalAnchorCreate(BaseModel):
@@ -2625,6 +2642,45 @@ def shrimp_animation_bilibili_key_compromise_recovery_drill(
             actor=payload.actor,
         )
     except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-external-kms")
+def shrimp_animation_bilibili_external_kms():
+    return external_kms_dashboard()
+
+
+@app.post("/v1/shrimp-animation/bilibili-external-kms/sync",status_code=201)
+def shrimp_animation_bilibili_external_kms_sync(
+    payload: ShrimpBilibiliExternalKmsSyncAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Root-Ceremony-Key"),
+):
+    _require_shrimp_bilibili_root_ceremony_key(x_key)
+    if not settings.shrimp_bilibili_external_kms_enabled:
+        raise HTTPException(status_code=409,detail="External KMS is disabled")
+    try:
+        return sync_configured_provider_registry(actor=payload.actor)
+    except Exception as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-cross-kms-root-ceremonies",status_code=201)
+def shrimp_animation_bilibili_cross_kms_root_ceremony(
+    payload: ShrimpBilibiliCrossKmsCeremonyAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Root-Ceremony-Key"),
+):
+    _require_shrimp_bilibili_root_ceremony_key(x_key)
+    if not settings.shrimp_bilibili_external_kms_enabled:
+        raise HTTPException(status_code=409,detail="External KMS is disabled")
+    try:
+        return create_cross_kms_root_ceremony(
+            provider_refs=payload.provider_refs,
+            threshold=payload.threshold,
+            actor=payload.actor,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except (RuntimeError,ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
