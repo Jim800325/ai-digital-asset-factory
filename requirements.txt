@@ -17,3 +17,7 @@ pytest-timeout==2.4.0
 
 sigstore==4.5.0
 python-pkcs11==0.10.0
+boto3==1.43.108
+google-cloud-kms==3.17.0
+azure-keyvault-keys==4.11.2
+azure-identity==1.26.0
