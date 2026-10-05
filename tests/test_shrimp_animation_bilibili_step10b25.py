@@ -3,6 +3,9 @@ from __future__ import annotations
 import base64
 import os
 import shutil
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -111,14 +114,31 @@ def test_step10b25_real_softhsm_root_custody_ceremony_and_restore(monkeypatch,tm
     shutil.rmtree(token_dir)
     shutil.copytree(offline_copy,token_dir)
 
-    restored=read_pkcs11_key()
-    assert restored.fingerprint_sha256==material.fingerprint_sha256
-    restored_signature,restored_key=sign_pkcs11(b"after-restore")
-    assert verify_pkcs11_public(
-        b"after-restore",restored_signature,restored_key
-    ) is True
-
-    drill=run_restore_drill(backup["id"],actor="10b25-restore-drill")
+    env=os.environ.copy()
+    env.update({
+        "SHRIMP_BILIBILI_HSM_PROVIDER":"PKCS11",
+        "SHRIMP_BILIBILI_PKCS11_MODULE":os.environ["PKCS11_CI_MODULE"],
+        "SHRIMP_BILIBILI_PKCS11_TOKEN_LABEL":"SHRIMP-ROOT",
+        "SHRIMP_BILIBILI_PKCS11_USER_PIN":"1234",
+        "SHRIMP_BILIBILI_PKCS11_KEY_LABEL":"shrimp-root-ed25519",
+        "SHRIMP_BILIBILI_PKCS11_KEY_ID_HEX":"10b025",
+    })
+    proc=subprocess.run(
+        [
+            sys.executable,
+            "scripts/run_shrimp_hsm_restore_drill.py",
+            "--backup-id",
+            str(backup["id"]),
+            "--actor",
+            "10b25-restore-drill",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    drill=json.loads(proc.stdout.strip().splitlines()[-1])
     assert drill["drill_status"]=="PASSED"
     assert drill["hsm_signature_verified"] is True
     assert drill["root_threshold_verified"] is True
