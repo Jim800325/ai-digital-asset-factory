@@ -131,6 +131,7 @@ class Settings(BaseSettings):
     shrimp_bilibili_openbao_rotation_enabled: bool = False
     shrimp_bilibili_tuf_root_valid_days: int = 365
     shrimp_bilibili_tuf_root_threshold: int = 1
+    shrimp_bilibili_signing_key_rotation_key: str = ""
     cron_secret: str = ""
     human_approval_key: str = ""
     human_release_key: str = ""
