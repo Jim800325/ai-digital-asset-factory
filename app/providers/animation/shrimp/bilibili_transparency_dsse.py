@@ -567,6 +567,10 @@ def _clean_export_value(value:Any):
 def _offline_material_snapshot(attestation_id:UUID) -> dict:
     att=_get_attestation(attestation_id)
     envelope=_complete_envelope_dict(attestation_id)
+    root_version=int(
+        (att["statement_snapshot"].get("predicate") or {}).get("trustRootVersion")
+        or 0
+    )
     with engine.connect() as db:
         timestamps=[_ser(x) for x in db.execute(text("""
           SELECT * FROM shrimp_bilibili_trusted_timestamps
@@ -576,10 +580,17 @@ def _offline_material_snapshot(attestation_id:UUID) -> dict:
           SELECT * FROM shrimp_bilibili_transparency_entries
           WHERE attestation_id=:id ORDER BY recorded_at,id
         """),{"id":attestation_id}).mappings().all()]
+        trust_root=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_signing_trust_roots
+          WHERE root_version=:version
+        """),{"version":root_version}).mappings().one_or_none()
+    if trust_root is None:
+        raise RuntimeError("Attestation TUF trust root is unavailable")
     return {
         "schema_version":"shrimp-bilibili-offline-verification-bundle-v0.2",
         "attestation":_clean_export_value(att),
         "envelope":envelope,
+        "trust_root":_clean_export_value(_ser(trust_root)),
         "signatures":[
             _clean_export_value(x) for x in _signature_rows(attestation_id)
         ],
