@@ -87,6 +87,15 @@ Two AWS keys cannot satisfy a 2-provider cross-KMS threshold by themselves.
 - Azure Key Vault / Managed HSM: CryptographyClient Verify
 - OpenBao External Key: Transit Verify
 
+### SDK pins used by this acceptance
+
+- boto3 `1.43.108`
+- google-cloud-kms `3.17.0`
+- azure-keyvault-keys `4.11.2`
+- azure-identity `1.26.0`
+
+These are provider client dependencies only. Their presence in CI does not imply that cloud credentials or production cloud keys are configured.
+
 ### Acceptance boundary
 
 CI validates the official SDK request contracts without cloud credentials by injecting local P-256 test keys behind SDK-compatible clients.
