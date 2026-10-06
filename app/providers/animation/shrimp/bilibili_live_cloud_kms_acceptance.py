@@ -336,33 +336,7 @@ def run_live_cross_cloud_acceptance(
             "outageDrillId":str(outage_result["id"]),
             "externalWriteCountBeforeCleanup":writes,
         }
-        ceremony_sha=_sha({
-            "snapshot":ceremony_snapshot,
-            "signatures":signatures,
-        })
-        with engine.begin() as db:
-            row=db.execute(text("""
-              INSERT INTO shrimp_bilibili_live_cross_cloud_ceremonies(
-                trust_root_version,trust_root_sha256,required_provider_threshold,
-                live_provider_refs,provider_signatures,ceremony_snapshot,
-                ceremony_sha256,ceremony_status,external_write_count,executed_by)
-              VALUES(
-                :version,:root_sha,:threshold,CAST(:refs AS jsonb),
-                CAST(:signatures AS jsonb),CAST(:snapshot AS jsonb),
-                :sha,'PASSED',:writes,:actor)
-              RETURNING *
-            """),{
-                "version":root["root_version"],
-                "root_sha":root["root_sha256"],
-                "threshold":threshold,
-                "refs":canonical_json([resources[x].provider_ref for x in unique]),
-                "signatures":canonical_json(signatures),
-                "snapshot":canonical_json(ceremony_snapshot),
-                "sha":ceremony_sha,
-                "writes":writes,
-                "actor":actor[:200],
-            }).mappings().one()
-        ceremony=_ser(row)
+        ceremony=None
     except Exception as exc:
         ceremony_error=exc
         ceremony=None
@@ -409,6 +383,40 @@ def run_live_cross_cloud_acceptance(
         ) from ceremony_error
     if not cleanup_ok:
         raise RuntimeError("Live cross-cloud cleanup verification failed")
+
+    ceremony_snapshot={
+        **ceremony_snapshot,
+        "cleanupVerified":True,
+        "cleanup":cleanup_results,
+        "externalWriteCountFinal":writes,
+    }
+    ceremony_sha=_sha({
+        "snapshot":ceremony_snapshot,
+        "signatures":signatures,
+    })
+    with engine.begin() as db:
+        row=db.execute(text("""
+          INSERT INTO shrimp_bilibili_live_cross_cloud_ceremonies(
+            trust_root_version,trust_root_sha256,required_provider_threshold,
+            live_provider_refs,provider_signatures,ceremony_snapshot,
+            ceremony_sha256,ceremony_status,external_write_count,executed_by)
+          VALUES(
+            :version,:root_sha,:threshold,CAST(:refs AS jsonb),
+            CAST(:signatures AS jsonb),CAST(:snapshot AS jsonb),
+            :sha,'PASSED',:writes,:actor)
+          RETURNING *
+        """),{
+            "version":root["root_version"],
+            "root_sha":root["root_sha256"],
+            "threshold":threshold,
+            "refs":canonical_json([resources[x].provider_ref for x in unique]),
+            "signatures":canonical_json(signatures),
+            "snapshot":canonical_json(ceremony_snapshot),
+            "sha":ceremony_sha,
+            "writes":writes,
+            "actor":actor[:200],
+        }).mappings().one()
+    ceremony=_ser(row)
 
     return {
         "status":"PASSED",
