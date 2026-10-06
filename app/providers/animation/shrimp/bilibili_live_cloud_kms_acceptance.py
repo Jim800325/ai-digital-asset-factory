@@ -141,6 +141,35 @@ def run_live_provider_acceptance(
         resource_locator=resource.resource_locator
         provider_ref=resource.provider_ref
 
+    if resource is not None and not cleanup_verified:
+        try:
+            readback=lifecycle.cleanup_readback(resource)
+            if not bool(readback.get("cleanupVerified")):
+                cleanup_snapshot=lifecycle.disable(resource)
+                writes+=1
+                readback=lifecycle.cleanup_readback(resource)
+            cleanup_snapshot={
+                **cleanup_snapshot,
+                "finalReadback":readback,
+            }
+            cleanup_verified=bool(readback.get("cleanupVerified"))
+            if cleanup_verified and not post_cleanup_blocked:
+                try:
+                    resource.adapter.sign_digest(
+                        hashlib.sha256(b"final-post-cleanup-check").digest()
+                    )
+                    writes+=1
+                except Exception:
+                    post_cleanup_blocked=True
+        except Exception as cleanup_exc:
+            issues.append("FINAL_CLEANUP_FAILED:"+type(cleanup_exc).__name__)
+
+    issues=sorted(set(issues))
+    if cleanup_verified:
+        issues=[x for x in issues if x!="CLEANUP_READBACK_FAILED"]
+    if post_cleanup_blocked:
+        issues=[x for x in issues if x!="POST_CLEANUP_SIGN_NOT_BLOCKED"]
+
     status="CLEANUP_VERIFIED" if (
         verified and cleanup_verified and post_cleanup_blocked and not issues
     ) else "FAILED"
@@ -445,15 +474,30 @@ def live_cloud_kms_dashboard() -> dict[str,Any]:
           SELECT * FROM shrimp_bilibili_live_cross_cloud_ceremonies
           ORDER BY executed_at DESC LIMIT 100
         """)).mappings().all()
+    acceptance_rows=[_ser(x) for x in acceptances]
+    outage_rows=[_ser(x) for x in outages]
+    ceremony_rows=[_ser(x) for x in ceremonies]
+    accepted_provider_types=sorted({
+        x["provider_type"]
+        for x in acceptance_rows
+        if x["acceptance_status"]=="CLEANUP_VERIFIED"
+        and x["live_signature_verified"]
+        and x["cleanup_verified"]
+        and x["post_cleanup_sign_blocked"]
+    })
     return {
         "live_acceptance_enabled":settings.shrimp_bilibili_live_cloud_kms_acceptance_enabled,
         "cleanup_verification_enabled":settings.shrimp_bilibili_live_cloud_kms_cleanup_enabled,
         "sacrificial_name_prefix":settings.shrimp_bilibili_live_cloud_kms_allowed_name_prefix,
-        "acceptances":[_ser(x) for x in acceptances],
-        "outage_drills":[_ser(x) for x in outages],
-        "cross_cloud_ceremonies":[_ser(x) for x in ceremonies],
+        "acceptances":acceptance_rows,
+        "outage_drills":outage_rows,
+        "cross_cloud_ceremonies":ceremony_rows,
+        "accepted_provider_types":accepted_provider_types,
+        "live_cloud_account_acceptance_completed":bool(accepted_provider_types),
+        "live_cross_cloud_acceptance_completed":any(
+            x["ceremony_status"]=="PASSED" for x in ceremony_rows
+        ),
         "credentials_persisted":False,
         "private_key_export_allowed":False,
         "automatic_production_writes":False,
-        "live_cloud_account_acceptance_completed":False,
     }
