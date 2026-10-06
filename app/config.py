@@ -150,6 +150,14 @@ class Settings(BaseSettings):
     shrimp_bilibili_gcp_kms_key_version: str = ""
     shrimp_bilibili_azure_key_id: str = ""
     shrimp_bilibili_openbao_external_key_name: str = ""
+    shrimp_bilibili_live_cloud_kms_acceptance_enabled: bool = False
+    shrimp_bilibili_live_cloud_kms_cleanup_enabled: bool = False
+    shrimp_bilibili_live_cloud_kms_allowed_name_prefix: str = "shrimp-sacrificial-"
+    shrimp_bilibili_live_aws_region: str = ""
+    shrimp_bilibili_live_gcp_project_id: str = ""
+    shrimp_bilibili_live_gcp_location: str = ""
+    shrimp_bilibili_live_gcp_key_ring: str = ""
+    shrimp_bilibili_live_azure_vault_url: str = ""
     shrimp_bilibili_rekor_url: str = ""
     shrimp_bilibili_rekor_enabled: bool = False
     shrimp_bilibili_rekor_timeout_seconds: float = 10.0
