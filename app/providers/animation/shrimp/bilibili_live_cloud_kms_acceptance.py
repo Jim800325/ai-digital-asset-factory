@@ -370,9 +370,14 @@ def run_live_cross_cloud_acceptance(
         for provider_type,resource in resources.items():
             lifecycle=lifecycles[provider_type]
             try:
-                disable_result=lifecycle.disable(resource)
-                writes+=1
-                readback=lifecycle.cleanup_readback(resource)
+                initial_readback=lifecycle.cleanup_readback(resource)
+                if bool(initial_readback.get("cleanupVerified")):
+                    disable_result={"alreadyCleaned":True}
+                    readback=initial_readback
+                else:
+                    disable_result=lifecycle.disable(resource)
+                    writes+=1
+                    readback=lifecycle.cleanup_readback(resource)
                 blocked=False
                 try:
                     resource.adapter.sign_digest(
