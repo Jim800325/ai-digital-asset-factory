@@ -232,6 +232,11 @@ from app.providers.animation.shrimp.bilibili_external_kms_registry import (
     external_kms_dashboard,
     sync_configured_provider_registry,
 )
+from app.providers.animation.shrimp.bilibili_live_cloud_kms_acceptance import (
+    live_cloud_kms_dashboard,
+    run_live_cross_cloud_acceptance,
+    run_live_provider_acceptance,
+)
 from app.providers.animation.shrimp.bilibili_certification_renewal import (
     decide_recertification,
     evaluate_certification_expiry,
@@ -735,6 +740,19 @@ class ShrimpBilibiliCrossKmsCeremonyAction(BaseModel):
     provider_refs: list[str] = Field(min_length=2,max_length=10)
     threshold: int = Field(default=2,ge=2,le=10)
     actor: str = Field(default="shrimp-cross-kms-ceremony",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliLiveCloudKmsAcceptanceAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_type: Literal["AWS_KMS","GCP_KMS","AZURE_KEY_VAULT"]
+    actor: str = Field(default="shrimp-live-cloud-kms",min_length=1,max_length=200)
+
+
+class ShrimpBilibiliLiveCrossCloudAcceptanceAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_types: list[Literal["AWS_KMS","GCP_KMS","AZURE_KEY_VAULT"]] = Field(min_length=2,max_length=3)
+    threshold: int = Field(default=2,ge=2,le=3)
+    actor: str = Field(default="shrimp-live-cross-cloud",min_length=1,max_length=200)
 
 
 class ShrimpBilibiliExternalAnchorCreate(BaseModel):
@@ -2642,6 +2660,41 @@ def shrimp_animation_bilibili_key_compromise_recovery_drill(
             actor=payload.actor,
         )
     except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/bilibili-live-cloud-kms")
+def shrimp_animation_bilibili_live_cloud_kms():
+    return live_cloud_kms_dashboard()
+
+
+@app.post("/v1/shrimp-animation/bilibili-live-cloud-kms/accept",status_code=201)
+def shrimp_animation_bilibili_live_cloud_kms_accept(
+    payload: ShrimpBilibiliLiveCloudKmsAcceptanceAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Root-Ceremony-Key"),
+):
+    _require_shrimp_bilibili_root_ceremony_key(x_key)
+    try:
+        return run_live_provider_acceptance(
+            payload.provider_type,actor=payload.actor
+        )
+    except (RuntimeError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/v1/shrimp-animation/bilibili-live-cloud-kms/cross-cloud",status_code=201)
+def shrimp_animation_bilibili_live_cross_cloud_kms_accept(
+    payload: ShrimpBilibiliLiveCrossCloudAcceptanceAction,
+    x_key: str | None = Header(default=None,alias="X-Shrimp-Root-Ceremony-Key"),
+):
+    _require_shrimp_bilibili_root_ceremony_key(x_key)
+    try:
+        return run_live_cross_cloud_acceptance(
+            list(payload.provider_types),
+            threshold=payload.threshold,
+            actor=payload.actor,
+        )
+    except (RuntimeError,ValueError,LookupError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
