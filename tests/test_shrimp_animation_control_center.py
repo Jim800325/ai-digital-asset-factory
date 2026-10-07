@@ -44,7 +44,7 @@ def test_control_center_homepage_and_summary_are_secret_redacted(
 
     homepage=client.get("/")
     assert homepage.status_code == 200
-    assert "Shrimp Animation Control Center" in homepage.text
+    assert "Unified Control Center" in homepage.text
     assert "/review-assets/control-center.js" in homepage.text
     assert "/animation-review" in homepage.text
     assert "/animation-publishing" in homepage.text
@@ -63,6 +63,15 @@ def test_control_center_homepage_and_summary_are_secret_redacted(
     assert "publishing" in payload
     assert "bilibili" in payload
     assert "navigation" in payload
+
+    assert "trust_security" in payload
+    assert "governance" in payload
+    assert "release_track" in payload
+    assert "operations" in payload
+    assert payload["trust_security"]["secrets_redacted"] is True
+    assert payload["release_track"]["step_10b27"]["implemented"] is True
+    assert payload["release_track"]["step_10b27"]["integration_accepted"] is True
+    assert payload["operations"]["read_only"] is True
 
     assert payload["system"]["provider"] == "shrimp_animation"
     assert payload["pipeline"]["total_jobs"] >= 0
@@ -121,3 +130,26 @@ def test_admin_surface_does_not_embed_bilibili_secrets():
     assert 'id="publishKey"' in body
     assert "localStorage" not in body
     assert "sessionStorage" not in body
+
+
+def test_unified_control_center_v1_homepage_sections_are_present():
+    client=TestClient(app)
+    response=client.get("/")
+    assert response.status_code==200
+    body=response.text
+    for expected in (
+        "Unified Control Center v1.0",
+        "SYSTEM STATUS",
+        "PRODUCTION PIPELINE",
+        "Publishing Readiness",
+        "Trust / Signing / HSM / KMS",
+        "可靠性与治理",
+        "Operations Console",
+        "STEP 10B.27A",
+    ):
+        assert expected in body
+
+    assert "Upload Now" not in body
+    assert "Publish Now" not in body
+    assert "AWS_SECRET_ACCESS_KEY" not in body
+    assert "GOOGLE_APPLICATION_CREDENTIALS" not in body
