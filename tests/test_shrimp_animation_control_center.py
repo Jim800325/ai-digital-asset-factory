@@ -139,7 +139,7 @@ def test_unified_control_center_v1_homepage_sections_are_present():
     body=response.text
     for expected in (
         "Unified Control Center v1.0",
-        "System Status",
+        "SYSTEM STATUS",
         "PRODUCTION PIPELINE",
         "Publishing Readiness",
         "Trust / Signing / HSM / KMS",
