@@ -1468,6 +1468,17 @@ def _control_center_row(row: Any) -> dict[str, Any]:
     return result
 
 
+def _control_center_dashboard_snapshot(factory) -> dict[str, Any]:
+    try:
+        value=factory()
+        return value if isinstance(value,dict) else {"value":value}
+    except Exception as exc:
+        return {
+            "status":"UNAVAILABLE",
+            "issue_code":type(exc).__name__,
+        }
+
+
 def _shrimp_control_center_summary() -> dict[str, Any]:
     db_state=database_health()
     migrations=(
@@ -1567,6 +1578,76 @@ def _shrimp_control_center_summary() -> dict[str, Any]:
 
     readiness=_shrimp_bilibili_live_acceptance_readiness()
 
+    if db_state["available"]:
+        signing=_control_center_dashboard_snapshot(
+            signing_key_lifecycle_dashboard
+        )
+        transparency=_control_center_dashboard_snapshot(
+            transparency_dashboard
+        )
+        hsm=_control_center_dashboard_snapshot(
+            hsm_root_custody_dashboard
+        )
+        external_kms=_control_center_dashboard_snapshot(
+            external_kms_dashboard
+        )
+        live_cloud=_control_center_dashboard_snapshot(
+            live_cloud_kms_dashboard
+        )
+        trust_audit=_control_center_dashboard_snapshot(
+            trust_audit_dashboard
+        )
+        certification=_control_center_dashboard_snapshot(
+            certification_dashboard
+        )
+        renewal=_control_center_dashboard_snapshot(
+            renewal_dashboard
+        )
+        observation=_control_center_dashboard_snapshot(
+            observation_dashboard
+        )
+        restore=_control_center_dashboard_snapshot(
+            safe_unfreeze_dashboard
+        )
+    else:
+        unavailable={"status":"DB_UNAVAILABLE"}
+        signing=unavailable
+        transparency=unavailable
+        hsm=unavailable
+        external_kms=unavailable
+        live_cloud=unavailable
+        trust_audit=unavailable
+        certification=unavailable
+        renewal=unavailable
+        observation=unavailable
+        restore=unavailable
+
+    live_cloud_complete=bool(
+        live_cloud.get("live_cross_cloud_acceptance_completed")
+    )
+    attention=[]
+    if migrations.get("status")!="CURRENT":
+        attention.append({
+            "severity":"CRITICAL",
+            "code":"MIGRATIONS_NOT_CURRENT",
+            "label":"Database migrations require attention",
+            "href":"/docs",
+        })
+    if readiness.get("status")!="READY":
+        attention.append({
+            "severity":"WARNING",
+            "code":"BILIBILI_LIVE_BLOCKED",
+            "label":"Bilibili live acceptance has blockers",
+            "href":"/animation/operations",
+        })
+    if not live_cloud_complete:
+        attention.append({
+            "severity":"INFO",
+            "code":"REAL_CLOUD_IDENTITY_REQUIRED",
+            "label":"Step 10B.27A waiting for real AWS/GCP/Azure identities",
+            "href":"/v1/shrimp-animation/bilibili-live-cloud-kms",
+        })
+
     return {
         "status":"READY" if db_state["available"] else "DEGRADED",
         "mode":"READ_ONLY_CONTROL_CENTER",
@@ -1620,6 +1701,40 @@ def _shrimp_control_center_summary() -> dict[str, Any]:
             "acceptance_count":len(acceptances),
             "acceptance_status_counts":acceptance_counts,
             "recent_acceptances":acceptances[:10],
+        },
+        "trust_security":{
+            "signing":signing,
+            "transparency":transparency,
+            "hsm":hsm,
+            "external_kms":external_kms,
+            "live_cloud":live_cloud,
+            "secrets_redacted":True,
+        },
+        "governance":{
+            "trust_audit":trust_audit,
+            "certification":certification,
+            "renewal":renewal,
+            "observation":observation,
+            "restore":restore,
+            "automatic_policy_change":False,
+        },
+        "release_track":{
+            "current_stage":"10B.27A_REAL_CLOUD_ACCOUNT_EXECUTION",
+            "step_10b27":{
+                "implemented":True,
+                "integration_accepted":True,
+                "real_cloud_live_accepted":live_cloud_complete,
+            },
+            "next_required_action":(
+                "REAL_CLOUD_ACCEPTANCE_COMPLETE"
+                if live_cloud_complete
+                else "CONNECT_AT_LEAST_TWO_REAL_CLOUD_IDENTITIES"
+            ),
+        },
+        "operations":{
+            "attention":attention,
+            "attention_count":len(attention),
+            "read_only":True,
         },
         "navigation":[
             {"label":"Control Center","href":"/"},
