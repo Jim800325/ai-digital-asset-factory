@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import os
 from typing import Any
 
@@ -32,6 +34,32 @@ def _require_oidc_token() -> str:
     if not token:
         raise RuntimeError("Vercel Preview OIDC token is unavailable")
     return token
+
+
+def _safe_oidc_identity() -> dict[str,Any] | None:
+    token=_runtime_oidc_token()
+    if not token:
+        return None
+    try:
+        parts=token.split(".")
+        if len(parts)!=3:
+            return None
+        raw=parts[1]+"="*(-len(parts[1])%4)
+        payload=json.loads(
+            base64.urlsafe_b64decode(raw.encode("ascii")).decode("utf-8")
+        )
+        if not isinstance(payload,dict):
+            return None
+        return {
+            "issuer":payload.get("iss"),
+            "audience":payload.get("aud"),
+            "subject":payload.get("sub"),
+            "project_id":payload.get("project_id"),
+            "owner_id":payload.get("owner_id"),
+            "environment":payload.get("environment"),
+        }
+    except Exception:
+        return None
 
 
 def _masked_ref(value: str) -> str | None:
@@ -157,6 +185,7 @@ def live_cloud_identity_readiness() -> dict[str,Any]:
         "minimum_provider_threshold":2,
         "vercel_env":(os.getenv("VERCEL_ENV") or "").strip().lower() or None,
         "oidc_token_present":token_present,
+        "oidc_identity":_safe_oidc_identity(),
         "live_acceptance_enabled":
             settings.shrimp_bilibili_live_cloud_kms_acceptance_enabled,
         "cleanup_verification_enabled":
