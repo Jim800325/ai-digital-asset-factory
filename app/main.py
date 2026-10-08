@@ -230,6 +230,8 @@ from app.providers.animation.shrimp.bilibili_hsm_root_ceremony import (
 from app.providers.animation.shrimp.bilibili_external_kms_registry import (
     create_cross_kms_root_ceremony,
     external_kms_dashboard,
+    record_provider_event,
+    register_external_kms_provider,
     sync_configured_provider_registry,
 )
 from app.providers.animation.shrimp.bilibili_live_cloud_kms_acceptance import (
@@ -267,6 +269,7 @@ from app.providers.animation.shrimp.bilibili_post_unfreeze_observation import (
 from app.providers.animation.shrimp.bilibili_reliability_restore import (
     first_restore_approval,
     generate_restore_plan,
+    recovery_evidence_snapshot,
     get_restore_plan,
     list_restore_approvals,
     list_restore_plans,
@@ -570,6 +573,27 @@ class ShrimpBilibiliCorrectiveActionCreate(BaseModel):
     owner_ref: str = Field(min_length=1,max_length=200)
     due_at: str | None = None
     actor: str = Field(default="shrimp-pir-reviewer",min_length=1,max_length=200)
+
+class ShrimpTrustHsmAttestation(BaseModel):
+    model_config=ConfigDict(extra="forbid")
+    token_label: str = Field(min_length=1,max_length=120)
+    key_label: str = Field(min_length=1,max_length=120)
+    key_id_hex: str = Field(min_length=2,max_length=64)
+    public_key_pem_b64: str = Field(min_length=32,max_length=8192)
+    fingerprint_sha256: str = Field(min_length=64,max_length=64)
+    challenge_b64: str = Field(min_length=8,max_length=2048)
+    signature_b64: str = Field(min_length=32,max_length=4096)
+
+
+class ShrimpTrustExternalKmsAttestation(BaseModel):
+    model_config=ConfigDict(extra="forbid")
+    key_name: str = Field(min_length=1,max_length=160)
+    key_version: int = Field(ge=1)
+    public_key_pem_b64: str = Field(min_length=32,max_length=8192)
+    fingerprint_sha256: str = Field(min_length=64,max_length=64)
+    message_b64: str = Field(min_length=8,max_length=2048)
+    signature_b64: str = Field(min_length=32,max_length=4096)
+
 
 class ShrimpBilibiliRecertificationDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -966,6 +990,16 @@ def _require_shrimp_bilibili_live_acceptance_key(
             status_code=403,
             detail="Invalid Shrimp Bilibili live acceptance key",
         )
+
+def _require_trust_evidence_acceptance_key(provided: str | None) -> None:
+    if (os.getenv("VERCEL_ENV") or "").strip().lower()!="preview":
+        raise HTTPException(status_code=404,detail="Trust evidence acceptance is Preview-only")
+    expected=(os.getenv("SHRIMP_TRUST_EVIDENCE_ACCEPTANCE_KEY") or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503,detail="Trust evidence acceptance key is not configured")
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(status_code=403,detail="Invalid trust evidence acceptance key")
+
 
 def _require_shrimp_bilibili_recertification_key(
     provided: str | None,
@@ -2439,6 +2473,445 @@ def shrimp_animation_pipeline_console_job(job_id: UUID):
             "console_write_actions":False,
         },
         "secrets_redacted":True,
+    }
+
+
+@app.post(
+    "/internal/shrimp-animation/trust-evidence/bootstrap",
+    include_in_schema=False,
+)
+def shrimp_animation_trust_evidence_bootstrap(
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Trust-Evidence-Key",
+    ),
+):
+    _require_trust_evidence_acceptance_key(x_key)
+    from app.providers.animation.models import canonical_json
+
+    roots=list_trust_roots(limit=1)
+    if roots:
+        signing={
+            "status":"EXISTING",
+            "trust_root":roots[0],
+        }
+    else:
+        signing=bootstrap_signing_trust(
+            actor="preview-10b23a-signing",
+            key_label="preview-10b23a",
+        )
+
+    scorecards=generate_reliability_scorecards(
+        actor="preview-10b23a-reliability"
+    )
+    analysis=run_reliability_analysis(
+        actor="preview-10b23a-reliability"
+    )
+    recovery=recovery_evidence_snapshot()
+    if not recovery.get("eligible_for_restore"):
+        raise HTTPException(
+            status_code=409,
+            detail="Preview reliability evidence is not eligible for certification fixture",
+        )
+
+    def digest(value):
+        return hashlib.sha256(
+            canonical_json(value).encode("utf-8")
+        ).hexdigest()
+
+    control=get_policy_control()
+    control_snapshot={
+        "automation_exposure":control["automation_exposure"],
+        "quota_multiplier_percent":int(control["quota_multiplier_percent"]),
+        "new_reservation_allowed":bool(control["new_reservation_allowed"]),
+        "control_version":int(control["control_version"]),
+    }
+    if (
+        control_snapshot["automation_exposure"]!="NORMAL"
+        or control_snapshot["quota_multiplier_percent"]!=100
+        or not control_snapshot["new_reservation_allowed"]
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Preview policy control is not fully NORMAL",
+        )
+
+    fixture_key="preview-10b23a-certification"
+    with engine.begin() as db:
+        plan=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_reliability_restore_plans
+          WHERE restore_key=:key
+        """),{"key":fixture_key}).mappings().one_or_none()
+        if plan is None:
+            evidence_sha=digest(recovery)
+            proposed=dict(control_snapshot)
+            dry_run={
+                "schema_version":"shrimp-10b23a-preview-restore-fixture-v0.1",
+                "fixture":True,
+                "changes":[],
+                "recovery_evidence_sha256":evidence_sha,
+                "provider_write_count":0,
+                "production_write_count":0,
+            }
+            plan_material={
+                "fixture_key":fixture_key,
+                "source_control":control_snapshot,
+                "proposed_control":proposed,
+                "recovery_evidence_sha256":evidence_sha,
+                "dry_run_sha256":digest(dry_run),
+            }
+            plan_sha=digest(plan_material)
+            plan=db.execute(text("""
+              INSERT INTO shrimp_bilibili_reliability_restore_plans(
+                restore_key,plan_status,source_control_snapshot,
+                proposed_control_snapshot,recovery_evidence_snapshot,
+                exact_change_set,dry_run_diff,source_control_sha256,
+                proposed_control_sha256,recovery_evidence_sha256,
+                plan_sha256,dry_run_sha256,generated_by,
+                first_approved_at,applied_at)
+              VALUES(
+                :key,'APPLIED',CAST(:source AS jsonb),
+                CAST(:proposed AS jsonb),CAST(:evidence AS jsonb),
+                '[]'::jsonb,CAST(:dry AS jsonb),:source_sha,:proposed_sha,
+                :evidence_sha,:plan_sha,:dry_sha,:actor,now(),now())
+              RETURNING *
+            """),{
+                "key":fixture_key,
+                "source":canonical_json(control_snapshot),
+                "proposed":canonical_json(proposed),
+                "evidence":canonical_json(recovery),
+                "dry":canonical_json(dry_run),
+                "source_sha":digest(control_snapshot),
+                "proposed_sha":digest(proposed),
+                "evidence_sha":evidence_sha,
+                "plan_sha":plan_sha,
+                "dry_sha":dry_run["recovery_evidence_sha256"][:0]+digest(dry_run),
+                "actor":"preview-10b23a",
+            }).mappings().one()
+
+        session=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_post_unfreeze_observation_sessions
+          WHERE restore_plan_id=:plan_id
+        """),{"plan_id":plan["id"]}).mappings().one_or_none()
+        if session is None:
+            session=db.execute(text("""
+              INSERT INTO shrimp_bilibili_post_unfreeze_observation_sessions(
+                restore_plan_id,session_status,current_stage,
+                current_quota_percent,stage_started_at,
+                observation_started_at,latest_evidence_sha256,
+                completed_at,created_by)
+              VALUES(
+                :plan_id,'ACCEPTED',4,100,now(),now(),:evidence_sha,
+                now(),'preview-10b23a')
+              RETURNING *
+            """),{
+                "plan_id":plan["id"],
+                "evidence_sha":plan["recovery_evidence_sha256"],
+            }).mappings().one()
+
+        acceptance=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_restore_acceptances
+          WHERE session_id=:session_id
+        """),{"session_id":session["id"]}).mappings().one_or_none()
+        if acceptance is None:
+            acceptance_snapshot={
+                "schema_version":"shrimp-10b23a-preview-restore-acceptance-v0.1",
+                "fixture":True,
+                "session_id":str(session["id"]),
+                "restore_plan_id":str(plan["id"]),
+                "recovery_evidence_sha256":plan["recovery_evidence_sha256"],
+                "provider_writes":False,
+                "production_writes":False,
+            }
+            acceptance_evidence_sha=digest(acceptance_snapshot)
+            acceptance_sha=digest({
+                "session_id":str(session["id"]),
+                "evidence_sha256":acceptance_evidence_sha,
+                "accepted_by":"preview-10b23a",
+            })
+            acceptance=db.execute(text("""
+              INSERT INTO shrimp_bilibili_restore_acceptances(
+                session_id,acceptance_status,evidence_snapshot,
+                evidence_sha256,accepted_by,accepted_at,acceptance_sha256)
+              VALUES(
+                :session_id,'ACCEPTED',CAST(:snapshot AS jsonb),
+                :evidence_sha,'preview-10b23a',now(),:acceptance_sha)
+              RETURNING *
+            """),{
+                "session_id":session["id"],
+                "snapshot":canonical_json(acceptance_snapshot),
+                "evidence_sha":acceptance_evidence_sha,
+                "acceptance_sha":acceptance_sha,
+            }).mappings().one()
+
+    certification=generate_certification(
+        session["id"],
+        actor="preview-10b23a-certification",
+    )
+    evaluation=evaluate_certification(
+        actor="preview-10b23a-certification-readback"
+    )
+    audit=run_trust_audit_cycle(actor="preview-10b23a-trust-audit")
+    chain=verify_trust_root_chain()
+
+    return {
+        "status":"PASSED",
+        "signing":{
+            "root_version":(
+                signing.get("trust_root") or {}
+            ).get("root_version"),
+            "verification_status":chain.get("verification_status"),
+            "active_key_count":signing_key_lifecycle_dashboard().get(
+                "active_key_count"
+            ),
+        },
+        "reliability":{
+            "scorecard_count":len(scorecards),
+            "analysis":analysis,
+            "eligible_for_restore":recovery.get("eligible_for_restore"),
+            "reliability_score":(
+                recovery.get("scorecard") or {}
+            ).get("reliability_score"),
+            "burn_status":(
+                recovery.get("burn") or {}
+            ).get("burn_status"),
+        },
+        "certification":{
+            "id":str(certification["id"]),
+            "status":certification["certification_status"],
+            "evaluation_status":evaluation["evaluation_status"],
+            "integrity_status":audit["integrity"]["audit"]["audit_status"],
+            "audit_proof_sha256":audit["audit_proof"]["proof_sha256"],
+        },
+        "fixture":{
+            "restore_plan_id":str(plan["id"]),
+            "observation_session_id":str(session["id"]),
+            "restore_acceptance_id":str(acceptance["id"]),
+            "preview_only":True,
+        },
+        "production_writes":False,
+        "provider_writes":False,
+    }
+
+
+@app.post(
+    "/internal/shrimp-animation/trust-evidence/hsm-attestation",
+    include_in_schema=False,
+)
+def shrimp_animation_trust_evidence_hsm_attestation(
+    payload: ShrimpTrustHsmAttestation,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Trust-Evidence-Key",
+    ),
+):
+    _require_trust_evidence_acceptance_key(x_key)
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    from app.providers.animation.models import canonical_json
+
+    try:
+        pem=base64.b64decode(payload.public_key_pem_b64,validate=True)
+        public=serialization.load_pem_public_key(pem)
+        if not isinstance(public,Ed25519PublicKey):
+            raise ValueError("HSM attestation key must be Ed25519")
+        der=public.public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        fingerprint=hashlib.sha256(der).hexdigest()
+        if not secrets.compare_digest(
+            fingerprint,payload.fingerprint_sha256
+        ):
+            raise ValueError("HSM public-key fingerprint mismatch")
+        challenge=base64.b64decode(payload.challenge_b64,validate=True)
+        if challenge!=b"step-10b23a-hsm-attestation-v1":
+            raise ValueError("Unexpected HSM attestation challenge")
+        signature=base64.b64decode(payload.signature_b64,validate=True)
+        public.verify(signature,challenge)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="HSM attestation verification failed",
+        ) from exc
+
+    roots=list_trust_roots(limit=1)
+    if not roots or verify_trust_root_chain().get("verification_status")!="PASS":
+        raise HTTPException(status_code=409,detail="Verified trust root required")
+    root=roots[0]
+    locator={
+        "provider":"PKCS11",
+        "tokenLabel":payload.token_label,
+        "keyLabel":payload.key_label,
+        "keyIdHex":payload.key_id_hex,
+        "acceptanceSource":"VERCEL_SANDBOX_SOFTHSM2",
+        "previewOnly":True,
+    }
+    manifest={
+        "schemaVersion":"shrimp-10b23a-hsm-attestation-v0.1",
+        "ceremonyType":"RESTORE_VALIDATION",
+        "trustRootVersion":root["root_version"],
+        "trustRootSha256":root["root_sha256"],
+        "participants":[payload.fingerprint_sha256],
+        "threshold":1,
+        "hsmKeyFingerprintSha256":payload.fingerprint_sha256,
+        "challengeSha256":hashlib.sha256(challenge).hexdigest(),
+        "hsmSignatureVerified":True,
+        "privateKeyExported":False,
+        "acceptanceSource":"VERCEL_SANDBOX_SOFTHSM2",
+        "providerWrites":1,
+        "productionWrites":0,
+        "bilibiliWrites":0,
+    }
+    ceremony_sha=hashlib.sha256(
+        canonical_json(manifest).encode("utf-8")
+    ).hexdigest()
+
+    with engine.begin() as db:
+        key_row=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_hsm_keys
+          WHERE fingerprint_sha256=:fp
+        """),{"fp":payload.fingerprint_sha256}).mappings().one_or_none()
+        if key_row is None:
+            key_row=db.execute(text("""
+              INSERT INTO shrimp_bilibili_hsm_keys(
+                provider,module_path,token_label,key_label,key_id_hex,
+                algorithm,public_key_pem_b64,fingerprint_sha256,
+                provider_key_locator,exportable_private_key,registered_by)
+              VALUES(
+                'PKCS11',NULL,:token,:label,:key_id,'ED25519',
+                :public_key,:fp,CAST(:locator AS jsonb),false,
+                'preview-10b23a')
+              RETURNING *
+            """),{
+                "token":payload.token_label,
+                "label":payload.key_label,
+                "key_id":payload.key_id_hex,
+                "public_key":payload.public_key_pem_b64,
+                "fp":payload.fingerprint_sha256,
+                "locator":canonical_json(locator),
+            }).mappings().one()
+        ceremony=db.execute(text("""
+          SELECT * FROM shrimp_bilibili_root_ceremonies
+          WHERE ceremony_sha256=:sha
+        """),{"sha":ceremony_sha}).mappings().one_or_none()
+        if ceremony is None:
+            ceremony=db.execute(text("""
+              INSERT INTO shrimp_bilibili_root_ceremonies(
+                ceremony_type,trust_root_version,
+                participant_fingerprints,threshold,ceremony_manifest,
+                ceremony_sha256,ceremony_status,executed_by)
+              VALUES(
+                'RESTORE_VALIDATION',:root_version,
+                CAST(:participants AS jsonb),1,CAST(:manifest AS jsonb),
+                :sha,'PASSED','preview-10b23a')
+              RETURNING *
+            """),{
+                "root_version":root["root_version"],
+                "participants":canonical_json(
+                    [payload.fingerprint_sha256]
+                ),
+                "manifest":canonical_json(manifest),
+                "sha":ceremony_sha,
+            }).mappings().one()
+
+    return {
+        "status":"PASSED",
+        "fingerprint_sha256":payload.fingerprint_sha256,
+        "hsm_key_id":str(key_row["id"]),
+        "ceremony_id":str(ceremony["id"]),
+        "signature_verified":True,
+        "private_key_exported":False,
+        "production_writes":False,
+    }
+
+
+@app.post(
+    "/internal/shrimp-animation/trust-evidence/external-kms-attestation",
+    include_in_schema=False,
+)
+def shrimp_animation_trust_evidence_external_kms_attestation(
+    payload: ShrimpTrustExternalKmsAttestation,
+    x_key: str | None = Header(
+        default=None,
+        alias="X-Shrimp-Trust-Evidence-Key",
+    ),
+):
+    _require_trust_evidence_acceptance_key(x_key)
+    import base64
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    try:
+        pem=base64.b64decode(payload.public_key_pem_b64,validate=True)
+        public=serialization.load_pem_public_key(pem)
+        if not isinstance(public,ec.EllipticCurvePublicKey):
+            raise ValueError("External KMS key must be EC")
+        if not isinstance(public.curve,ec.SECP256R1):
+            raise ValueError("External KMS key must be P-256")
+        der=public.public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        fingerprint=hashlib.sha256(der).hexdigest()
+        if not secrets.compare_digest(
+            fingerprint,payload.fingerprint_sha256
+        ):
+            raise ValueError("External KMS public-key fingerprint mismatch")
+        message=base64.b64decode(payload.message_b64,validate=True)
+        if message!=b"step-10b23a-openbao-external-kms-v1":
+            raise ValueError("Unexpected External KMS attestation message")
+        signature=base64.b64decode(payload.signature_b64,validate=True)
+        public.verify(signature,message,ec.ECDSA(hashes.SHA256()))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="External KMS attestation verification failed",
+        ) from exc
+
+    provider_ref="openbao-external:preview-10b23a"
+    provider=register_external_kms_provider(
+        provider_type="OPENBAO_EXTERNAL_KEY",
+        provider_ref=provider_ref,
+        key_locator={
+            "providerRef":provider_ref,
+            "keyName":payload.key_name,
+            "keyVersion":payload.key_version,
+            "baseUrl":"REDACTED",
+            "acceptanceSource":"VERCEL_SANDBOX_OPENBAO",
+            "previewOnly":True,
+        },
+        priority=90,
+        actor="preview-10b23a",
+        public_key_pem_b64=payload.public_key_pem_b64,
+        public_key_fingerprint_sha256=payload.fingerprint_sha256,
+    )
+    event=record_provider_event(
+        provider["id"],
+        event_type="HEALTHY",
+        snapshot={
+            "providerRef":provider_ref,
+            "providerType":"OPENBAO_EXTERNAL_KEY",
+            "keyName":payload.key_name,
+            "keyVersion":payload.key_version,
+            "signatureVerified":True,
+            "privateKeyExported":False,
+            "acceptanceSource":"VERCEL_SANDBOX_OPENBAO",
+            "providerSignWrites":1,
+            "productionWrites":0,
+            "bilibiliWrites":0,
+        },
+        actor="preview-10b23a",
+    )
+    return {
+        "status":"PASSED",
+        "provider_id":str(provider["id"]),
+        "provider_ref":provider_ref,
+        "event_id":str(event["id"]),
+        "signature_verified":True,
+        "private_key_exported":False,
+        "production_writes":False,
     }
 
 
