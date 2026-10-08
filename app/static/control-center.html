@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>Shrimp Animation Control Center · AI Digital Asset Factory</title>
+  <title>Unified Control Center v1.0 · AI Digital Asset Factory</title>
   <link rel="stylesheet" href="/review-assets/review.css">
   <link rel="stylesheet" href="/review-assets/control-center.css">
 </head>
@@ -12,26 +12,37 @@
   <div class="app-shell">
     <header class="topbar control-topbar">
       <div>
-        <div class="eyebrow">AI DIGITAL ASSET FACTORY · SHRIMP ANIMATION</div>
-        <h1>Shrimp Animation Control Center</h1>
-        <p class="top-subtitle">从内容生产、QC、人工审核到 Bilibili 受控发布的统一工作台</p>
+        <div class="eyebrow">SHRIMP ANIMATION / AI DIGITAL ASSET FACTORY</div>
+        <h1>Unified Control Center v1.0</h1>
+        <p class="top-subtitle">正式前后台主页 · System Status · Production Pipeline · Publishing · Trust/KMS · Governance · Operations</p>
       </div>
       <div class="top-actions">
         <span id="environmentBadge" class="safe-badge">载入中…</span>
+        <span class="safe-badge">READ ONLY FOUNDATION</span>
         <a class="button ghost link-button" href="/animation-review">Human Review</a>
         <a class="button ghost link-button" href="/animation-publishing">Publishing</a>
         <button id="refreshButton" class="button" type="button">重新整理</button>
       </div>
     </header>
 
+    <nav class="control-nav" aria-label="Control Center modules">
+      <a href="#system">System</a>
+      <a href="#pipeline">Pipeline</a>
+      <a href="#publishing">Publishing</a>
+      <a href="#trust-kms">Trust / KMS</a>
+      <a href="#governance">Governance</a>
+      <a href="#operations">Operations</a>
+      <a href="#evidence">Audit / Evidence</a>
+    </nav>
+
     <main class="control-shell">
-      <section class="hero-grid">
+      <section id="system" class="hero-grid">
         <article class="hero-card primary">
-          <div class="card-kicker">SYSTEM</div>
+          <div class="card-kicker">SYSTEM STATUS</div>
           <div class="hero-head">
             <div>
               <h2>运行状态</h2>
-              <p id="systemSubtitle" class="muted">正在读取 Preview / DB / Migration…</p>
+              <p id="systemSubtitle" class="muted">正在读取 Environment / DB / Migration…</p>
             </div>
             <span id="systemStatus" class="pill info">LOADING</span>
           </div>
@@ -51,204 +62,77 @@
         </article>
       </section>
 
-      <section class="section-block">
+      <section class="foundation-grid" aria-label="Unified control planes">
+        <article id="trust-kms" class="foundation-card">
+          <div class="card-kicker">TRUST / KMS</div>
+          <div class="foundation-head"><h2>Trust & Cloud KMS</h2><span id="trustStatus" class="pill warn">LOADING</span></div>
+          <p>Software / HSM / External KMS / AWS / GCP / Azure 的信任面与 Live Acceptance 状态。</p>
+          <div id="trustMetrics" class="metric-grid compact"></div>
+          <div class="foundation-footer">10B.27A 真实云执行将在此模块观察；本阶段不触发任何云写操作。</div>
+        </article>
+
+        <article id="governance" class="foundation-card">
+          <div class="card-kicker">GOVERNANCE</div>
+          <div class="foundation-head"><h2>Governance</h2><span id="governanceStatus" class="pill warn">LOADING</span></div>
+          <p>Reliability review、freeze intent、certification 与 recertification 的只读治理摘要。</p>
+          <div id="governanceMetrics" class="metric-grid compact"></div>
+          <a class="table-link" href="/animation/reliability-review">打开 Governance Review →</a>
+        </article>
+
+        <article id="operations" class="foundation-card">
+          <div class="card-kicker">OPERATIONS</div>
+          <div class="foundation-head"><h2>Operations Console</h2><span id="operationsStatus" class="pill warn">LOADING</span></div>
+          <p>Incident、Circuit Breaker、Claim escalation、Provider recovery 的运行态摘要。</p>
+          <div id="operationsMetrics" class="metric-grid compact"></div>
+          <a class="table-link" href="/animation/operations">打开 Publisher Operations →</a>
+        </article>
+      </section>
+
+      <section id="pipeline" class="section-block">
         <div class="section-title-row">
-          <div>
-            <div class="card-kicker">PIPELINE</div>
-            <h2>生产流水线</h2>
-          </div>
+          <div><div class="card-kicker">PRODUCTION PIPELINE</div><h2>生产流水线</h2></div>
           <span id="jobTotal" class="pill info">0 JOBS</span>
         </div>
         <div id="pipelineStages" class="stage-flow"></div>
       </section>
 
       <section class="workspace-grid">
-        <a class="workspace-card" href="/animation/accounts">
-          <div class="workspace-icon">账号</div>
-          <div>
-            <div class="card-kicker">BILIBILI</div>
-            <h3>账号管理</h3>
-            <p>MID、Target 绑定、凭证状态、allowlist / denylist 安全策略。</p>
-          </div>
-          <div class="workspace-stat">MANAGE</div>
-        </a>
-
-        <a class="workspace-card" href="/animation/quota">
-          <div class="workspace-icon">Q</div>
-          <div>
-            <div class="card-kicker">QUOTA</div>
-            <h3>额度运营</h3>
-            <p>Daily quota、Reservation、Claim、Ledger 与 Stuck reconciliation。</p>
-          </div>
-          <div class="workspace-stat">OPS</div>
-        </a>
-
-        <a class="workspace-card" href="/animation/operations">
-          <div class="workspace-icon">!</div>
-          <div>
-            <div class="card-kicker">RECOVERY</div>
-            <h3>Publisher Operations</h3>
-            <p>Claim Escalation、Automatic Recovery Policy 与 Account Circuit Breaker。</p>
-          </div>
-          <div class="workspace-stat">SAFE</div>
-        </a>
-
-        <a class="workspace-card" href="/animation/reliability">
-          <div class="workspace-icon">R</div>
-          <div>
-            <div class="card-kicker">RELIABILITY</div>
-            <h3>Reliability Scorecard</h3>
-            <p>30-Day SLO、Error Budget、ACK / MTTR、Ambiguity、Circuit 与 Root Cause recurrence。</p>
-          </div>
-          <div class="workspace-stat">SLO</div>
-        </a>
-
-        <a class="workspace-card" href="/animation/reliability-review">
-          <div class="workspace-icon">G</div>
-          <div>
-            <div class="card-kicker">GOVERNANCE</div>
-            <h3>Reliability Governance Review</h3>
-            <p>NORMAL / CAUTION / FREEZE_RECOMMENDED 人工治理审查与不可执行 Policy Intent。</p>
-          </div>
-          <div class="workspace-stat">HUMAN</div>
-        </a>
-
-        <a class="workspace-card" href="/animation/settings">
-          <div class="workspace-icon">⚙</div>
-          <div>
-            <div class="card-kicker">SETTINGS</div>
-            <h3>增强设置</h3>
-            <p>运行环境、Publisher Adapter、Gate 与 Bilibili 配置总览。</p>
-          </div>
-          <div class="workspace-stat">OPEN</div>
-        </a>
-        <a class="workspace-card" href="/animation-review">
-          <div class="workspace-icon">▶</div>
-          <div>
-            <div class="card-kicker">STEP 8</div>
-            <h3>Human Review</h3>
-            <p>Episode Player、QC、Provenance、Bundle 与 APPROVE / REJECT。</p>
-          </div>
-          <div id="reviewWorkspaceStat" class="workspace-stat">—</div>
-        </a>
-
-        <a class="workspace-card" href="/animation-publishing">
-          <div class="workspace-icon">↗</div>
-          <div>
-            <div class="card-kicker">STEP 9</div>
-            <h3>Publishing Authorization</h3>
-            <p>Platform Target、dry-run Plan、PUBLISH AUTHORIZED / REJECTED。</p>
-          </div>
-          <div id="publishWorkspaceStat" class="workspace-stat">—</div>
-        </a>
-
-        <a class="workspace-card" href="/review">
-          <div class="workspace-icon">◎</div>
-          <div>
-            <div class="card-kicker">SOFTWARE</div>
-            <h3>Software Review</h3>
-            <p>Release Package、diff、SBOM、测试与部署审查。</p>
-          </div>
-          <div class="workspace-stat">OPEN</div>
-        </a>
-
-        <a class="workspace-card" href="/docs">
-          <div class="workspace-icon">{ }</div>
-          <div>
-            <div class="card-kicker">API</div>
-            <h3>API Console</h3>
-            <p>FastAPI Swagger，仅用于调试与验收，不替代人工 Gate。</p>
-          </div>
-          <div class="workspace-stat">DOCS</div>
-        </a>
+        <a class="workspace-card" href="/animation/accounts"><div class="workspace-icon">账号</div><div><div class="card-kicker">BILIBILI</div><h3>账号管理</h3><p>MID、Target 绑定、凭证状态、allowlist / denylist 安全策略。</p></div><div class="workspace-stat">MANAGE</div></a>
+        <a class="workspace-card" href="/animation/quota"><div class="workspace-icon">Q</div><div><div class="card-kicker">QUOTA</div><h3>额度运营</h3><p>Daily quota、Reservation、Claim、Ledger 与 Stuck reconciliation。</p></div><div class="workspace-stat">OPS</div></a>
+        <a class="workspace-card" href="/animation/operations"><div class="workspace-icon">!</div><div><div class="card-kicker">RECOVERY</div><h3>Publisher Operations</h3><p>Claim Escalation、Automatic Recovery Policy 与 Account Circuit Breaker。</p></div><div class="workspace-stat">SAFE</div></a>
+        <a class="workspace-card" href="/animation/reliability"><div class="workspace-icon">R</div><div><div class="card-kicker">RELIABILITY</div><h3>Reliability Scorecard</h3><p>30-Day SLO、Error Budget、ACK / MTTR、Ambiguity、Circuit 与 Root Cause recurrence。</p></div><div class="workspace-stat">SLO</div></a>
+        <a class="workspace-card" href="/animation/reliability-review"><div class="workspace-icon">G</div><div><div class="card-kicker">GOVERNANCE</div><h3>Reliability Governance Review</h3><p>NORMAL / CAUTION / FREEZE_RECOMMENDED 人工治理审查与不可执行 Policy Intent。</p></div><div class="workspace-stat">HUMAN</div></a>
+        <a class="workspace-card" href="/animation/settings"><div class="workspace-icon">⚙</div><div><div class="card-kicker">SETTINGS</div><h3>增强设置</h3><p>运行环境、Publisher Adapter、Gate 与 Bilibili 配置总览。</p></div><div class="workspace-stat">OPEN</div></a>
+        <a class="workspace-card" href="/animation-review"><div class="workspace-icon">▶</div><div><div class="card-kicker">STEP 8</div><h3>Human Review</h3><p>Episode Player、QC、Provenance、Bundle 与 APPROVE / REJECT。</p></div><div id="reviewWorkspaceStat" class="workspace-stat">—</div></a>
+        <a class="workspace-card" href="/animation-publishing"><div class="workspace-icon">↗</div><div><div class="card-kicker">STEP 9</div><h3>Publishing Authorization</h3><p>Platform Target、dry-run Plan、PUBLISH AUTHORIZED / REJECTED。</p></div><div id="publishWorkspaceStat" class="workspace-stat">—</div></a>
+        <a class="workspace-card" href="/review"><div class="workspace-icon">◎</div><div><div class="card-kicker">SOFTWARE</div><h3>Software Review</h3><p>Release Package、diff、SBOM、测试与部署审查。</p></div><div class="workspace-stat">OPEN</div></a>
+        <a class="workspace-card" href="/docs"><div class="workspace-icon">{ }</div><div><div class="card-kicker">API</div><h3>API Console</h3><p>FastAPI Swagger，仅用于调试与验收，不替代人工 Gate。</p></div><div class="workspace-stat">DOCS</div></a>
       </section>
 
-      <section class="split-grid">
+      <section id="publishing" class="split-grid">
         <article class="panel-card">
-          <div class="section-title-row">
-            <div>
-              <div class="card-kicker">BILIBILI</div>
-              <h2>Readiness Blockers</h2>
-            </div>
-            <button id="copyBlockersButton" class="button ghost small" type="button">复制 blocker</button>
-          </div>
+          <div class="section-title-row"><div><div class="card-kicker">BILIBILI</div><h2>Readiness Blockers</h2></div><button id="copyBlockersButton" class="button ghost small" type="button">复制 blocker</button></div>
           <div id="blockerSummary" class="notice">正在载入…</div>
           <div id="readinessChecks" class="check-grid"></div>
         </article>
-
         <article class="panel-card">
-          <div class="section-title-row">
-            <div>
-              <div class="card-kicker">PUBLISHING</div>
-              <h2>发布状态</h2>
-            </div>
-          </div>
+          <div class="section-title-row"><div><div class="card-kicker">PUBLISHING</div><h2>发布状态</h2></div></div>
           <div id="publishingMetrics" class="metric-grid"></div>
-          <div class="mini-note">
-            Homepage 只读。真实 Upload / Publish / Cleanup 仍必须经过 Step 9、Step 10 与 Step 10B 独立 Gate。
-          </div>
+          <div class="mini-note">Homepage 只读。真实 Upload / Publish / Cleanup 仍必须经过 Step 9、Step 10 与 Step 10B 独立 Gate。</div>
         </article>
       </section>
 
       <section class="table-grid">
-        <article class="panel-card">
-          <div class="section-title-row">
-            <div>
-              <div class="card-kicker">RECENT</div>
-              <h2>最近 Shrimp Jobs</h2>
-            </div>
-          </div>
-          <div class="table-wrap dashboard-table-wrap">
-            <table>
-              <thead>
-                <tr><th>Job</th><th>Stage</th><th>Status</th><th>Updated</th></tr>
-              </thead>
-              <tbody id="recentJobsBody"></tbody>
-            </table>
-          </div>
-        </article>
-
-        <article class="panel-card">
-          <div class="section-title-row">
-            <div>
-              <div class="card-kicker">EPISODES</div>
-              <h2>Review / Release</h2>
-            </div>
-          </div>
-          <div class="table-wrap dashboard-table-wrap">
-            <table>
-              <thead>
-                <tr><th>Episode</th><th>Review</th><th>QC</th><th>Open</th></tr>
-              </thead>
-              <tbody id="recentEpisodesBody"></tbody>
-            </table>
-          </div>
-        </article>
+        <article class="panel-card"><div class="section-title-row"><div><div class="card-kicker">RECENT</div><h2>最近 Shrimp Jobs</h2></div></div><div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Job</th><th>Stage</th><th>Status</th><th>Updated</th></tr></thead><tbody id="recentJobsBody"></tbody></table></div></article>
+        <article class="panel-card"><div class="section-title-row"><div><div class="card-kicker">EPISODES</div><h2>Review / Release</h2></div></div><div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Episode</th><th>Review</th><th>QC</th><th>Open</th></tr></thead><tbody id="recentEpisodesBody"></tbody></table></div></article>
       </section>
 
-      <section class="panel-card">
-        <div class="section-title-row">
-          <div>
-            <div class="card-kicker">CONTROLLED PUBLISHER</div>
-            <h2>最近发布执行</h2>
-          </div>
-          <span class="safe-badge">Exactly-once write budgets</span>
-        </div>
-        <div class="table-wrap dashboard-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Platform</th><th>Target</th><th>Execution</th>
-                <th>Upload</th><th>Publish</th><th>Source</th>
-              </tr>
-            </thead>
-            <tbody id="recentExecutionsBody"></tbody>
-          </table>
-        </div>
+      <section id="evidence" class="panel-card">
+        <div class="section-title-row"><div><div class="card-kicker">AUDIT / EVIDENCE</div><h2>最近发布执行</h2></div><span class="safe-badge">Exactly-once write budgets</span></div>
+        <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Platform</th><th>Target</th><th>Execution</th><th>Upload</th><th>Publish</th><th>Source</th></tr></thead><tbody id="recentExecutionsBody"></tbody></table></div>
       </section>
     </main>
   </div>
-
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
   <script src="/review-assets/control-center.js" defer></script>
 </body>

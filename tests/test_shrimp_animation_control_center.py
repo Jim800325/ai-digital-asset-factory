@@ -44,7 +44,12 @@ def test_control_center_homepage_and_summary_are_secret_redacted(
 
     homepage=client.get("/")
     assert homepage.status_code == 200
-    assert "Shrimp Animation Control Center" in homepage.text
+    assert "Unified Control Center v1.0" in homepage.text
+    assert "READ ONLY FOUNDATION" in homepage.text
+    assert "Trust & Cloud KMS" in homepage.text
+    assert "Governance" in homepage.text
+    assert "Operations Console" in homepage.text
+    assert "Audit / Evidence" in homepage.text
     assert "/review-assets/control-center.js" in homepage.text
     assert "/animation-review" in homepage.text
     assert "/animation-publishing" in homepage.text
@@ -121,3 +126,28 @@ def test_admin_surface_does_not_embed_bilibili_secrets():
     assert 'id="publishKey"' in body
     assert "localStorage" not in body
     assert "sessionStorage" not in body
+
+
+def test_unified_control_center_foundation_modules_are_read_only():
+    client=TestClient(app)
+    body=client.get("/").text
+    script=client.get("/review-assets/control-center.js").text
+
+    for anchor in (
+        'href="#system"',
+        'href="#pipeline"',
+        'href="#publishing"',
+        'href="#trust-kms"',
+        'href="#governance"',
+        'href="#operations"',
+        'href="#evidence"',
+    ):
+        assert anchor in body
+
+    assert "/v1/shrimp-animation/bilibili-live-cloud-kms" in script
+    assert "/v1/shrimp-animation/bilibili-reliability-governance" in script
+    assert "/v1/shrimp-animation/bilibili-operations-console" in script
+    assert "optionalApi" in script
+    assert "Run Cloud KMS" not in body
+    assert "Execute Production" not in body
+    assert "Apply Policy" not in body

@@ -1568,7 +1568,7 @@ def _shrimp_control_center_summary() -> dict[str, Any]:
     readiness=_shrimp_bilibili_live_acceptance_readiness()
 
     return {
-        "status":"READY" if db_state["available"] else "DEGRADED",
+        "status":("READY" if db_state["available"] and migrations.get("status")=="CURRENT" else "DEGRADED"),
         "mode":"READ_ONLY_CONTROL_CENTER",
         "secrets_redacted":True,
         "system":{
@@ -1587,6 +1587,9 @@ def _shrimp_control_center_summary() -> dict[str, Any]:
             "migration_latest":migrations.get("latest_version"),
             "migration_expected_count":migrations.get("expected_count"),
             "migration_applied_count":migrations.get("applied_count"),
+            "migration_recorded_count":migrations.get("recorded_count"),
+            "migration_unexpected":migrations.get("unexpected",[]),
+            "migration_reconciled_legacy":migrations.get("reconciled_legacy",[]),
             "provider":"shrimp_animation",
             "publisher_adapter":(
                 settings.shrimp_publish_execution_adapter.strip().upper()
