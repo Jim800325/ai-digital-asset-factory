@@ -3078,19 +3078,30 @@ def shrimp_animation_bilibili_live_cloud_kms():
 
 
 @app.get("/v1/shrimp-animation/bilibili-live-cloud-kms/readiness")
-def shrimp_animation_bilibili_live_cloud_kms_readiness():
-    return live_cloud_identity_readiness()
+def shrimp_animation_bilibili_live_cloud_kms_readiness(
+    x_vercel_oidc_token: str | None = Header(
+        default=None,
+        alias="X-Vercel-OIDC-Token",
+    ),
+):
+    return live_cloud_identity_readiness(x_vercel_oidc_token)
 
 
 @app.post("/v1/shrimp-animation/bilibili-live-cloud-kms/accept",status_code=201)
 def shrimp_animation_bilibili_live_cloud_kms_accept(
     payload: ShrimpBilibiliLiveCloudKmsAcceptanceAction,
     x_key: str | None = Header(default=None,alias="X-Shrimp-Root-Ceremony-Key"),
+    x_vercel_oidc_token: str | None = Header(
+        default=None,
+        alias="X-Vercel-OIDC-Token",
+    ),
 ):
     _require_shrimp_bilibili_root_ceremony_key(x_key)
     try:
         return run_live_provider_acceptance(
-            payload.provider_type,actor=payload.actor
+            payload.provider_type,
+            actor=payload.actor,
+            oidc_token=x_vercel_oidc_token,
         )
     except (RuntimeError,ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
@@ -3100,6 +3111,10 @@ def shrimp_animation_bilibili_live_cloud_kms_accept(
 def shrimp_animation_bilibili_live_cross_cloud_kms_accept(
     payload: ShrimpBilibiliLiveCrossCloudAcceptanceAction,
     x_key: str | None = Header(default=None,alias="X-Shrimp-Root-Ceremony-Key"),
+    x_vercel_oidc_token: str | None = Header(
+        default=None,
+        alias="X-Vercel-OIDC-Token",
+    ),
 ):
     _require_shrimp_bilibili_root_ceremony_key(x_key)
     try:
@@ -3107,6 +3122,7 @@ def shrimp_animation_bilibili_live_cross_cloud_kms_accept(
             list(payload.provider_types),
             threshold=payload.threshold,
             actor=payload.actor,
+            oidc_token=x_vercel_oidc_token,
         )
     except (RuntimeError,ValueError,LookupError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
