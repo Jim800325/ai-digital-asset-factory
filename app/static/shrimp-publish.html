@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>Shrimp Publishing Authorization · AI Digital Asset Factory</title>
+  <title>Publishing Console · AI Digital Asset Factory</title>
   <link rel="stylesheet" href="/review-assets/review.css">
   <link rel="stylesheet" href="/review-assets/shrimp-publish.css">
 </head>
@@ -12,12 +12,13 @@
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <div class="eyebrow">SHRIMP ANIMATION PROVIDER · v0.1 · STEP 9</div>
-        <h1>Publishing Authorization Workspace</h1>
+        <div class="eyebrow">SHRIMP ANIMATION PROVIDER · STEP 9 / 10B.22</div>
+        <h1>Publishing Console</h1>
       </div>
       <div class="top-actions">
         <a class="button ghost link-button" href="/">Control Center</a>
-        <span class="safe-badge">外部发布永久禁用</span>
+        <a class="button ghost link-button" href="/animation/pipeline">Production Pipeline</a>
+        <span class="safe-badge">本页外部写操作禁用</span>
         <a class="button ghost link-button" href="/animation-review">Human Review</a>
         <button id="refreshButton" class="button ghost" type="button">重新整理</button>
       </div>
@@ -25,8 +26,8 @@
 
     <div class="safety-banner">
       <strong>授权边界：</strong>
-      本页面只建立 Platform Target、Publisher Plan、dry-run 与 PUBLISH AUTHORIZED / REJECTED。
-      Step 9 不读取平台凭证、不发送网络请求、不上传视频。
+      本页面允许 Step 9 的 Platform Target / Publisher Plan / AUTHORIZE / REJECT，并只读展示 Step 10 execution evidence。
+      本页不执行 Upload / Publish / Cleanup，不读取平台凭证，也不触发 Cloud KMS。
     </div>
 
     <main class="publish-layout">
@@ -93,6 +94,18 @@
       <section class="panel full">
         <h2>4 · Dry-Run / Authorization</h2>
         <div id="planList" class="stack"></div>
+      </section>
+
+      <section class="panel full">
+        <div class="plan-head">
+          <div>
+            <h2>5 · Controlled Execution / Provider Evidence</h2>
+            <p class="muted">只读汇总 execution snapshot、write budget、provider read-back 与 cleanup evidence。</p>
+          </div>
+          <span class="safe-badge">NO WRITE ACTIONS HERE</span>
+        </div>
+        <div id="executionSafety" class="dry-grid"></div>
+        <div id="executionList" class="stack execution-stack"></div>
       </section>
     </main>
   </div>

@@ -2264,6 +2264,184 @@ def shrimp_animation_compositions(
         raise HTTPException(status_code=404,detail=str(exc)) from exc
 
 
+@app.get("/v1/shrimp-animation/pipeline-console")
+def shrimp_animation_pipeline_console(limit: int = 100):
+    jobs=list_provider_jobs(
+        limit=max(1,min(int(limit),200)),
+        provider_key="shrimp_animation",
+    )
+    if not jobs:
+        return {
+            "mode":"READ_ONLY_PIPELINE_CONSOLE",
+            "total_jobs":0,
+            "jobs":[],
+            "secrets_redacted":True,
+        }
+
+    job_ids=[str(row["id"]) for row in jobs]
+    with engine.connect() as db:
+        details=db.execute(
+            text("""
+              SELECT saj.provider_job_id,saj.episode_id,saj.review_status,
+                     saj.render_artifact_sha256,saj.qc_report_sha256,
+                     saj.episode_bundle_sha256,
+                     COUNT(DISTINCT pp.id) AS publish_plan_count,
+                     COUNT(DISTINCT pe.id) AS publish_execution_count
+              FROM shrimp_animation_jobs saj
+              LEFT JOIN shrimp_animation_publish_plans pp
+                ON pp.provider_job_id=saj.provider_job_id
+              LEFT JOIN shrimp_animation_publish_executions pe
+                ON pe.provider_job_id=saj.provider_job_id
+              WHERE saj.provider_job_id=ANY(CAST(:job_ids AS uuid[]))
+              GROUP BY saj.provider_job_id,saj.episode_id,saj.review_status,
+                       saj.render_artifact_sha256,saj.qc_report_sha256,
+                       saj.episode_bundle_sha256
+            """),
+            {"job_ids":job_ids},
+        ).mappings().all()
+    detail_by_id={str(row["provider_job_id"]):dict(row) for row in details}
+    items=[]
+    for row in jobs:
+        item=dict(row)
+        item["id"]=str(item["id"])
+        extra=detail_by_id.get(item["id"],{})
+        item.update({
+            "episode_id":extra.get("episode_id"),
+            "review_status":extra.get("review_status"),
+            "render_ready":bool(extra.get("render_artifact_sha256")),
+            "qc_ready":bool(extra.get("qc_report_sha256")),
+            "package_ready":bool(extra.get("episode_bundle_sha256")),
+            "publish_plan_count":int(extra.get("publish_plan_count") or 0),
+            "publish_execution_count":int(
+                extra.get("publish_execution_count") or 0
+            ),
+        })
+        items.append(item)
+    return {
+        "mode":"READ_ONLY_PIPELINE_CONSOLE",
+        "total_jobs":len(items),
+        "jobs":items,
+        "secrets_redacted":True,
+    }
+
+
+@app.get("/v1/shrimp-animation/jobs/{job_id}/pipeline-console")
+def shrimp_animation_pipeline_console_job(job_id: UUID):
+    try:
+        job=get_shrimp_animation_job(job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+    resource_plans=list_resource_plans(job_id,include_stale=True)
+    artifacts=list_shrimp_artifacts(
+        job_id,
+        include_superseded=True,
+    )
+    compositions=list_animation_compositions(
+        job_id,
+        include_stale=True,
+    )
+    try:
+        review=get_shrimp_review_workspace(job_id)
+        review_error=None
+    except (LookupError,RuntimeError,FileNotFoundError) as exc:
+        review_error=str(exc)
+        shrimp=job.get("shrimp_animation",{})
+        with engine.connect() as review_db:
+            decisions=[
+                _control_center_row(row)
+                for row in review_db.execute(
+                    text("""
+                      SELECT decision,reason,actor,decision_status,
+                             decision_sha256,created_at
+                      FROM shrimp_animation_review_decisions
+                      WHERE provider_job_id=CAST(:job_id AS uuid)
+                      ORDER BY created_at DESC,id DESC
+                    """),
+                    {"job_id":job_id},
+                ).mappings().all()
+            ]
+        review={
+            "episode_id":shrimp.get("episode_id"),
+            "title":shrimp.get("episode_id"),
+            "review_status":shrimp.get("review_status"),
+            "job_status":job.get("job_status"),
+            "qc_passed":bool(shrimp.get("qc_report_sha256")),
+            "episode_bundle_sha256":shrimp.get("episode_bundle_sha256"),
+            "release_review_package_sha256":
+                shrimp.get("release_review_package_sha256"),
+            "render_artifact_sha256":shrimp.get("render_artifact_sha256"),
+            "decisions":decisions,
+            "artifact_files_available":False,
+            "fallback_summary":True,
+        }
+
+    plans=list_publish_plans(job_id)
+    executions=list_publish_executions(job_id)
+
+    with engine.connect() as db:
+        acceptance_rows=db.execute(
+            text("""
+              SELECT a.id,a.execution_id,a.acceptance_status,
+                     a.provider_read_back_verified,
+                     a.private_visibility_verified,
+                     a.cleanup_outcome,a.cleanup_verified,
+                     a.production_account_touched,
+                     a.public_visibility_observed,
+                     a.created_at,a.updated_at,a.finished_at
+              FROM shrimp_animation_bilibili_live_acceptance_runs a
+              JOIN shrimp_animation_publish_executions e
+                ON e.id=a.execution_id
+              WHERE e.provider_job_id=CAST(:job_id AS uuid)
+              ORDER BY a.created_at DESC,a.id DESC
+            """),
+            {"job_id":job_id},
+        ).mappings().all()
+
+    shrimp=job.get("shrimp_animation",{})
+    evidence={
+        "brief_sha256":shrimp.get("brief_sha256"),
+        "story_sha256":shrimp.get("story_sha256"),
+        "script_sha256":shrimp.get("script_sha256"),
+        "scene_sha256":shrimp.get("scene_sha256"),
+        "asset_plan_sha256":shrimp.get("asset_plan_sha256"),
+        "voice_plan_sha256":shrimp.get("voice_plan_sha256"),
+        "assets_manifest_sha256":shrimp.get("assets_manifest_sha256"),
+        "voices_manifest_sha256":shrimp.get("voices_manifest_sha256"),
+        "animation_manifest_sha256":shrimp.get("animation_manifest_sha256"),
+        "remotion_props_sha256":shrimp.get("remotion_props_sha256"),
+        "render_artifact_sha256":shrimp.get("render_artifact_sha256"),
+        "qc_report_sha256":shrimp.get("qc_report_sha256"),
+        "episode_bundle_sha256":shrimp.get("episode_bundle_sha256"),
+        "release_review_package_sha256":
+            shrimp.get("release_review_package_sha256"),
+    }
+    return {
+        "mode":"READ_ONLY_PIPELINE_JOB",
+        "job":job,
+        "resource_plans":resource_plans,
+        "artifacts":artifacts,
+        "compositions":compositions,
+        "review":review,
+        "review_error":review_error,
+        "publish_plans":plans,
+        "publish_executions":executions,
+        "bilibili_acceptances":[
+            _control_center_row(row) for row in acceptance_rows
+        ],
+        "evidence":evidence,
+        "safety":{
+            "external_side_effects":job.get("external_side_effects"),
+            "production_execution_enabled":bool(
+                job.get("production_execution_enabled")
+            ),
+            "publish_enabled":bool(job.get("publish_enabled")),
+            "console_write_actions":False,
+        },
+        "secrets_redacted":True,
+    }
+
+
 @app.get("/v1/shrimp-animation/review-workspace")
 def shrimp_animation_review_workspace(limit: int = 100):
     return list_shrimp_review_workspace(limit=limit)
