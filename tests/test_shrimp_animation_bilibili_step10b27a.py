@@ -104,7 +104,7 @@ def test_step10b27a_readiness_selects_aws_and_gcp(monkeypatch):
 def test_step10b27a_aws_lifecycle_uses_oidc_client(monkeypatch):
     _configure_ready(monkeypatch)
     fake=object()
-    monkeypatch.setattr(live,"aws_kms_client_from_vercel_oidc",lambda:fake)
+    monkeypatch.setattr(live,"aws_kms_client_from_vercel_oidc",lambda _token=None:fake)
     lifecycle=live.AwsLiveKmsLifecycle()
     assert lifecycle.client is fake
     assert lifecycle.region=="us-east-1"
@@ -113,7 +113,7 @@ def test_step10b27a_aws_lifecycle_uses_oidc_client(monkeypatch):
 def test_step10b27a_gcp_lifecycle_uses_oidc_client(monkeypatch):
     _configure_ready(monkeypatch)
     fake=object()
-    monkeypatch.setattr(live,"gcp_kms_client_from_vercel_oidc",lambda:fake)
+    monkeypatch.setattr(live,"gcp_kms_client_from_vercel_oidc",lambda _token=None:fake)
     lifecycle=live.GcpLiveKmsLifecycle()
     assert lifecycle.client is fake
     assert lifecycle.project=="shrimp-preview"
@@ -131,3 +131,45 @@ def test_step10b27a_readiness_api_never_returns_token(monkeypatch):
     assert body["secrets_redacted"] is True
     assert body["credentials_persisted"] is False
     assert "ci-vercel-oidc-token" not in response.text
+
+
+def _unsigned_test_jwt(payload):
+    import base64
+    import json
+
+    def encode(value):
+        raw=json.dumps(value,separators=(",",":")).encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    return encode({"alg":"none","typ":"JWT"})+"."+encode(payload)+"."
+
+
+def test_step10b27a_request_oidc_header_overrides_ambient_token(monkeypatch):
+    _configure_ready(monkeypatch)
+    monkeypatch.setenv(
+        "VERCEL_OIDC_TOKEN",
+        _unsigned_test_jwt({
+            "iss":"https://oidc.vercel.com/local",
+            "aud":"https://vercel.com/local",
+            "sub":"owner:local:project:local:environment:development",
+            "environment":"development",
+        }),
+    )
+    request_token=_unsigned_test_jwt({
+        "iss":"https://oidc.vercel.com/team",
+        "aud":"https://vercel.com/team",
+        "sub":"owner:team:project:app:environment:preview",
+        "project_id":"prj_test",
+        "owner_id":"team_test",
+        "environment":"preview",
+    })
+
+    response=TestClient(app).get(
+        "/v1/shrimp-animation/bilibili-live-cloud-kms/readiness",
+        headers={"X-Vercel-OIDC-Token":request_token},
+    )
+    assert response.status_code==200
+    identity_body=response.json()["oidc_identity"]
+    assert identity_body["environment"]=="preview"
+    assert identity_body["subject"].endswith(":environment:preview")
+    assert request_token not in response.text
