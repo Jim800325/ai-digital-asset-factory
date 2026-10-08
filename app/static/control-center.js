@@ -1,7 +1,7 @@
 "use strict";
 
 const byId=(id)=>document.getElementById(id);
-const state={summary:null};
+const state={summary:null,trust:null,governance:null,operations:null};
 
 function clear(node){node.replaceChildren();}
 function el(tag,cls,text){
@@ -24,10 +24,14 @@ async function api(url){
   if(!response.ok)throw new Error(body.detail||("HTTP "+response.status));
   return body;
 }
+async function optionalApi(url){
+  try{return {ok:true,data:await api(url)};}
+  catch(err){return {ok:false,error:err};}
+}
 function pillClass(value){
   const v=String(value||"").toUpperCase();
-  if(["READY","SUCCESS","SUCCEEDED","PASSED","QC_PASSED","RELEASE_APPROVED","PUBLISH_AUTHORIZED","PUBLISHED","CLEANED_UP","CURRENT","ENABLED"].some(x=>v.includes(x)))return "good";
-  if(["FAILED","REJECTED","BLOCKED","STALE","MISCONFIGURED","UNKNOWN"].some(x=>v.includes(x)))return "bad";
+  if(["READY","SUCCESS","SUCCEEDED","PASSED","QC_PASSED","RELEASE_APPROVED","PUBLISH_AUTHORIZED","PUBLISHED","CLEANED_UP","CURRENT","ENABLED","NORMAL","CLOSED"].some(x=>v.includes(x)))return "good";
+  if(["FAILED","REJECTED","BLOCKED","STALE","MISCONFIGURED","UNKNOWN","CRITICAL","OPEN"].some(x=>v.includes(x)))return "bad";
   return "warn";
 }
 function formatDate(value){
@@ -48,6 +52,11 @@ function metric(label,value,small=false){
 function addPill(target,text){
   const p=el("span","pill "+pillClass(text),text);
   target.appendChild(p);
+}
+function setModuleStatus(id,value){
+  const node=byId(id);
+  node.textContent=value;
+  node.className="pill "+pillClass(value);
 }
 function renderSystem(summary){
   const system=summary.system||{};
@@ -109,7 +118,6 @@ function renderBilibili(summary){
   const status=readiness.status||"UNKNOWN";
   byId("bilibiliStatus").textContent=status;
   byId("bilibiliStatus").className="pill "+pillClass(status);
-
   const quick=byId("bilibiliQuick");clear(quick);
   const counts=readiness.counts||{};
   quick.append(
@@ -118,7 +126,6 @@ function renderBilibili(summary){
     metric("Controlled exec",counts.bilibili_controlled_executions??0),
     metric("Live acceptance",bili.acceptance_count??0)
   );
-
   const blockers=readiness.blockers||[];
   const notice=byId("blockerSummary");
   if(status==="READY"){
@@ -128,14 +135,10 @@ function renderBilibili(summary){
     notice.className="notice warn";
     notice.textContent="当前 BLOCKED："+(blockers.length?blockers.map(k=>checkLabels[k]||k).join("、"):"未知 blocker");
   }
-
   const grid=byId("readinessChecks");clear(grid);
   Object.entries(readiness.checks||{}).forEach(([key,value])=>{
     const item=el("div","check-item");
-    item.append(
-      el("span","",checkLabels[key]||key.replaceAll("_"," ")),
-      el("span","check-state "+(value?"good":"bad"),value?"PASS":"BLOCKED")
-    );
+    item.append(el("span","",checkLabels[key]||key.replaceAll("_"," ")),el("span","check-state "+(value?"good":"bad"),value?"PASS":"BLOCKED"));
     grid.appendChild(item);
   });
 }
@@ -149,6 +152,63 @@ function renderPublishing(summary){
     metric("Executions",p.execution_count||0)
   );
 }
+function renderTrust(result){
+  const root=byId("trustMetrics");clear(root);
+  if(!result.ok){
+    setModuleStatus("trustStatus","DEGRADED");
+    root.append(metric("Dashboard","UNAVAILABLE",true),metric("Cloud writes","DISABLED",true));
+    return;
+  }
+  const data=result.data||{};
+  state.trust=data;
+  const providers=data.accepted_provider_types||[];
+  const status=data.live_cross_cloud_acceptance_completed?"CROSS-CLOUD PASSED":providers.length?"PARTIAL":"NOT EXECUTED";
+  setModuleStatus("trustStatus",status);
+  root.append(
+    metric("Accepted clouds",providers.length),
+    metric("Provider runs",(data.acceptances||[]).length),
+    metric("Outage drills",(data.outage_drills||[]).length),
+    metric("Production writes",data.automatic_production_writes?"ENABLED":"DISABLED",true)
+  );
+}
+function renderGovernance(result){
+  const root=byId("governanceMetrics");clear(root);
+  if(!result.ok){
+    setModuleStatus("governanceStatus","DEGRADED");
+    root.append(metric("Dashboard","UNAVAILABLE",true),metric("Human gate","REQUIRED",true));
+    return;
+  }
+  const data=result.data||{};
+  state.governance=data;
+  const current=data.current_review;
+  const status=current?(current.review_status||"PENDING_DECISION"):"NORMAL";
+  setModuleStatus("governanceStatus",status);
+  root.append(
+    metric("Reviews",(data.reviews||[]).length),
+    metric("Decisions",(data.decisions||[]).length),
+    metric("Policy intents",(data.policy_intents||[]).length),
+    metric("Execution",data.execution_supported?"SUPPORTED":"DISABLED",true)
+  );
+}
+function renderOperations(result){
+  const root=byId("operationsMetrics");clear(root);
+  if(!result.ok){
+    setModuleStatus("operationsStatus","DEGRADED");
+    root.append(metric("Dashboard","UNAVAILABLE",true),metric("Recovery","UNKNOWN",true));
+    return;
+  }
+  const data=result.data||{};
+  state.operations=data;
+  const s=data.summary||{};
+  const status=(s.critical_escalations||0)>0?"CRITICAL":(s.open_circuits||0)>0?"OPEN CIRCUIT":(s.warning_escalations||0)>0?"CAUTION":"NORMAL";
+  setModuleStatus("operationsStatus",status);
+  root.append(
+    metric("Critical",s.critical_escalations||0),
+    metric("Warnings",s.warning_escalations||0),
+    metric("Open circuits",s.open_circuits||0),
+    metric("Recovery pending",s.recovery_pending||0)
+  );
+}
 function emptyRow(tbody,colspan,text){
   const tr=document.createElement("tr");
   const td=el("td","empty-row",text);
@@ -160,13 +220,9 @@ function renderJobs(summary){
   if(!rows.length){emptyRow(body,4,"尚无 Shrimp pipeline job");return;}
   rows.forEach(job=>{
     const tr=document.createElement("tr");
-    tr.append(
-      el("td","mono",shortId(job.id)),
-      el("td","",job.current_stage||"—")
-    );
+    tr.append(el("td","mono",shortId(job.id)),el("td","",job.current_stage||"—"));
     const status=document.createElement("td");addPill(status,job.job_status||"UNKNOWN");tr.appendChild(status);
-    tr.appendChild(el("td","",formatDate(job.updated_at)));
-    body.appendChild(tr);
+    tr.appendChild(el("td","",formatDate(job.updated_at)));body.appendChild(tr);
   });
 }
 function renderEpisodes(summary){
@@ -178,10 +234,8 @@ function renderEpisodes(summary){
     tr.appendChild(el("td","",item.title||item.episode_id||"Episode"));
     const review=document.createElement("td");addPill(review,item.review_status||"UNKNOWN");tr.appendChild(review);
     const qc=document.createElement("td");addPill(qc,item.qc_passed===true?"QC PASSED":item.job_status||"UNKNOWN");tr.appendChild(qc);
-    const open=document.createElement("td");
-    const a=el("a","table-link","打开");
-    a.href="/animation-review/"+item.job_id;open.appendChild(a);tr.appendChild(open);
-    body.appendChild(tr);
+    const open=document.createElement("td");const a=el("a","table-link","打开");
+    a.href="/animation-review/"+item.job_id;open.appendChild(a);tr.appendChild(open);body.appendChild(tr);
   });
 }
 function renderExecutions(summary){
@@ -191,41 +245,33 @@ function renderExecutions(summary){
   rows.forEach(item=>{
     const tr=document.createElement("tr");
     tr.append(el("td","",item.platform||"—"));
-    const target=document.createElement("td");
-    const a=el("a","table-link",item.target_key||"—");
+    const target=document.createElement("td");const a=el("a","table-link",item.target_key||"—");
     a.href="/animation-publishing/"+item.provider_job_id;target.appendChild(a);tr.appendChild(target);
     const status=document.createElement("td");addPill(status,item.execution_status||"UNKNOWN");tr.appendChild(status);
-    tr.append(
-      el("td","",(item.upload_outcome||"—")+" · "+(item.upload_write_count??0)+"/1"),
-      el("td","",(item.publish_outcome||"—")+" · "+(item.publish_write_count??0)+"/1")
-    );
-    const source=document.createElement("td");addPill(source,item.source_stale?"STALE":"CURRENT");tr.appendChild(source);
-    body.appendChild(tr);
+    tr.append(el("td","",(item.upload_outcome||"—")+" · "+(item.upload_write_count??0)+"/1"),el("td","",(item.publish_outcome||"—")+" · "+(item.publish_write_count??0)+"/1"));
+    const source=document.createElement("td");addPill(source,item.source_stale?"STALE":"CURRENT");tr.appendChild(source);body.appendChild(tr);
   });
 }
 function render(summary){
   state.summary=summary;
-  renderSystem(summary);
-  renderPipeline(summary);
-  renderWorkspaces(summary);
-  renderBilibili(summary);
-  renderPublishing(summary);
-  renderJobs(summary);
-  renderEpisodes(summary);
-  renderExecutions(summary);
+  renderSystem(summary);renderPipeline(summary);renderWorkspaces(summary);
+  renderBilibili(summary);renderPublishing(summary);renderJobs(summary);
+  renderEpisodes(summary);renderExecutions(summary);
 }
 async function load(){
   byId("refreshButton").disabled=true;
   try{
-    const summary=await api("/v1/shrimp-animation/control-center/summary");
-    render(summary);
+    const [summary,trust,governance,operations]=await Promise.all([
+      api("/v1/shrimp-animation/control-center/summary"),
+      optionalApi("/v1/shrimp-animation/bilibili-live-cloud-kms"),
+      optionalApi("/v1/shrimp-animation/bilibili-reliability-governance"),
+      optionalApi("/v1/shrimp-animation/bilibili-operations-console")
+    ]);
+    render(summary);renderTrust(trust);renderGovernance(governance);renderOperations(operations);
   }catch(err){
     toast("Control Center 载入失败："+err.message,true);
-    byId("systemStatus").textContent="ERROR";
-    byId("systemStatus").className="pill bad";
-  }finally{
-    byId("refreshButton").disabled=false;
-  }
+    byId("systemStatus").textContent="ERROR";byId("systemStatus").className="pill bad";
+  }finally{byId("refreshButton").disabled=false;}
 }
 byId("refreshButton").addEventListener("click",async()=>{await load();toast("已重新整理");});
 byId("copyBlockersButton").addEventListener("click",async()=>{
