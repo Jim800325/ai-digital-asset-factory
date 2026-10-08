@@ -345,6 +345,10 @@ from app.providers.animation.shrimp.bilibili_live_acceptance import (
     get_bilibili_live_acceptance,
     run_bilibili_live_acceptance,
 )
+from app.providers.animation.shrimp.audit_evidence_explorer import (
+    audit_evidence_explorer,
+    export_audit_evidence,
+)
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
@@ -2440,6 +2444,61 @@ def shrimp_animation_pipeline_console_job(job_id: UUID):
         },
         "secrets_redacted":True,
     }
+
+
+@app.get("/v1/shrimp-animation/audit-evidence")
+def shrimp_animation_audit_evidence(
+    category: str | None = None,
+    status: str | None = None,
+    q: str | None = None,
+    after: str | None = None,
+    before: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+):
+    try:
+        return audit_evidence_explorer(
+            category=category,
+            status=status,
+            q=q,
+            after=after,
+            before=before,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.get("/v1/shrimp-animation/audit-evidence/export")
+def shrimp_animation_audit_evidence_export(
+    format: str = "json",
+    category: str | None = None,
+    status: str | None = None,
+    q: str | None = None,
+    after: str | None = None,
+    before: str | None = None,
+):
+    try:
+        content,media_type,filename=export_audit_evidence(
+            format=format,
+            category=category,
+            status=status,
+            q=q,
+            after=after,
+            before=before,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition":f'attachment; filename="{filename}"',
+            "Cache-Control":"no-store",
+            "X-Content-Type-Options":"nosniff",
+        },
+    )
 
 
 @app.get("/v1/shrimp-animation/trust-governance-console")
