@@ -89,16 +89,17 @@ def migration_status() -> dict:
 
     youtube_objects = []
     if unexpected:
-        youtube_objects = [
-            dict(row)
-            for row in db.execute(text("""
-              SELECT table_schema,table_name,table_type
-              FROM information_schema.tables
-              WHERE table_schema='public'
-                AND lower(table_name) LIKE '%youtube%'
-              ORDER BY table_name
-            """)).mappings().all()
-        ]
+        with engine.connect() as diagnostics_db:
+            youtube_objects = [
+                dict(row)
+                for row in diagnostics_db.execute(text("""
+                  SELECT table_schema,table_name,table_type
+                  FROM information_schema.tables
+                  WHERE table_schema='public'
+                    AND lower(table_name) LIKE '%youtube%'
+                  ORDER BY table_name
+                """)).mappings().all()
+            ]
 
     status = "DRIFT" if unexpected else ("CURRENT" if not pending else "PENDING")
     return {
