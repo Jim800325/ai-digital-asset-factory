@@ -13,6 +13,7 @@ CONTROL_CENTER_HTML=STATIC_DIR/"control-center.html"
 ANIMATION_ADMIN_HTML=STATIC_DIR/"animation-admin.html"
 PIPELINE_CONSOLE_HTML=STATIC_DIR/"pipeline-console.html"
 TRUST_GOVERNANCE_HTML=STATIC_DIR/"trust-governance-console.html"
+AUDIT_EVIDENCE_HTML=STATIC_DIR/"audit-evidence-explorer.html"
 
 router=APIRouter(include_in_schema=False)
 
@@ -61,6 +62,11 @@ def shrimp_animation_pipeline_job_page(job_id:UUID):
 @router.get("/animation/trust-governance")
 def shrimp_animation_trust_governance_page():
     return _html_file(TRUST_GOVERNANCE_HTML)
+
+@router.get("/animation/audit-evidence")
+def shrimp_animation_audit_evidence_page():
+    return _html_file(AUDIT_EVIDENCE_HTML)
+
 
 
 @router.get("/animation/accounts")
