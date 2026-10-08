@@ -43,7 +43,10 @@ def migrate() -> None:
                         continue
 
                     sql = path.read_text(encoding="utf-8")
-                    db.exec_driver_sql(sql)
+                    # DBAPI percent-style placeholders must not consume literal
+                    # PostgreSQL PL/pgSQL syntax such as %ROWTYPE (migration 022).
+                    # psycopg unescapes %% back to % before sending SQL.
+                    db.exec_driver_sql(sql.replace("%", "%%"))
                     db.execute(
                         text(
                             "INSERT INTO schema_migrations(version) "
