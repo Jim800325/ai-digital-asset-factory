@@ -78,10 +78,11 @@ def run_live_provider_acceptance(
     *,
     actor:str,
     lifecycle:LiveCloudLifecycle|None=None,
+    oidc_token:str|None=None,
 ) -> dict:
     _require_live_enabled()
     if lifecycle is None and settings.shrimp_bilibili_live_cloud_kms_oidc_enabled:
-        readiness=live_cloud_identity_readiness()
+        readiness=live_cloud_identity_readiness(oidc_token)
         provider=next(
             (
                 item for item in readiness["providers"]
@@ -93,7 +94,7 @@ def run_live_provider_acceptance(
             raise RuntimeError(
                 f"Live cloud identity is not ready for {provider_type}"
             )
-    lifecycle=lifecycle or default_live_lifecycle(provider_type)
+    lifecycle=lifecycle or default_live_lifecycle(provider_type,oidc_token=oidc_token)
     name=sacrificial_name()
     resource:LiveCloudResource|None=None
     verified=False
@@ -268,11 +269,12 @@ def run_live_cross_cloud_acceptance(
     threshold:int,
     actor:str,
     lifecycles:dict[str,LiveCloudLifecycle]|None=None,
+    oidc_token:str|None=None,
 ) -> dict:
     _require_live_enabled()
     unique=list(dict.fromkeys(provider_types))
     if lifecycles is None and settings.shrimp_bilibili_live_cloud_kms_oidc_enabled:
-        readiness=live_cloud_identity_readiness()
+        readiness=live_cloud_identity_readiness(oidc_token)
         executable={
             item["provider_type"]
             for item in readiness["providers"]
@@ -297,7 +299,7 @@ def run_live_cross_cloud_acceptance(
     root=roots[0]
 
     lifecycles=lifecycles or {
-        p:default_live_lifecycle(p) for p in unique
+        p:default_live_lifecycle(p,oidc_token=oidc_token) for p in unique
     }
     resources:dict[str,LiveCloudResource]={}
     signatures=[]
