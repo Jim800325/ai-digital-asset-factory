@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine
+from app.migrate import migration_files
 from app.main import app
 from app.release_gate import decide_release_candidate, ensure_release_candidate
 from app.sandbox_execution import create_sandbox_request, execute_sandbox_request
@@ -30,23 +31,10 @@ def test_full_v02_integration_acceptance():
                 text("SELECT version FROM schema_migrations ORDER BY version")
             ).all()
         ]
-    assert versions == [
-        "001_initial.sql",
-        "002_hunter_v02.sql",
-        "003_cross_source_aggregator.sql",
-        "004_evidence_quality.sql",
-        "005_research_reports.sql",
-        "006_audit_integrity.sql",
-        "007_research_validation.sql",
-        "008_build_proposals.sql",
-        "009_sandbox_execution.sql",
-        "010_openhands_adapter.sql",
-        "011_controlled_llm_proxy.sql",
-        "012_human_release_gate.sql",
-        "013_release_review_package.sql",
-        "014_human_review_workspace.sql",
-        "015_live_acceptance_audit.sql",
-    ]
+    assert versions == migration_files()
+    assert len(versions) >= 22
+    assert versions[0] == "001_initial.sql"
+    assert "022_deployment_authorization_gate.sql" in versions
 
     assert Redis.from_url(settings.redis_url).ping() is True
 
