@@ -1,7 +1,7 @@
 "use strict";
 
 const byId=(id)=>document.getElementById(id);
-const state={summary:null,trust:null,governance:null,operations:null};
+const state={summary:null,trust:null,governance:null,operations:null,audit:null};
 
 function clear(node){node.replaceChildren();}
 function el(tag,cls,text){
@@ -238,36 +238,51 @@ function renderEpisodes(summary){
     a.href="/animation-review/"+item.job_id;open.appendChild(a);tr.appendChild(open);body.appendChild(tr);
   });
 }
-function renderExecutions(summary){
-  const body=byId("recentExecutionsBody");clear(body);
-  const rows=summary.publishing?.recent_executions||[];
-  if(!rows.length){emptyRow(body,6,"尚无 Controlled Publisher Execution");return;}
-  rows.forEach(item=>{
+function renderAudit(result){
+  const body=byId("auditTimelineBody");clear(body);
+  if(!result.ok){
+    byId("auditEventCount").textContent="DEGRADED";
+    emptyRow(body,6,"Audit / Evidence Explorer 暂不可用");
+    return;
+  }
+  const data=result.data||{};
+  state.audit=data;
+  const rows=data.events||[];
+  byId("auditEventCount").textContent=(data.summary?.total||0)+" EVENTS";
+  if(!rows.length){emptyRow(body,6,"尚无 Audit / Evidence 记录");return;}
+  rows.slice(0,12).forEach(item=>{
     const tr=document.createElement("tr");
-    tr.append(el("td","",item.platform||"—"));
-    const target=document.createElement("td");const a=el("a","table-link",item.target_key||"—");
-    a.href="/animation-publishing/"+item.provider_job_id;target.appendChild(a);tr.appendChild(target);
-    const status=document.createElement("td");addPill(status,item.execution_status||"UNKNOWN");tr.appendChild(status);
-    tr.append(el("td","",(item.upload_outcome||"—")+" · "+(item.upload_write_count??0)+"/1"),el("td","",(item.publish_outcome||"—")+" · "+(item.publish_write_count??0)+"/1"));
-    const source=document.createElement("td");addPill(source,item.source_stale?"STALE":"CURRENT");tr.appendChild(source);body.appendChild(tr);
+    tr.append(
+      el("td","",formatDate(item.occurred_at)),
+      el("td","",item.category||"—"),
+      el("td","",item.title||item.kind||"—")
+    );
+    const status=document.createElement("td");addPill(status,item.status||"UNKNOWN");tr.appendChild(status);
+    tr.append(
+      el("td","mono",shortId(item.evidence_sha256)),
+      el("td","mono",shortId(item.parent_id||item.source_id))
+    );
+    tr.addEventListener("click",()=>{window.location.href="/animation/audit-evidence?q="+encodeURIComponent(item.source_id||item.evidence_sha256||"");});
+    body.appendChild(tr);
   });
 }
 function render(summary){
   state.summary=summary;
   renderSystem(summary);renderPipeline(summary);renderWorkspaces(summary);
   renderBilibili(summary);renderPublishing(summary);renderJobs(summary);
-  renderEpisodes(summary);renderExecutions(summary);
+  renderEpisodes(summary);
 }
 async function load(){
   byId("refreshButton").disabled=true;
   try{
-    const [summary,trust,governance,operations]=await Promise.all([
+    const [summary,trust,governance,operations,audit]=await Promise.all([
       api("/v1/shrimp-animation/control-center/summary"),
       optionalApi("/v1/shrimp-animation/bilibili-live-cloud-kms"),
       optionalApi("/v1/shrimp-animation/bilibili-reliability-governance"),
-      optionalApi("/v1/shrimp-animation/bilibili-operations-console")
+      optionalApi("/v1/shrimp-animation/bilibili-operations-console"),
+      optionalApi("/v1/shrimp-animation/audit-evidence?limit=12")
     ]);
-    render(summary);renderTrust(trust);renderGovernance(governance);renderOperations(operations);
+    render(summary);renderTrust(trust);renderGovernance(governance);renderOperations(operations);renderAudit(audit);
   }catch(err){
     toast("Control Center 载入失败："+err.message,true);
     byId("systemStatus").textContent="ERROR";byId("systemStatus").className="pill bad";
