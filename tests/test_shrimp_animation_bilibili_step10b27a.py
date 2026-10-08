@@ -10,7 +10,17 @@ from app.providers.animation.shrimp import bilibili_live_cloud_kms as live
 
 def _configure_ready(monkeypatch):
     monkeypatch.setenv("VERCEL_ENV","preview")
-    monkeypatch.setenv("VERCEL_OIDC_TOKEN","ci-vercel-oidc-token")
+    monkeypatch.setenv(
+        "VERCEL_OIDC_TOKEN",
+        _unsigned_test_jwt({
+            "iss":"https://oidc.vercel.com/jim-wus-projects-4bb66217",
+            "aud":"https://vercel.com/jim-wus-projects-4bb66217",
+            "sub":"owner:jim-wus-projects-4bb66217:project:ai-digital-asset-factory:environment:preview",
+            "project_id":"prj_orLCRCIm7aVfImH8ihB3gponFOEl",
+            "owner_id":"team_JO3GTfLCviMWb2pAvSClH0iK",
+            "environment":"preview",
+        }),
+    )
     monkeypatch.setattr(
         settings,"shrimp_bilibili_live_cloud_kms_oidc_enabled",True
     )
@@ -98,7 +108,7 @@ def test_step10b27a_readiness_selects_aws_and_gcp(monkeypatch):
     ]
     assert all(item["executable"] is True for item in selected)
     assert result["blockers"]==[]
-    assert "ci-vercel-oidc-token" not in str(result)
+    assert result["oidc_identity_valid"] is True
 
 
 def test_step10b27a_aws_lifecycle_uses_oidc_client(monkeypatch):
@@ -159,8 +169,8 @@ def test_step10b27a_request_oidc_header_overrides_ambient_token(monkeypatch):
         "iss":"https://oidc.vercel.com/team",
         "aud":"https://vercel.com/team",
         "sub":"owner:team:project:app:environment:preview",
-        "project_id":"prj_test",
-        "owner_id":"team_test",
+        "project_id":"prj_orLCRCIm7aVfImH8ihB3gponFOEl",
+        "owner_id":"team_JO3GTfLCviMWb2pAvSClH0iK",
         "environment":"preview",
     })
 
@@ -170,6 +180,28 @@ def test_step10b27a_request_oidc_header_overrides_ambient_token(monkeypatch):
     )
     assert response.status_code==200
     identity_body=response.json()["oidc_identity"]
+    assert response.json()["oidc_identity_valid"] is True
     assert identity_body["environment"]=="preview"
     assert identity_body["subject"].endswith(":environment:preview")
     assert request_token not in response.text
+
+
+def test_step10b27a_rejects_development_oidc_identity(monkeypatch):
+    _configure_ready(monkeypatch)
+    development_token=_unsigned_test_jwt({
+        "iss":"https://oidc.vercel.com/jim-wus-projects-4bb66217",
+        "aud":"https://vercel.com/jim-wus-projects-4bb66217",
+        "sub":"owner:jim-wus-projects-4bb66217:project:ai-digital-asset-factory:environment:development",
+        "project_id":"prj_orLCRCIm7aVfImH8ihB3gponFOEl",
+        "owner_id":"team_JO3GTfLCviMWb2pAvSClH0iK",
+        "environment":"development",
+    })
+    result=identity.live_cloud_identity_readiness(development_token)
+    assert result["status"]=="BLOCKED"
+    assert result["oidc_identity_valid"] is False
+    assert "VERCEL_OIDC_IDENTITY_MISMATCH" in result["blockers"]
+    assert not any(
+        item["executable"]
+        for item in result["providers"]
+        if item["provider_type"] in {"AWS_KMS","GCP_KMS"}
+    )
