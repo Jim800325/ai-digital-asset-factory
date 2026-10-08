@@ -221,4 +221,27 @@ byId("copyShaButton").addEventListener("click",async()=>{
 byId("queryFilter").addEventListener("keydown",(event)=>{
   if(event.key==="Enter")load(true);
 });
-load(true);
+(function hydrateFromUrl(){
+  const p=new URLSearchParams(window.location.search);
+  const pairs=[
+    ["category","categoryFilter"],
+    ["status","statusFilter"],
+    ["q","queryFilter"],
+  ];
+  pairs.forEach(([key,id])=>{
+    const value=p.get(key);
+    if(value)byId(id).dataset.initialValue=value;
+  });
+  if(p.get("q"))byId("queryFilter").value=p.get("q");
+})();
+load(true).then(()=>{
+  ["categoryFilter","statusFilter"].forEach(id=>{
+    const node=byId(id);
+    const value=node.dataset.initialValue;
+    if(value&&Array.from(node.options).some(option=>option.value===value)){
+      node.value=value;
+      delete node.dataset.initialValue;
+      load(true);
+    }
+  });
+});
