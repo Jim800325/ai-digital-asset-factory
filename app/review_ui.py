@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 REVIEW_HTML=STATIC_DIR/"review.html"
 AUDITS_HTML=STATIC_DIR/"audits.html"
+CONTROL_CENTER_HOME_HTML=STATIC_DIR/"production-home.html"
 
 router=APIRouter(include_in_schema=False)
 
@@ -38,6 +39,10 @@ def _html_file(path:Path):
 
 def _review_file():
     return _html_file(REVIEW_HTML)
+
+@router.get("/")
+def unified_control_center_homepage():
+    return _html_file(CONTROL_CENTER_HOME_HTML)
 
 @router.get("/review")
 def review_workspace_page():
