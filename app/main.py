@@ -1587,9 +1587,9 @@ def _shrimp_control_center_summary() -> dict[str, Any]:
             "migration_latest":migrations.get("latest_version"),
             "migration_expected_count":migrations.get("expected_count"),
             "migration_applied_count":migrations.get("applied_count"),
+            "migration_recorded_count":migrations.get("recorded_count"),
             "migration_unexpected":migrations.get("unexpected",[]),
-            "migration_unexpected_details":migrations.get("unexpected_details",[]),
-            "migration_unexpected_schema_objects":migrations.get("unexpected_schema_objects",[]),
+            "migration_reconciled_legacy":migrations.get("reconciled_legacy",[]),
             "provider":"shrimp_animation",
             "publisher_adapter":(
                 settings.shrimp_publish_execution_adapter.strip().upper()
