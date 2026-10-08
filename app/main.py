@@ -2,6 +2,8 @@ import hashlib
 import httpx
 import os
 import secrets
+import shutil
+import tempfile
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -2262,6 +2264,171 @@ def shrimp_animation_compositions(
         )
     except LookupError as exc:
         raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+def _require_pipeline_fixture_key(provided: str | None) -> None:
+    if (os.getenv("VERCEL_ENV") or "").strip().lower() != "preview":
+        raise HTTPException(status_code=404,detail="Pipeline fixture acceptance is Preview-only")
+    expected=(os.getenv("SHRIMP_PIPELINE_FIXTURE_KEY") or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503,detail="Pipeline fixture key is not configured")
+    if provided is None or not secrets.compare_digest(provided,expected):
+        raise HTTPException(status_code=403,detail="Invalid pipeline fixture key")
+
+
+@app.get(
+    "/internal/shrimp-animation/pipeline-fixture/readiness",
+    include_in_schema=False,
+)
+def shrimp_animation_pipeline_fixture_readiness():
+    helper_importable=True
+    helper_error=None
+    try:
+        from tests.test_shrimp_animation_provider_step8 import _build_review_ready_job
+        from tests.test_shrimp_animation_provider_step4 import _seed_registry
+        _=( _build_review_ready_job, _seed_registry )
+    except Exception as exc:
+        helper_importable=False
+        helper_error=type(exc).__name__
+    return {
+        "status":"READY" if (
+            (os.getenv("VERCEL_ENV") or "").strip().lower()=="preview"
+            and bool((os.getenv("SHRIMP_PIPELINE_FIXTURE_KEY") or "").strip())
+            and shutil.which("ffmpeg") is not None
+            and shutil.which("ffprobe") is not None
+            and helper_importable
+        ) else "BLOCKED",
+        "vercel_env":(os.getenv("VERCEL_ENV") or "").strip().lower(),
+        "fixture_key_present":bool(
+            (os.getenv("SHRIMP_PIPELINE_FIXTURE_KEY") or "").strip()
+        ),
+        "ffmpeg_present":shutil.which("ffmpeg") is not None,
+        "ffprobe_present":shutil.which("ffprobe") is not None,
+        "fixture_helpers_importable":helper_importable,
+        "fixture_helper_error":helper_error,
+        "external_writes_allowed":False,
+        "execution_adapter":"MOCK",
+    }
+
+
+@app.post(
+    "/internal/shrimp-animation/pipeline-fixture/start",
+    include_in_schema=False,
+)
+def shrimp_animation_pipeline_fixture_start(
+    x_pipeline_fixture_key: str | None = Header(
+        default=None,
+        alias="X-Pipeline-Fixture-Key",
+    ),
+):
+    _require_pipeline_fixture_key(x_pipeline_fixture_key)
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        raise HTTPException(status_code=503,detail="ffmpeg/ffprobe unavailable")
+
+    from tests.test_shrimp_animation_provider_step4 import (
+        _cleanup_registry,
+        _create_proposal,
+        _seed_registry,
+    )
+    from tests.test_shrimp_animation_provider_step8 import (
+        _build_review_ready_job,
+    )
+    from tests.test_shrimp_animation_provider_step9 import _approve_step8
+
+    target_key="preview-10b22a-bilibili-mock"
+    with engine.begin() as db:
+        old=db.execute(
+            text("""
+              SELECT id FROM digital_asset_opportunities
+              WHERE fingerprint='shrimp-step4-opportunity-fixture'
+            """)
+        ).scalar_one_or_none()
+        if old is not None:
+            db.execute(
+                text("DELETE FROM digital_asset_opportunities WHERE id=:id"),
+                {"id":old},
+            )
+        db.execute(
+            text("""
+              DELETE FROM shrimp_animation_publish_targets
+              WHERE target_key=:target_key
+            """),
+            {"target_key":target_key},
+        )
+    _cleanup_registry()
+
+    register_shrimp_animation_provider()
+    reusable_media=_seed_registry()
+    opportunity_id,proposal_id=_create_proposal()
+    with tempfile.TemporaryDirectory(
+        prefix="shrimp-10b22a-",
+        dir="/tmp",
+    ) as temp_dir:
+        job_id,brief,package=_build_review_ready_job(
+            proposal_id,
+            reusable_media,
+            temp_dir=temp_dir,
+            requested_by="preview-10b22a",
+        )
+        workspace=_approve_step8(job_id)
+        target=register_publish_target(
+            target_key=target_key,
+            platform="BILIBILI",
+            display_name="10B.22A Bilibili MOCK",
+            account_reference="preview-sacrificial-mock",
+            metadata_constraints={},
+            actor="preview-10b22a",
+        )
+        plan=create_publish_plan(
+            job_id,
+            target_key=target_key,
+            publish_metadata={
+                "title":"10B.22A Sacrificial Pipeline Fixture",
+                "description":"Preview-only fixture; no external publish.",
+                "tags":["10b22a","preview","mock"],
+                "category":"fixture",
+                "visibility":"DRAFT",
+            },
+            actor="preview-10b22a",
+        )
+        authorization=decide_publish_authorization(
+            plan["id"],
+            decision="AUTHORIZE",
+            reason="Preview-only 10B.22A fixture authorization.",
+            actor="preview-10b22a",
+            plan_sha256=plan["plan_sha256"],
+            dry_run_sha256=plan["dry_run_sha256"],
+        )
+        execution=create_publish_execution(
+            plan["id"],
+            actor="preview-10b22a",
+            adapter_kind="MOCK",
+        )
+
+    provider=get_provider_job(job_id)
+    return {
+        "status":"PASSED",
+        "opportunity_id":str(opportunity_id),
+        "job_id":str(job_id),
+        "episode_id":brief.episode_id,
+        "job_status":provider["job_status"],
+        "review_status":workspace["review_status"],
+        "package_status":package["review_status"],
+        "target_key":target["target_key"],
+        "plan_id":plan["id"],
+        "plan_status":authorization["plan_status"],
+        "execution_id":execution["id"],
+        "execution_status":execution["execution_status"],
+        "execution_adapter":execution["execution_adapter"],
+        "upload_write_count":execution["upload_write_count"],
+        "publish_write_count":execution["publish_write_count"],
+        "external_publish_performed":False,
+        "external_side_effects":provider["external_side_effects"],
+        "production_execution_enabled":provider[
+            "production_execution_enabled"
+        ],
+        "publish_enabled":provider["publish_enabled"],
+    }
 
 
 @app.get("/v1/shrimp-animation/pipeline-console")
