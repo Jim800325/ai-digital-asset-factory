@@ -11,6 +11,8 @@ from app.config import settings
 
 OIDC_SUBJECT_TOKEN_TYPE="urn:ietf:params:oauth:token-type:jwt"
 GCP_SCOPE="https://www.googleapis.com/auth/cloud-platform"
+EXPECTED_VERCEL_PROJECT_ID="prj_orLCRCIm7aVfImH8ihB3gponFOEl"
+EXPECTED_VERCEL_OWNER_ID="team_JO3GTfLCviMWb2pAvSClH0iK"
 
 
 def _runtime_oidc_token(explicit_token: str | None=None) -> str:
@@ -82,7 +84,16 @@ def _masked_ref(value: str) -> str | None:
 
 def live_cloud_identity_readiness(oidc_token: str | None=None) -> dict[str,Any]:
     token_present=bool(_runtime_oidc_token(oidc_token))
+    oidc_identity=_safe_oidc_identity(oidc_token)
+    oidc_identity_valid=bool(
+        oidc_identity
+        and oidc_identity.get("environment")=="preview"
+        and oidc_identity.get("project_id")==EXPECTED_VERCEL_PROJECT_ID
+        and oidc_identity.get("owner_id")==EXPECTED_VERCEL_OWNER_ID
+    )
     flags_ready=(
+        oidc_identity_valid
+        and
         settings.shrimp_bilibili_live_cloud_kms_oidc_enabled
         and settings.shrimp_bilibili_live_cloud_kms_acceptance_enabled
         and settings.shrimp_bilibili_live_cloud_kms_cleanup_enabled
@@ -162,6 +173,8 @@ def live_cloud_identity_readiness(oidc_token: str | None=None) -> dict[str,Any]:
         blockers.append("VERCEL_ENV_PREVIEW_REQUIRED")
     if not token_present:
         blockers.append("VERCEL_OIDC_TOKEN")
+    elif not oidc_identity_valid:
+        blockers.append("VERCEL_OIDC_IDENTITY_MISMATCH")
     if not settings.shrimp_bilibili_live_cloud_kms_oidc_enabled:
         blockers.append("SHRIMP_BILIBILI_LIVE_CLOUD_KMS_OIDC_ENABLED")
     if not settings.shrimp_bilibili_live_cloud_kms_acceptance_enabled:
@@ -195,7 +208,8 @@ def live_cloud_identity_readiness(oidc_token: str | None=None) -> dict[str,Any]:
         "minimum_provider_threshold":2,
         "vercel_env":(os.getenv("VERCEL_ENV") or "").strip().lower() or None,
         "oidc_token_present":token_present,
-        "oidc_identity":_safe_oidc_identity(oidc_token),
+        "oidc_identity_valid":oidc_identity_valid,
+        "oidc_identity":oidc_identity,
         "live_acceptance_enabled":
             settings.shrimp_bilibili_live_cloud_kms_acceptance_enabled,
         "cleanup_verification_enabled":
