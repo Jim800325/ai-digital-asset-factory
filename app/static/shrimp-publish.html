@@ -16,7 +16,7 @@
         <h1>Publishing Authorization Workspace</h1>
       </div>
       <div class="top-actions">
-        <a class="button ghost link-button" href="/">Control Center</a>
+        <a class="button ghost link-button" href="/">Control Center</a>\n        <a class="button ghost link-button" href="/animation/pipeline">Production Pipeline</a>
         <span class="safe-badge">外部发布永久禁用</span>
         <a class="button ghost link-button" href="/animation-review">Human Review</a>
         <button id="refreshButton" class="button ghost" type="button">重新整理</button>
@@ -93,6 +93,18 @@
       <section class="panel full">
         <h2>4 · Dry-Run / Authorization</h2>
         <div id="planList" class="stack"></div>
+      </section>
+
+      <section class="panel full">
+        <div class="plan-head">
+          <div>
+            <h2>5 · Controlled Execution / Provider Evidence</h2>
+            <p class="muted">只读汇总 execution snapshot、write budget、provider read-back 与 cleanup evidence。</p>
+          </div>
+          <span class="safe-badge">NO WRITE ACTIONS HERE</span>
+        </div>
+        <div id="executionSafety" class="dry-grid"></div>
+        <div id="executionList" class="stack execution-stack"></div>
       </section>
     </main>
   </div>
