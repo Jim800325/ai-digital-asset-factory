@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Trust / KMS + Governance · Unified Control Center</title>
+  <link rel="stylesheet" href="/review-assets/review.css">
+  <link rel="stylesheet" href="/review-assets/control-center.css">
+  <link rel="stylesheet" href="/review-assets/trust-governance-console.css">
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar control-topbar">
+    <div>
+      <div class="eyebrow">UNIFIED CONTROL CENTER v1.0 · STEP 10B.23</div>
+      <h1>Trust / KMS + Governance Console</h1>
+      <p class="top-subtitle">Signing Trust · HSM · External KMS · AWS/GCP/Azure · DSSE · Certification · Governance</p>
+    </div>
+    <div class="top-actions">
+      <span class="safe-badge">READ ONLY</span>
+      <span id="consoleStatus" class="pill warn">LOADING</span>
+      <a class="button ghost link-button" href="/">Control Center</a>
+      <button id="refreshButton" class="button" type="button">重新整理</button>
+    </div>
+  </header>
+
+  <div class="safety-banner">
+    <strong>10B.23 安全边界：</strong>
+    本页只读取既有 Trust/KMS/Governance 状态；不执行 Key Rotation、Root Apply、Cloud KMS Create/Sign、Policy Apply 或 Production 写操作。
+  </div>
+
+  <main class="trust-shell">
+    <section class="status-grid">
+      <article class="trust-card primary"><div class="card-kicker">SIGNING TRUST</div><h2>Root / Key Lifecycle</h2><span id="trustStatus" class="pill warn">—</span><div id="trustMetrics" class="metric-grid compact"></div></article>
+      <article class="trust-card"><div class="card-kicker">CLOUD KMS</div><h2>AWS / GCP / Azure</h2><span id="cloudStatus" class="pill warn">—</span><div id="cloudMetrics" class="metric-grid compact"></div></article>
+      <article class="trust-card"><div class="card-kicker">CERTIFICATION</div><h2>Attestation / Renewal</h2><span id="certStatus" class="pill warn">—</span><div id="certMetrics" class="metric-grid compact"></div></article>
+      <article class="trust-card"><div class="card-kicker">GOVERNANCE</div><h2>Freeze / Policy Intent</h2><span id="govStatus" class="pill warn">—</span><div id="govMetrics" class="metric-grid compact"></div></article>
+    </section>
+
+    <section class="section-block">
+      <div class="section-title-row"><div><div class="card-kicker">TRUST CHAIN</div><h2>Signing Root & Multi-Signer</h2></div><span class="safe-badge">TUF / securesystemslib</span></div>
+      <div class="console-two">
+        <article class="panel-card"><h3>Key Lifecycle</h3><div id="keyLifecycle" class="evidence-stack"></div></article>
+        <article class="panel-card"><h3>Root Transition / Dual Control</h3><div id="rootTransitions" class="evidence-stack"></div></article>
+      </div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-title-row"><div><div class="card-kicker">KEY CUSTODY</div><h2>HSM / External KMS</h2></div><span class="safe-badge">NON-EXPORTABLE</span></div>
+      <div class="console-two">
+        <article class="panel-card"><h3>HSM Root Custody</h3><div id="hsmPanel" class="evidence-stack"></div></article>
+        <article class="panel-card"><h3>External KMS Registry</h3><div id="externalKmsPanel" class="evidence-stack"></div></article>
+      </div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-title-row"><div><div class="card-kicker">REAL CLOUD ACCEPTANCE</div><h2>Cloud KMS Lifecycle Evidence</h2></div><span class="safe-badge">NO LIVE WRITE CONTROLS</span></div>
+      <div id="cloudProviders" class="provider-grid"></div>
+      <div id="cloudRuns" class="evidence-stack"></div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-title-row"><div><div class="card-kicker">ATTESTATION</div><h2>DSSE / Trusted Time / Transparency</h2></div><span class="safe-badge">VERIFY</span></div>
+      <div id="transparencyMetrics" class="metric-grid"></div>
+      <div id="verificationPanel" class="evidence-stack"></div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-title-row"><div><div class="card-kicker">CERTIFICATION TRUST</div><h2>Certification / Renewal / Audit</h2></div><span class="safe-badge">HUMAN GATED</span></div>
+      <div class="console-two">
+        <article class="panel-card"><h3>Current Certification</h3><div id="certificationPanel" class="evidence-stack"></div></article>
+        <article class="panel-card"><h3>Trust Audit / Renewal SLA</h3><div id="auditPanel" class="evidence-stack"></div></article>
+      </div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-title-row"><div><div class="card-kicker">RELIABILITY GOVERNANCE</div><h2>Review / Freeze / Policy Intent</h2></div><span class="safe-badge">NO APPLY</span></div>
+      <div id="governancePanel" class="evidence-stack"></div>
+      <a class="button ghost link-button" href="/animation/reliability-review">打开 Reliability Governance Review</a>
+    </section>
+
+    <section class="panel-card">
+      <div class="section-title-row"><div><div class="card-kicker">REFERENCE ARCHITECTURE</div><h2>GitHub-first Trust Stack</h2></div></div>
+      <div id="referencePanel" class="reference-grid"></div>
+    </section>
+  </main>
+</div>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+<script src="/review-assets/trust-governance-console.js" defer></script>
+</body>
+</html>
