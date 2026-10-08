@@ -151,6 +151,10 @@ class Settings(BaseSettings):
     shrimp_bilibili_azure_key_id: str = ""
     shrimp_bilibili_openbao_external_key_name: str = ""
     shrimp_bilibili_live_cloud_kms_acceptance_enabled: bool = False
+    shrimp_bilibili_live_cloud_kms_oidc_enabled: bool = False
+    shrimp_bilibili_live_aws_role_arn: str = ""
+    shrimp_bilibili_live_gcp_workload_identity_audience: str = ""
+    shrimp_bilibili_live_gcp_service_account: str = ""
     shrimp_bilibili_live_cloud_kms_cleanup_enabled: bool = False
     shrimp_bilibili_live_cloud_kms_allowed_name_prefix: str = "shrimp-sacrificial-"
     shrimp_bilibili_live_aws_region: str = ""

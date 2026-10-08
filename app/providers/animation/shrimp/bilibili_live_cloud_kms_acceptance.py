@@ -15,6 +15,9 @@ from app.providers.animation.shrimp.bilibili_live_cloud_kms import (
     live_manifest_digest,
     sacrificial_name,
 )
+from app.providers.animation.shrimp.bilibili_live_cloud_identity import (
+    live_cloud_identity_readiness,
+)
 from app.providers.animation.shrimp.bilibili_post_restore_certification import _ser,_sha
 from app.providers.animation.shrimp.bilibili_signing_key_lifecycle import list_trust_roots
 
@@ -75,9 +78,23 @@ def run_live_provider_acceptance(
     *,
     actor:str,
     lifecycle:LiveCloudLifecycle|None=None,
+    oidc_token:str|None=None,
 ) -> dict:
     _require_live_enabled()
-    lifecycle=lifecycle or default_live_lifecycle(provider_type)
+    if lifecycle is None and settings.shrimp_bilibili_live_cloud_kms_oidc_enabled:
+        readiness=live_cloud_identity_readiness(oidc_token)
+        provider=next(
+            (
+                item for item in readiness["providers"]
+                if item["provider_type"]==provider_type
+            ),
+            None,
+        )
+        if provider is None or not provider.get("executable"):
+            raise RuntimeError(
+                f"Live cloud identity is not ready for {provider_type}"
+            )
+    lifecycle=lifecycle or default_live_lifecycle(provider_type,oidc_token=oidc_token)
     name=sacrificial_name()
     resource:LiveCloudResource|None=None
     verified=False
@@ -252,9 +269,22 @@ def run_live_cross_cloud_acceptance(
     threshold:int,
     actor:str,
     lifecycles:dict[str,LiveCloudLifecycle]|None=None,
+    oidc_token:str|None=None,
 ) -> dict:
     _require_live_enabled()
     unique=list(dict.fromkeys(provider_types))
+    if lifecycles is None and settings.shrimp_bilibili_live_cloud_kms_oidc_enabled:
+        readiness=live_cloud_identity_readiness(oidc_token)
+        executable={
+            item["provider_type"]
+            for item in readiness["providers"]
+            if item.get("executable")
+        }
+        missing=[provider for provider in unique if provider not in executable]
+        if missing:
+            raise RuntimeError(
+                "Live cloud identity is not ready for: "+",".join(missing)
+            )
     if threshold<2:
         raise ValueError("Live cross-cloud threshold must be at least 2")
     if len(unique)<threshold:
@@ -269,7 +299,7 @@ def run_live_cross_cloud_acceptance(
     root=roots[0]
 
     lifecycles=lifecycles or {
-        p:default_live_lifecycle(p) for p in unique
+        p:default_live_lifecycle(p,oidc_token=oidc_token) for p in unique
     }
     resources:dict[str,LiveCloudResource]={}
     signatures=[]
@@ -486,6 +516,7 @@ def live_cloud_kms_dashboard() -> dict[str,Any]:
         and x["post_cleanup_sign_blocked"]
     })
     return {
+        "identity_readiness":live_cloud_identity_readiness(),
         "live_acceptance_enabled":settings.shrimp_bilibili_live_cloud_kms_acceptance_enabled,
         "cleanup_verification_enabled":settings.shrimp_bilibili_live_cloud_kms_cleanup_enabled,
         "sacrificial_name_prefix":settings.shrimp_bilibili_live_cloud_kms_allowed_name_prefix,
