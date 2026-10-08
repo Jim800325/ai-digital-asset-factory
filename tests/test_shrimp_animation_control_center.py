@@ -45,7 +45,8 @@ def test_control_center_homepage_and_summary_are_secret_redacted(
     homepage=client.get("/")
     assert homepage.status_code == 200
     assert "Unified Control Center v1.0" in homepage.text
-    assert "READ ONLY FOUNDATION" in homepage.text
+    assert "READ ONLY CONTROL PLANE" in homepage.text
+    assert 'id="acceptanceBadge"' in homepage.text
     assert "Trust & Cloud KMS" in homepage.text
     assert "Governance" in homepage.text
     assert "Operations Console" in homepage.text

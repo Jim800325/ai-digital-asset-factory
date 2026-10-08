@@ -1,7 +1,7 @@
 "use strict";
 
 const byId=(id)=>document.getElementById(id);
-const state={summary:null,trust:null,governance:null,operations:null,audit:null};
+const state={summary:null,trust:null,governance:null,operations:null,audit:null,acceptance:null};
 
 function clear(node){node.replaceChildren();}
 function el(tag,cls,text){
@@ -58,6 +58,27 @@ function setModuleStatus(id,value){
   node.textContent=value;
   node.className="pill "+pillClass(value);
 }
+function renderAcceptance(result){
+  const badge=byId("acceptanceBadge");
+  if(!result.ok){
+    badge.textContent="10B.25 DEGRADED";
+    badge.className="pill warn";
+    state.acceptance=null;
+    return;
+  }
+  const data=result.data||{};
+  state.acceptance=data;
+  const status=data.status||"UNKNOWN";
+  badge.textContent="10B.25 "+status;
+  badge.className="pill "+pillClass(status);
+  if(status!=="PASSED"){
+    const failed=data.summary?.failed_check_ids||[];
+    badge.title=failed.length?("Failed: "+failed.join(", ")):"Final acceptance incomplete";
+  }else{
+    badge.title="Unified Control Center Final Acceptance passed on this environment";
+  }
+}
+
 function renderSystem(summary){
   const system=summary.system||{};
   byId("systemStatus").textContent=summary.status||"UNKNOWN";
@@ -275,14 +296,15 @@ function render(summary){
 async function load(){
   byId("refreshButton").disabled=true;
   try{
-    const [summary,trust,governance,operations,audit]=await Promise.all([
+    const [summary,trust,governance,operations,audit,acceptance]=await Promise.all([
       api("/v1/shrimp-animation/control-center/summary"),
       optionalApi("/v1/shrimp-animation/bilibili-live-cloud-kms"),
       optionalApi("/v1/shrimp-animation/bilibili-reliability-governance"),
       optionalApi("/v1/shrimp-animation/bilibili-operations-console"),
-      optionalApi("/v1/shrimp-animation/audit-evidence?limit=12")
+      optionalApi("/v1/shrimp-animation/audit-evidence?limit=12"),
+      optionalApi("/v1/shrimp-animation/control-center/final-acceptance")
     ]);
-    render(summary);renderTrust(trust);renderGovernance(governance);renderOperations(operations);renderAudit(audit);
+    render(summary);renderTrust(trust);renderGovernance(governance);renderOperations(operations);renderAudit(audit);renderAcceptance(acceptance);
   }catch(err){
     toast("Control Center 载入失败："+err.message,true);
     byId("systemStatus").textContent="ERROR";byId("systemStatus").className="pill bad";
