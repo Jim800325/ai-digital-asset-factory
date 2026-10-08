@@ -51,13 +51,13 @@ def require_sacrificial_name(name:str) -> None:
 class AwsLiveKmsLifecycle:
     provider_type="AWS_KMS"
 
-    def __init__(self,client:Any|None=None,region:str|None=None):
+    def __init__(self,client:Any|None=None,region:str|None=None,oidc_token:str|None=None):
         self.region=(region or settings.shrimp_bilibili_live_aws_region).strip()
         if not self.region:
             raise RuntimeError("Live AWS KMS region is not configured")
         if client is None:
             if settings.shrimp_bilibili_live_cloud_kms_oidc_enabled:
-                client=aws_kms_client_from_vercel_oidc()
+                client=aws_kms_client_from_vercel_oidc(oidc_token)
             else:
                 import boto3
                 client=boto3.client("kms",region_name=self.region)
@@ -123,7 +123,7 @@ class AwsLiveKmsLifecycle:
 class GcpLiveKmsLifecycle:
     provider_type="GCP_KMS"
 
-    def __init__(self,client:Any|None=None):
+    def __init__(self,client:Any|None=None,oidc_token:str|None=None):
         self.project=settings.shrimp_bilibili_live_gcp_project_id.strip()
         self.location=settings.shrimp_bilibili_live_gcp_location.strip()
         self.key_ring=settings.shrimp_bilibili_live_gcp_key_ring.strip()
@@ -131,7 +131,7 @@ class GcpLiveKmsLifecycle:
             raise RuntimeError("Live GCP KMS project/location/key ring is not configured")
         if client is None:
             if settings.shrimp_bilibili_live_cloud_kms_oidc_enabled:
-                client=gcp_kms_client_from_vercel_oidc()
+                client=gcp_kms_client_from_vercel_oidc(oidc_token)
             else:
                 from google.cloud import kms
                 client=kms.KeyManagementServiceClient()
@@ -275,11 +275,11 @@ class AzureLiveKmsLifecycle:
         }
 
 
-def default_live_lifecycle(provider_type:str) -> LiveCloudLifecycle:
+def default_live_lifecycle(provider_type:str,oidc_token:str|None=None) -> LiveCloudLifecycle:
     if provider_type=="AWS_KMS":
-        return AwsLiveKmsLifecycle()
+        return AwsLiveKmsLifecycle(oidc_token=oidc_token)
     if provider_type=="GCP_KMS":
-        return GcpLiveKmsLifecycle()
+        return GcpLiveKmsLifecycle(oidc_token=oidc_token)
     if provider_type=="AZURE_KEY_VAULT":
         return AzureLiveKmsLifecycle()
     raise ValueError(f"Unsupported live cloud KMS provider: {provider_type}")
