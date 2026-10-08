@@ -114,6 +114,12 @@ jobs:
       - name: Check Audit Evidence Explorer JavaScript
         run: node --check app/static/audit-evidence-explorer.js
 
+      - name: Check Pipeline Console JavaScript
+        run: node --check app/static/pipeline-console.js
+
+      - name: Check Trust Governance Console JavaScript
+        run: node --check app/static/trust-governance-console.js
+
       - name: Check Shrimp Admin JavaScript
         run: node --check app/static/animation-admin.js
 
