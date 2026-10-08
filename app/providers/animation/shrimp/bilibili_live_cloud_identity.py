@@ -13,9 +13,19 @@ OIDC_SUBJECT_TOKEN_TYPE="urn:ietf:params:oauth:token-type:jwt"
 GCP_SCOPE="https://www.googleapis.com/auth/cloud-platform"
 
 
-def _runtime_oidc_token() -> str:
+def _runtime_oidc_token(explicit_token: str | None=None) -> str:
     if (os.getenv("VERCEL_ENV") or "").strip().lower()!="preview":
         return ""
+    value=(explicit_token or "").strip()
+    if value:
+        return value
+    try:
+        from vercel.oidc import get_vercel_oidc_token_sync
+        value=(get_vercel_oidc_token_sync() or "").strip()
+        if value:
+            return value
+    except Exception:
+        pass
     try:
         from vercel.functions import get_env
         runtime_env=get_env()
@@ -27,17 +37,17 @@ def _runtime_oidc_token() -> str:
     return (os.getenv("VERCEL_OIDC_TOKEN") or "").strip()
 
 
-def _require_oidc_token() -> str:
+def _require_oidc_token(explicit_token: str | None=None) -> str:
     if not settings.shrimp_bilibili_live_cloud_kms_oidc_enabled:
         raise RuntimeError("Live Cloud KMS OIDC federation is disabled")
-    token=_runtime_oidc_token()
+    token=_runtime_oidc_token(explicit_token)
     if not token:
         raise RuntimeError("Vercel Preview OIDC token is unavailable")
     return token
 
 
-def _safe_oidc_identity() -> dict[str,Any] | None:
-    token=_runtime_oidc_token()
+def _safe_oidc_identity(explicit_token: str | None=None) -> dict[str,Any] | None:
+    token=_runtime_oidc_token(explicit_token)
     if not token:
         return None
     try:
@@ -70,8 +80,8 @@ def _masked_ref(value: str) -> str | None:
     return "sha256:"+digest[:16]
 
 
-def live_cloud_identity_readiness() -> dict[str,Any]:
-    token_present=bool(_runtime_oidc_token())
+def live_cloud_identity_readiness(oidc_token: str | None=None) -> dict[str,Any]:
+    token_present=bool(_runtime_oidc_token(oidc_token))
     flags_ready=(
         settings.shrimp_bilibili_live_cloud_kms_oidc_enabled
         and settings.shrimp_bilibili_live_cloud_kms_acceptance_enabled
@@ -185,7 +195,7 @@ def live_cloud_identity_readiness() -> dict[str,Any]:
         "minimum_provider_threshold":2,
         "vercel_env":(os.getenv("VERCEL_ENV") or "").strip().lower() or None,
         "oidc_token_present":token_present,
-        "oidc_identity":_safe_oidc_identity(),
+        "oidc_identity":_safe_oidc_identity(oidc_token),
         "live_acceptance_enabled":
             settings.shrimp_bilibili_live_cloud_kms_acceptance_enabled,
         "cleanup_verification_enabled":
@@ -203,12 +213,12 @@ def live_cloud_identity_readiness() -> dict[str,Any]:
     }
 
 
-def aws_kms_client_from_vercel_oidc() -> Any:
+def aws_kms_client_from_vercel_oidc(oidc_token: str | None=None) -> Any:
     role_arn=settings.shrimp_bilibili_live_aws_role_arn.strip()
     region=settings.shrimp_bilibili_live_aws_region.strip()
     if not role_arn or not region:
         raise RuntimeError("Live AWS OIDC role/region is not configured")
-    token=_require_oidc_token()
+    token=_require_oidc_token(oidc_token)
 
     import boto3
     from botocore import UNSIGNED
@@ -243,13 +253,13 @@ class _VercelOidcSubjectTokenSupplier:
         return self._token
 
 
-def gcp_kms_client_from_vercel_oidc() -> Any:
+def gcp_kms_client_from_vercel_oidc(oidc_token: str | None=None) -> Any:
     audience=(
         settings.shrimp_bilibili_live_gcp_workload_identity_audience.strip()
     )
     if not audience:
         raise RuntimeError("Live GCP Workload Identity audience is not configured")
-    token=_require_oidc_token()
+    token=_require_oidc_token(oidc_token)
 
     from google.auth import identity_pool
     from google.auth.transport.requests import Request
