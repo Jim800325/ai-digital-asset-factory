@@ -2442,6 +2442,147 @@ def shrimp_animation_pipeline_console_job(job_id: UUID):
     }
 
 
+@app.get("/v1/shrimp-animation/trust-governance-console")
+def shrimp_animation_trust_governance_console():
+    def section(loader):
+        try:
+            return {"available":True,"data":loader()}
+        except Exception as exc:
+            return {
+                "available":False,
+                "error_type":type(exc).__name__,
+            }
+
+    sections={
+        "signing":section(signing_key_lifecycle_dashboard),
+        "multisigner":section(multisigner_dashboard),
+        "hsm":section(hsm_root_custody_dashboard),
+        "external_verification":section(external_verification_dashboard),
+        "transparency":section(transparency_dashboard),
+        "external_kms":section(external_kms_dashboard),
+        "live_cloud_kms":section(live_cloud_kms_dashboard),
+        "certification":section(certification_dashboard),
+        "renewal":section(renewal_dashboard),
+        "trust_audit":section(trust_audit_dashboard),
+        "governance":section(governance_dashboard),
+    }
+
+    signing=sections["signing"].get("data") or {}
+    multisigner=sections["multisigner"].get("data") or {}
+    hsm=sections["hsm"].get("data") or {}
+    external_kms=sections["external_kms"].get("data") or {}
+    live_cloud=sections["live_cloud_kms"].get("data") or {}
+    certification=sections["certification"].get("data") or {}
+    renewal=sections["renewal"].get("data") or {}
+    trust_audit=sections["trust_audit"].get("data") or {}
+    governance=sections["governance"].get("data") or {}
+    transparency=sections["transparency"].get("data") or {}
+
+    root_chain=signing.get("trust_root_chain") or {}
+    current_certification=(
+        renewal.get("current_certification")
+        or certification.get("current_certification")
+        or {}
+    )
+    current_review=governance.get("current_review") or {}
+    accepted_clouds=live_cloud.get("accepted_provider_types") or []
+
+    trust_status=(
+        "VERIFIED"
+        if root_chain.get("verification_status")=="PASS"
+        and int(signing.get("active_key_count") or 0)>0
+        else "ATTENTION"
+    )
+    cloud_status=(
+        "CROSS_CLOUD_ACCEPTED"
+        if live_cloud.get("live_cross_cloud_acceptance_completed")
+        else "PARTIAL"
+        if accepted_clouds
+        else "NOT_LIVE_ACCEPTED"
+    )
+    certification_status=(
+        current_certification.get("certification_status")
+        or ("CURRENT" if renewal.get("certification_current") else "NOT_CERTIFIED")
+    )
+    governance_status=(
+        current_review.get("review_status")
+        or "NORMAL"
+    )
+
+    return {
+        "mode":"READ_ONLY_TRUST_GOVERNANCE_CONSOLE",
+        "status":{
+            "trust":trust_status,
+            "cloud_kms":cloud_status,
+            "certification":certification_status,
+            "governance":governance_status,
+        },
+        "summary":{
+            "active_signing_keys":int(signing.get("active_key_count") or 0),
+            "trust_root_count":len(signing.get("trust_roots") or []),
+            "root_transition_count":len(multisigner.get("plans") or []),
+            "hsm_key_count":len(hsm.get("keys") or []),
+            "hsm_ceremony_count":len(hsm.get("ceremonies") or []),
+            "external_kms_provider_count":len(
+                external_kms.get("providers") or []
+            ),
+            "accepted_cloud_provider_types":accepted_clouds,
+            "live_cloud_acceptance_count":len(
+                live_cloud.get("acceptances") or []
+            ),
+            "cross_cloud_ceremony_count":len(
+                live_cloud.get("cross_cloud_ceremonies") or []
+            ),
+            "dsse_attestation_count":int(
+                (transparency.get("counts") or {}).get("attestations") or 0
+            ),
+            "transparency_entry_count":int(
+                (transparency.get("counts") or {}).get(
+                    "transparency_entries"
+                ) or 0
+            ),
+            "certification_current":bool(
+                renewal.get("certification_current")
+            ),
+            "certification_expires_in_days":
+                renewal.get("expires_in_days"),
+            "recertification_required":bool(
+                renewal.get("recertification_required")
+            ),
+            "trust_chain_valid":bool(
+                trust_audit.get("trust_chain_valid")
+            ),
+            "governance_review_count":len(
+                governance.get("reviews") or []
+            ),
+            "policy_intent_count":len(
+                governance.get("policy_intents") or []
+            ),
+        },
+        "sections":sections,
+        "safety":{
+            "read_only":True,
+            "cloud_kms_execution":False,
+            "signing_key_rotation":False,
+            "root_transition_apply":False,
+            "policy_application":False,
+            "production_writes":False,
+            "provider_writes":False,
+            "private_key_export":False,
+        },
+        "references":{
+            "trust_root":"theupdateframework/python-tuf",
+            "signature_verification":
+                "secure-systems-lab/securesystemslib",
+            "attestation":"in-toto/attestation",
+            "transparency":"sigstore/rekor",
+            "private_key_custody":"openbao/openbao",
+            "pkcs11":"pyauth/python-pkcs11",
+        },
+        "secrets_redacted":True,
+    }
+
+
 @app.get("/v1/shrimp-animation/review-workspace")
 def shrimp_animation_review_workspace(limit: int = 100):
     return list_shrimp_review_workspace(limit=limit)
