@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from sqlalchemy import text
@@ -7,6 +8,13 @@ from app.db import engine
 
 MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
 MIGRATION_LOCK_KEY = 42690316016
+
+PREVIEW_LEGACY_RECONCILIATIONS = {
+    "043_shrimp_animation_youtube_live_acceptance.sql": {
+        "reason": "legacy Preview-only YouTube live acceptance branch residue",
+        "expected_object": "shrimp_animation_youtube_live_acceptance_runs",
+    },
+}
 
 
 def migration_files() -> list[str]:
@@ -85,31 +93,57 @@ def migration_status() -> dict:
     unexpected_rows = [
         row for row in rows if str(row["version"]) not in expected_set
     ]
-    unexpected = [str(row["version"]) for row in unexpected_rows]
 
-    youtube_objects = []
-    if unexpected:
+    schema_objects = set()
+    if unexpected_rows:
         with engine.connect() as diagnostics_db:
-            youtube_objects = [
-                dict(row)
+            schema_objects = {
+                str(row["table_name"])
                 for row in diagnostics_db.execute(text("""
-                  SELECT table_schema,table_name,table_type
+                  SELECT table_name
                   FROM information_schema.tables
                   WHERE table_schema='public'
-                    AND lower(table_name) LIKE '%youtube%'
-                  ORDER BY table_name
                 """)).mappings().all()
-            ]
+            }
 
-    status = "DRIFT" if unexpected else ("CURRENT" if not pending else "PENDING")
+    is_preview = (os.getenv("VERCEL_ENV") or "").strip().lower() == "preview"
+    reconciled_rows = []
+    unresolved_rows = []
+    for row in unexpected_rows:
+        version = str(row["version"])
+        policy = PREVIEW_LEGACY_RECONCILIATIONS.get(version)
+        expected_object = policy.get("expected_object") if policy else None
+        if (
+            is_preview
+            and policy is not None
+            and expected_object in schema_objects
+        ):
+            reconciled_rows.append((row, policy))
+        else:
+            unresolved_rows.append(row)
+
+    status = (
+        "DRIFT"
+        if unresolved_rows
+        else ("CURRENT" if not pending else "PENDING")
+    )
+    applied_current_count = sum(
+        1 for version in expected if version in applied_set
+    )
     return {
         "status": status,
         "expected_count": len(expected),
-        "applied_count": len(applied),
-        "latest_version": applied[-1] if applied else None,
+        "applied_count": applied_current_count,
+        "recorded_count": len(applied),
+        "latest_version": (
+            next(
+                (version for version in reversed(expected) if version in applied_set),
+                None,
+            )
+        ),
         "pending": pending,
-        "unexpected": unexpected,
-        "unexpected_details": [
+        "unexpected": [str(row["version"]) for row in unresolved_rows],
+        "reconciled_legacy": [
             {
                 "version": str(row["version"]),
                 "applied_at": (
@@ -117,10 +151,11 @@ def migration_status() -> dict:
                     if row["applied_at"] is not None
                     else None
                 ),
+                "reason": policy["reason"],
+                "preserved_object": policy["expected_object"],
             }
-            for row in unexpected_rows
+            for row, policy in reconciled_rows
         ],
-        "unexpected_schema_objects": youtube_objects,
     }
 
 
