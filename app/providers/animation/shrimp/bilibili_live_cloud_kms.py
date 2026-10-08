@@ -13,6 +13,10 @@ from app.providers.animation.shrimp.bilibili_external_kms import (
     ExternalKmsProvider,
     GcpKmsProvider,
 )
+from app.providers.animation.shrimp.bilibili_live_cloud_identity import (
+    aws_kms_client_from_vercel_oidc,
+    gcp_kms_client_from_vercel_oidc,
+)
 
 
 @dataclass
@@ -52,8 +56,11 @@ class AwsLiveKmsLifecycle:
         if not self.region:
             raise RuntimeError("Live AWS KMS region is not configured")
         if client is None:
-            import boto3
-            client=boto3.client("kms",region_name=self.region)
+            if settings.shrimp_bilibili_live_cloud_kms_oidc_enabled:
+                client=aws_kms_client_from_vercel_oidc()
+            else:
+                import boto3
+                client=boto3.client("kms",region_name=self.region)
         self.client=client
 
     def create_sacrificial(self,name:str) -> LiveCloudResource:
@@ -123,8 +130,11 @@ class GcpLiveKmsLifecycle:
         if not all((self.project,self.location,self.key_ring)):
             raise RuntimeError("Live GCP KMS project/location/key ring is not configured")
         if client is None:
-            from google.cloud import kms
-            client=kms.KeyManagementServiceClient()
+            if settings.shrimp_bilibili_live_cloud_kms_oidc_enabled:
+                client=gcp_kms_client_from_vercel_oidc()
+            else:
+                from google.cloud import kms
+                client=kms.KeyManagementServiceClient()
         self.client=client
 
     def _key_ring_name(self) -> str:
