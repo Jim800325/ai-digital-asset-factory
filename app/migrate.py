@@ -82,7 +82,24 @@ def migration_status() -> dict:
     applied_set = set(applied)
     expected_set = set(expected)
     pending = [version for version in expected if version not in applied_set]
-    unexpected = [version for version in applied if version not in expected_set]
+    unexpected_rows = [
+        row for row in rows if str(row["version"]) not in expected_set
+    ]
+    unexpected = [str(row["version"]) for row in unexpected_rows]
+
+    youtube_objects = []
+    if unexpected:
+        youtube_objects = [
+            dict(row)
+            for row in db.execute(text("""
+              SELECT table_schema,table_name,table_type
+              FROM information_schema.tables
+              WHERE table_schema='public'
+                AND lower(table_name) LIKE '%youtube%'
+              ORDER BY table_name
+            """)).mappings().all()
+        ]
+
     status = "DRIFT" if unexpected else ("CURRENT" if not pending else "PENDING")
     return {
         "status": status,
@@ -91,6 +108,18 @@ def migration_status() -> dict:
         "latest_version": applied[-1] if applied else None,
         "pending": pending,
         "unexpected": unexpected,
+        "unexpected_details": [
+            {
+                "version": str(row["version"]),
+                "applied_at": (
+                    row["applied_at"].isoformat()
+                    if row["applied_at"] is not None
+                    else None
+                ),
+            }
+            for row in unexpected_rows
+        ],
+        "unexpected_schema_objects": youtube_objects,
     }
 
 
