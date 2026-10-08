@@ -15,6 +15,9 @@ from app.providers.animation.shrimp.bilibili_live_cloud_kms import (
     live_manifest_digest,
     sacrificial_name,
 )
+from app.providers.animation.shrimp.bilibili_live_cloud_identity import (
+    live_cloud_identity_readiness,
+)
 from app.providers.animation.shrimp.bilibili_post_restore_certification import _ser,_sha
 from app.providers.animation.shrimp.bilibili_signing_key_lifecycle import list_trust_roots
 
@@ -77,6 +80,19 @@ def run_live_provider_acceptance(
     lifecycle:LiveCloudLifecycle|None=None,
 ) -> dict:
     _require_live_enabled()
+    if lifecycle is None and settings.shrimp_bilibili_live_cloud_kms_oidc_enabled:
+        readiness=live_cloud_identity_readiness()
+        provider=next(
+            (
+                item for item in readiness["providers"]
+                if item["provider_type"]==provider_type
+            ),
+            None,
+        )
+        if provider is None or not provider.get("executable"):
+            raise RuntimeError(
+                f"Live cloud identity is not ready for {provider_type}"
+            )
     lifecycle=lifecycle or default_live_lifecycle(provider_type)
     name=sacrificial_name()
     resource:LiveCloudResource|None=None
@@ -255,6 +271,18 @@ def run_live_cross_cloud_acceptance(
 ) -> dict:
     _require_live_enabled()
     unique=list(dict.fromkeys(provider_types))
+    if lifecycles is None and settings.shrimp_bilibili_live_cloud_kms_oidc_enabled:
+        readiness=live_cloud_identity_readiness()
+        executable={
+            item["provider_type"]
+            for item in readiness["providers"]
+            if item.get("executable")
+        }
+        missing=[provider for provider in unique if provider not in executable]
+        if missing:
+            raise RuntimeError(
+                "Live cloud identity is not ready for: "+",".join(missing)
+            )
     if threshold<2:
         raise ValueError("Live cross-cloud threshold must be at least 2")
     if len(unique)<threshold:
@@ -486,6 +514,7 @@ def live_cloud_kms_dashboard() -> dict[str,Any]:
         and x["post_cleanup_sign_blocked"]
     })
     return {
+        "identity_readiness":live_cloud_identity_readiness(),
         "live_acceptance_enabled":settings.shrimp_bilibili_live_cloud_kms_acceptance_enabled,
         "cleanup_verification_enabled":settings.shrimp_bilibili_live_cloud_kms_cleanup_enabled,
         "sacrificial_name_prefix":settings.shrimp_bilibili_live_cloud_kms_allowed_name_prefix,
