@@ -73,7 +73,7 @@ async function selectEpisode(jobId,push){
   );
   if(!byId("planTitle").value&&e?.title)byId("planTitle").value=e.title;
   renderEpisodesOnly();
-  await loadPlans();
+  await Promise.all([loadPlans(),loadExecutionEvidence()]);
 }
 function renderEpisodesOnly(){
   const list=byId("episodeList");clear(list);
@@ -158,7 +158,7 @@ function renderPlan(plan){
         });
         key.value="";reason.value="";
         toast(result.plan_status+"；external publish 仍为 DISABLED");
-        await loadPlans();
+        await Promise.all([loadPlans(),loadExecutionEvidence()]);
       }catch(err){key.value="";toast("决策失败："+err.message,true);auth.disabled=false;reject.disabled=false;}
     }
     auth.addEventListener("click",()=>decide("AUTHORIZE"));
@@ -167,6 +167,47 @@ function renderPlan(plan){
     card.appendChild(box);
   }
   return card;
+}
+function evidenceRow(title,status,meta){
+  const card=el("div","execution-evidence-card");
+  const head=el("div","plan-head");
+  head.append(el("strong","",title),pill(status,["CURRENT","PUBLISHED","CLEANED_UP","SNAPSHOT_CREATED","READY"].includes(status)));
+  card.append(head,el("div","muted",meta||""));
+  return card;
+}
+async function loadExecutionEvidence(){
+  const list=byId("executionList"),safety=byId("executionSafety");
+  clear(list);clear(safety);
+  if(!state.selectedJob){
+    list.appendChild(el("div","muted","请选择 Episode。"));
+    return;
+  }
+  const data=await api("/v1/shrimp-animation/jobs/"+state.selectedJob+"/pipeline-console");
+  const safe=data.safety||{};
+  safety.append(
+    dryItem("External side effects",safe.external_side_effects||"—"),
+    dryItem("Production execution",String(Boolean(safe.production_execution_enabled))),
+    dryItem("Provider publish flag",String(Boolean(safe.publish_enabled))),
+    dryItem("Console writes",String(Boolean(safe.console_write_actions)))
+  );
+  const executions=data.publish_executions||[];
+  if(!executions.length){
+    list.appendChild(el("div","muted","尚无 Controlled Publisher Execution。"));
+  }
+  executions.forEach(x=>{
+    list.appendChild(evidenceRow(
+      (x.platform||"—")+" · "+(x.target_key||"—"),
+      x.execution_status||"UNKNOWN",
+      "execution "+short(x.id)+" · upload "+(x.upload_outcome||"—")+" "+(x.upload_write_count??0)+"/1 · publish "+(x.publish_outcome||"—")+" "+(x.publish_write_count??0)+"/1 · source "+(x.source_stale?"STALE":"CURRENT")
+    ));
+  });
+  (data.bilibili_acceptances||[]).forEach(x=>{
+    list.appendChild(evidenceRow(
+      "Bilibili Provider Read-Back",
+      x.acceptance_status||"UNKNOWN",
+      "read-back "+Boolean(x.provider_read_back_verified)+" · private "+Boolean(x.private_visibility_verified)+" · cleanup "+Boolean(x.cleanup_verified)+" · production touched "+Boolean(x.production_account_touched)
+    ));
+  });
 }
 async function loadPlans(){
   const list=byId("planList");clear(list);
@@ -224,13 +265,13 @@ byId("createPlanButton").addEventListener("click",async()=>{
     });
     key.value="";
     toast("dry-run VERIFIED："+short(result.dry_run_sha256));
-    await loadPlans();
+    await Promise.all([loadPlans(),loadExecutionEvidence()]);
   }catch(err){key.value="";toast("Plan 创建失败："+err.message,true);}
 });
 
 byId("refreshButton").addEventListener("click",async()=>{
   await Promise.all([loadTargets(),loadEpisodes()]);
-  if(state.selectedJob)await loadPlans();
+  if(state.selectedJob)await Promise.all([loadPlans(),loadExecutionEvidence()]);
   toast("已重新整理");
 });
 window.addEventListener("popstate",async()=>{
