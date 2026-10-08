@@ -349,6 +349,9 @@ from app.providers.animation.shrimp.audit_evidence_explorer import (
     audit_evidence_explorer,
     export_audit_evidence,
 )
+from app.providers.animation.shrimp.control_center_final_acceptance import (
+    evaluate_unified_control_center_acceptance,
+)
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
@@ -2640,6 +2643,28 @@ def shrimp_animation_trust_governance_console():
         },
         "secrets_redacted":True,
     }
+
+
+@app.get("/v1/shrimp-animation/control-center/final-acceptance")
+def shrimp_animation_control_center_final_acceptance():
+    try:
+        summary=_shrimp_control_center_summary()
+        trust=shrimp_animation_trust_governance_console()
+        operations=operations_console()
+        audit=audit_evidence_explorer(limit=500,offset=0)
+        return evaluate_unified_control_center_acceptance(
+            summary=summary,
+            trust=trust,
+            operations=operations,
+            audit=audit,
+        )
+    except DBAPIError as exc:
+        if is_database_unavailable(exc):
+            raise HTTPException(
+                status_code=503,
+                detail="Unified Control Center acceptance database is unavailable",
+            ) from exc
+        raise
 
 
 @app.get("/v1/shrimp-animation/review-workspace")
