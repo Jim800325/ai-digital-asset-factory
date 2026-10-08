@@ -2511,9 +2511,37 @@ def shrimp_animation_pipeline_console_job(job_id: UUID):
     try:
         review=get_shrimp_review_workspace(job_id)
         review_error=None
-    except (LookupError,RuntimeError) as exc:
-        review=None
+    except (LookupError,RuntimeError,FileNotFoundError) as exc:
         review_error=str(exc)
+        shrimp=job.get("shrimp_animation",{})
+        with engine.connect() as review_db:
+            decisions=[
+                _control_center_row(row)
+                for row in review_db.execute(
+                    text("""
+                      SELECT decision,reason,actor,decision_status,
+                             decision_sha256,created_at
+                      FROM shrimp_animation_review_decisions
+                      WHERE provider_job_id=CAST(:job_id AS uuid)
+                      ORDER BY created_at DESC,id DESC
+                    """),
+                    {"job_id":job_id},
+                ).mappings().all()
+            ]
+        review={
+            "episode_id":shrimp.get("episode_id"),
+            "title":shrimp.get("episode_id"),
+            "review_status":shrimp.get("review_status"),
+            "job_status":job.get("job_status"),
+            "qc_passed":bool(shrimp.get("qc_report_sha256")),
+            "episode_bundle_sha256":shrimp.get("episode_bundle_sha256"),
+            "release_review_package_sha256":
+                shrimp.get("release_review_package_sha256"),
+            "render_artifact_sha256":shrimp.get("render_artifact_sha256"),
+            "decisions":decisions,
+            "artifact_files_available":False,
+            "fallback_summary":True,
+        }
 
     plans=list_publish_plans(job_id)
     executions=list_publish_executions(job_id)
