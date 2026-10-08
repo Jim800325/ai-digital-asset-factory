@@ -80,13 +80,17 @@ def migration_status() -> dict:
 
     applied = [str(row["version"]) for row in rows]
     applied_set = set(applied)
+    expected_set = set(expected)
     pending = [version for version in expected if version not in applied_set]
+    unexpected = [version for version in applied if version not in expected_set]
+    status = "DRIFT" if unexpected else ("CURRENT" if not pending else "PENDING")
     return {
-        "status": "CURRENT" if not pending else "PENDING",
+        "status": status,
         "expected_count": len(expected),
         "applied_count": len(applied),
         "latest_version": applied[-1] if applied else None,
         "pending": pending,
+        "unexpected": unexpected,
     }
 
 
