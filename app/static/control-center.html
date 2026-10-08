@@ -102,7 +102,9 @@
         <a class="workspace-card" href="/animation/quota"><div class="workspace-icon">Q</div><div><div class="card-kicker">QUOTA</div><h3>额度运营</h3><p>Daily quota、Reservation、Claim、Ledger 与 Stuck reconciliation。</p></div><div class="workspace-stat">OPS</div></a>
         <a class="workspace-card" href="/animation/operations"><div class="workspace-icon">!</div><div><div class="card-kicker">RECOVERY</div><h3>Publisher Operations</h3><p>Claim Escalation、Automatic Recovery Policy 与 Account Circuit Breaker。</p></div><div class="workspace-stat">SAFE</div></a>
         <a class="workspace-card" href="/animation/reliability"><div class="workspace-icon">R</div><div><div class="card-kicker">RELIABILITY</div><h3>Reliability Scorecard</h3><p>30-Day SLO、Error Budget、ACK / MTTR、Ambiguity、Circuit 与 Root Cause recurrence。</p></div><div class="workspace-stat">SLO</div></a>
-        <a class="workspace-card" href="/animation/reliability-review"><div class="workspace-icon">G</div><div><div class="card-kicker">GOVERNANCE</div><h3>Reliability Governance Review</h3><p>NORMAL / CAUTION / FREEZE_RECOMMENDED 人工治理审查与不可执行 Policy Intent。</p></div><div class="workspace-stat">HUMAN</div></a>\n        <a class="workspace-card" href="/animation/trust-governance"><div class="workspace-icon">K</div><div><div class="card-kicker">STEP 10B.23</div><h3>Trust / KMS + Governance</h3><p>Signing Root、HSM、External/Cloud KMS、DSSE、Certification 与 Governance 的只读追溯控制面。</p></div><div class="workspace-stat">TRUST</div></a>
+        <a class="workspace-card" href="/animation/reliability-review"><div class="workspace-icon">G</div><div><div class="card-kicker">GOVERNANCE</div><h3>Reliability Governance Review</h3><p>NORMAL / CAUTION / FREEZE_RECOMMENDED 人工治理审查与不可执行 Policy Intent。</p></div><div class="workspace-stat">HUMAN</div></a>
+        <a class="workspace-card" href="/animation/trust-governance"><div class="workspace-icon">K</div><div><div class="card-kicker">STEP 10B.23</div><h3>Trust / KMS + Governance</h3><p>Signing Root、HSM、External/Cloud KMS、DSSE、Certification 与 Governance 的只读追溯控制面。</p></div><div class="workspace-stat">TRUST</div></a>
+        <a class="workspace-card" href="/animation/audit-evidence"><div class="workspace-icon">Σ</div><div><div class="card-kicker">STEP 10B.24</div><h3>Audit / Evidence Explorer</h3><p>Incident、Circuit、Recovery、Certification、Trust、KMS、DSSE、Rekor、Publisher 与 Cloud Ceremony 的统一只读时间线。</p></div><div class="workspace-stat">TRACE</div></a>
         <a class="workspace-card" href="/animation/settings"><div class="workspace-icon">⚙</div><div><div class="card-kicker">SETTINGS</div><h3>增强设置</h3><p>运行环境、Publisher Adapter、Gate 与 Bilibili 配置总览。</p></div><div class="workspace-stat">OPEN</div></a>
         <a class="workspace-card" href="/animation-review"><div class="workspace-icon">▶</div><div><div class="card-kicker">STEP 8</div><h3>Human Review</h3><p>Episode Player、QC、Provenance、Bundle 与 APPROVE / REJECT。</p></div><div id="reviewWorkspaceStat" class="workspace-stat">—</div></a>
         <a class="workspace-card" href="/animation-publishing"><div class="workspace-icon">↗</div><div><div class="card-kicker">STEP 9</div><h3>Publishing Authorization</h3><p>Platform Target、dry-run Plan、PUBLISH AUTHORIZED / REJECTED。</p></div><div id="publishWorkspaceStat" class="workspace-stat">—</div></a>
@@ -129,8 +131,11 @@
       </section>
 
       <section id="evidence" class="panel-card">
-        <div class="section-title-row"><div><div class="card-kicker">AUDIT / EVIDENCE</div><h2>最近发布执行</h2></div><span class="safe-badge">Exactly-once write budgets</span></div>
-        <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Platform</th><th>Target</th><th>Execution</th><th>Upload</th><th>Publish</th><th>Source</th></tr></thead><tbody id="recentExecutionsBody"></tbody></table></div>
+        <div class="section-title-row">
+          <div><div class="card-kicker">STEP 10B.24 · AUDIT / EVIDENCE</div><h2>Unified Audit Timeline</h2></div>
+          <div class="section-actions"><span id="auditEventCount" class="safe-badge">0 EVENTS</span><a class="table-link" href="/animation/audit-evidence">打开 Evidence Explorer →</a></div>
+        </div>
+        <div class="table-wrap dashboard-table-wrap"><table><thead><tr><th>Time</th><th>Category</th><th>Event</th><th>Status</th><th>Evidence SHA</th><th>Trace</th></tr></thead><tbody id="auditTimelineBody"></tbody></table></div>
       </section>
     </main>
   </div>
