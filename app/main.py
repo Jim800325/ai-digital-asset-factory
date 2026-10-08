@@ -237,6 +237,9 @@ from app.providers.animation.shrimp.bilibili_live_cloud_kms_acceptance import (
     run_live_cross_cloud_acceptance,
     run_live_provider_acceptance,
 )
+from app.providers.animation.shrimp.bilibili_live_cloud_identity import (
+    live_cloud_identity_readiness,
+)
 from app.providers.animation.shrimp.bilibili_certification_renewal import (
     decide_recertification,
     evaluate_certification_expiry,
@@ -3072,6 +3075,11 @@ def shrimp_animation_bilibili_key_compromise_recovery_drill(
 @app.get("/v1/shrimp-animation/bilibili-live-cloud-kms")
 def shrimp_animation_bilibili_live_cloud_kms():
     return live_cloud_kms_dashboard()
+
+
+@app.get("/v1/shrimp-animation/bilibili-live-cloud-kms/readiness")
+def shrimp_animation_bilibili_live_cloud_kms_readiness():
+    return live_cloud_identity_readiness()
 
 
 @app.post("/v1/shrimp-animation/bilibili-live-cloud-kms/accept",status_code=201)
