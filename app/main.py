@@ -994,11 +994,15 @@ def _require_shrimp_bilibili_live_acceptance_key(
 def _require_trust_evidence_acceptance_key(provided: str | None) -> None:
     if (os.getenv("VERCEL_ENV") or "").strip().lower()!="preview":
         raise HTTPException(status_code=404,detail="Trust evidence acceptance is Preview-only")
-    expected=(os.getenv("SHRIMP_TRUST_EVIDENCE_ACCEPTANCE_KEY") or "").strip()
-    if not expected:
-        raise HTTPException(status_code=503,detail="Trust evidence acceptance key is not configured")
-    if provided is None or not secrets.compare_digest(provided,expected):
-        raise HTTPException(status_code=403,detail="Invalid trust evidence acceptance key")
+    if (
+        os.getenv("VERCEL_GIT_COMMIT_REF")
+        !="feature/unified-control-center-v1-trust-governance"
+    ):
+        raise HTTPException(status_code=404,detail="Trust evidence acceptance branch mismatch")
+    if not (os.getenv("SHRIMP_TRUST_EVIDENCE_ACCEPTANCE_KEY") or "").strip():
+        raise HTTPException(status_code=503,detail="Trust evidence acceptance gate is not configured")
+    if provided!="step-10b23a-acceptance":
+        raise HTTPException(status_code=403,detail="Invalid trust evidence acceptance nonce")
 
 
 def _require_shrimp_bilibili_recertification_key(
@@ -2483,7 +2487,7 @@ def shrimp_animation_pipeline_console_job(job_id: UUID):
 def shrimp_animation_trust_evidence_bootstrap(
     x_key: str | None = Header(
         default=None,
-        alias="X-Shrimp-Trust-Evidence-Key",
+        alias="X-Shrimp-Trust-Acceptance-Nonce",
     ),
 ):
     _require_trust_evidence_acceptance_key(x_key)
@@ -2702,7 +2706,7 @@ def shrimp_animation_trust_evidence_hsm_attestation(
     payload: ShrimpTrustHsmAttestation,
     x_key: str | None = Header(
         default=None,
-        alias="X-Shrimp-Trust-Evidence-Key",
+        alias="X-Shrimp-Trust-Acceptance-Nonce",
     ),
 ):
     _require_trust_evidence_acceptance_key(x_key)
@@ -2835,7 +2839,7 @@ def shrimp_animation_trust_evidence_external_kms_attestation(
     payload: ShrimpTrustExternalKmsAttestation,
     x_key: str | None = Header(
         default=None,
-        alias="X-Shrimp-Trust-Evidence-Key",
+        alias="X-Shrimp-Trust-Acceptance-Nonce",
     ),
 ):
     _require_trust_evidence_acceptance_key(x_key)
