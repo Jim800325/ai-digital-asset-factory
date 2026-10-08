@@ -111,6 +111,9 @@ jobs:
       - name: Check Shrimp Control Center JavaScript
         run: node --check app/static/control-center.js
 
+      - name: Check Audit Evidence Explorer JavaScript
+        run: node --check app/static/audit-evidence-explorer.js
+
       - name: Check Shrimp Admin JavaScript
         run: node --check app/static/animation-admin.js
 
