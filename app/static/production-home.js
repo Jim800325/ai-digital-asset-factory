@@ -100,7 +100,7 @@
     setText("runsState", "UNAVAILABLE");
     setText("opportunitiesState", "UNAVAILABLE");
     showIssue("runsList", "無法讀取安全摘要；請檢查服務及資料庫狀態。");
-    showIssue("opportunitiesList", "无法读取安全摘要；请检查服务及数据库状态。");
+    showIssue("opportunitiesList", "無法讀取安全摘要；請檢查服務及資料庫狀態。");
   };
 
   const load = async () => {
@@ -112,7 +112,7 @@
       setText("updatedAt", "最後更新：" + new Date().toLocaleString("zh-HK", {hour12:false}) + " · 安全摘要讀取完成");
     } catch (_) {
       renderFailure();
-      setText("updatedAt", "最后刷新：" + new Date().toLocaleString("zh-HK", {hour12:false}) + " · 安全摘要不可用（已安全降級）");
+      setText("updatedAt", "最後更新：" + new Date().toLocaleString("zh-HK", {hour12:false}) + " · 安全摘要不可用（已安全降級）");
     }
     if (button) { button.disabled = false; button.textContent = "↻ 重新整理狀態"; }
   };
