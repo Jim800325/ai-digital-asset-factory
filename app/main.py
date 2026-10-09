@@ -44,7 +44,20 @@ app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
 @app.on_event("startup")
 def _apply_startup_migrations():
-    migrate()
+    try:
+        migrate()
+    except DBAPIError as exc:
+        if (
+            os.getenv("VERCEL_ENV", "").strip().lower() == "preview"
+            and is_database_unavailable(exc)
+        ):
+            print(
+                "preview startup: database unavailable; "
+                "migrations skipped and read APIs remain fail-closed/degraded",
+                flush=True,
+            )
+            return
+        raise
 
 app.mount("/review-assets", StaticFiles(directory=STATIC_DIR), name="review-assets")
 app.include_router(review_ui_router)
