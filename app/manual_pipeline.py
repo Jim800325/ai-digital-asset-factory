@@ -25,8 +25,13 @@ def manual_pipeline_readiness() -> dict:
         conn = _redis()
         redis_available = bool(conn.ping())
         if redis_available:
-            workers = Worker.all(connection=conn, queue=Queue(QUEUE_NAME, connection=conn))
-            active_workers = sum(1 for w in workers if w.get_state() in {"idle", "busy"})
+            workers = Worker.all(connection=conn)
+            active_workers = sum(
+                1
+                for w in workers
+                if w.get_state() in {"idle", "busy"}
+                and QUEUE_NAME in set(w.queue_names())
+            )
     except Exception:
         redis_available = False
         active_workers = 0
@@ -81,10 +86,11 @@ def enqueue_manual_pipeline(provided_key: str | None) -> dict:
 def manual_pipeline_job(job_id: str) -> dict:
     conn = _redis()
     job = Job.fetch(job_id, connection=conn)
-    status = job.get_status(refresh=True)
+    raw_status = job.get_status(refresh=True)
+    status = getattr(raw_status, "value", str(raw_status)).lower()
     payload = {
         "job_id": job.id,
-        "status": str(status).upper(),
+        "status": status.upper(),
         "enqueued_at": job.enqueued_at.isoformat() if job.enqueued_at else None,
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "ended_at": job.ended_at.isoformat() if job.ended_at else None,
@@ -92,9 +98,9 @@ def manual_pipeline_job(job_id: str) -> dict:
         "result": None,
         "error": None,
     }
-    if str(status) == "finished" and isinstance(job.result, dict):
+    if status == "finished" and isinstance(job.result, dict):
         payload["result"] = job.result
         payload["run_id"] = job.result.get("run_id")
-    elif str(status) in {"failed", "stopped", "canceled"}:
+    elif status in {"failed", "stopped", "canceled"}:
         payload["error"] = "Pipeline job did not complete successfully"
     return payload
