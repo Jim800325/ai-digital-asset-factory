@@ -24,6 +24,11 @@ from app.db_reliability import (
     read_with_retry,
 )
 from app.release_gate import decide_release_candidate, ensure_release_candidate
+from app.real_cloud_execution import (
+    RealCloudExecutionBlocked,
+    execute_real_cloud_acceptance,
+    real_cloud_readiness,
+)
 from app.release_integrity_gate import list_release_integrity_blocks
 from app.release_review import ensure_release_review_package
 from app.review_ui import STATIC_DIR, router as review_ui_router
@@ -702,3 +707,37 @@ def internal_live_acceptance(trigger_token: str, request: Request):
         raise HTTPException(status_code=403,detail=str(exc)) from exc
     except LiveAcceptanceError as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get(
+    "/internal/real-cloud-execution/readiness",
+    include_in_schema=False,
+)
+def internal_real_cloud_execution_readiness(request: Request):
+    return real_cloud_readiness(
+        request.headers.get("x-vercel-oidc-token")
+    )
+
+
+@app.post(
+    "/internal/real-cloud-execution/execute",
+    include_in_schema=False,
+)
+def internal_real_cloud_execution(
+    request: Request,
+    x_cloud_execution_key: str | None = Header(
+        default=None,
+        alias="X-Cloud-Execution-Key",
+    ),
+):
+    try:
+        return execute_real_cloud_acceptance(
+            execution_key=x_cloud_execution_key,
+            oidc_token=request.headers.get("x-vercel-oidc-token"),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except RealCloudExecutionBlocked as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
