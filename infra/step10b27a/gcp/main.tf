@@ -19,7 +19,24 @@ variable "vercel_audience" { type = string, default = "https://vercel.com/jim-wu
 variable "vercel_project_id" { type = string, default = "prj_orLCRCIm7aVfImH8ihB3gponFOEl" }
 variable "vercel_owner_id" { type = string, default = "team_JO3GTfLCviMWb2pAvSClH0iK" }
 
+locals {
+  required_services = toset([
+    "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
+    "sts.googleapis.com",
+    "cloudkms.googleapis.com"
+  ])
+}
+
+resource "google_project_service" "required" {
+  for_each           = local.required_services
+  project            = var.project_id
+  service            = each.value
+  disable_on_destroy = false
+}
+
 resource "google_iam_workload_identity_pool" "vercel" {
+  depends_on = [google_project_service.required]
   project                   = var.project_id
   workload_identity_pool_id = var.pool_id
   display_name              = "Vercel Preview"
@@ -76,16 +93,16 @@ resource "google_kms_key_ring" "step10b27a" {
   location = var.location
 }
 
-resource "google_project_iam_member" "kms_role" {
-  project = var.project_id
-  role    = google_project_iam_custom_role.kms_acceptance.name
-  member  = "serviceAccount:${google_service_account.step10b27a.email}"
+resource "google_kms_key_ring_iam_member" "kms_role" {
+  key_ring_id = google_kms_key_ring.step10b27a.id
+  role        = google_project_iam_custom_role.kms_acceptance.name
+  member      = "serviceAccount:${google_service_account.step10b27a.email}"
 }
 
 resource "google_service_account_iam_member" "wif_impersonation" {
   service_account_id = google_service_account.step10b27a.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.vercel.name}/attribute.environment/preview"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.vercel.name}/attribute.project_id/${var.vercel_project_id}"
 }
 
 output "real_cloud_gcp_workload_identity_audience" {
