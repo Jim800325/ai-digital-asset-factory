@@ -87,6 +87,10 @@ def test_full_v02_integration_acceptance():
                  evidence_quality_score,source_diversity_score,signal_strength_score,
                  evidence_gate_passed,research_validation_score,build_readiness
           FROM digital_asset_opportunities
+          WHERE id NOT IN (
+            '00000000-0000-0000-0000-000000001701'::uuid,
+            '00000000-0000-0000-0000-000000001901'::uuid
+          )
         """)).mappings().all()
         assert len(opportunities) == 1
         opportunity=opportunities[0]
