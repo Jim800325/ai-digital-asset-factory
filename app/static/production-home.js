@@ -83,10 +83,13 @@
   const renderOpportunities = (data) => {
     const rows = listData(data);
     if (!rows) throw new Error("Unexpected opportunities response");
-    setText("opportunityCount", String(rows.length));
+    const realRows = rows.filter((entry) =>
+      !String(entry.title || entry.canonical_title || "").startsWith("[TEST_ONLY]"));
+    setText("opportunityCount", String(realRows.length));
     setText("opportunitiesState", "DATA LOADED");
-    if (!rows.length) return showIssue("opportunitiesList", "当前没有机会研究条目。");
-    byId("opportunitiesList").replaceChildren(...rows.slice(0, 5).map((entry) =>
+    if (!realRows.length) return showIssue("opportunitiesList",
+      rows.length ? "当前只有测试 Fixture，暂无真实机会研究条目。" : "当前没有机会研究条目。");
+    byId("opportunitiesList").replaceChildren(...realRows.slice(0, 5).map((entry) =>
       item(String(entry.title || entry.canonical_title || "未命名机会"),
         "评分: " + (entry.score ?? "—") + " · 来源: " + (entry.independent_source_count ?? "—"),
         String(entry.status || "UNKNOWN").toUpperCase())));
