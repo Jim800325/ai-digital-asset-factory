@@ -34,6 +34,11 @@ from app.release_review import ensure_release_review_package
 from app.review_ui import STATIC_DIR, router as review_ui_router
 from app.review_workspace import get_review_workspace, list_review_workspace
 from app.migrate import migrate, migration_status
+from app.manual_pipeline import (
+    enqueue_manual_pipeline,
+    manual_pipeline_job,
+    manual_pipeline_readiness,
+)
 from app.live_acceptance_registry import (
     get_live_acceptance_audit,
     list_live_acceptance_audits,
@@ -151,11 +156,27 @@ def health():
 def control_center_summary():
     return build_control_center_summary()
 
+@app.get("/v1/manual-pipeline/readiness")
+def manual_pipeline_readiness_endpoint():
+    return manual_pipeline_readiness()
+
 @app.post("/v1/runs", status_code=202)
-def create_run():
-    q=Queue("asset-factory",connection=Redis.from_url(settings.redis_url))
-    job=q.enqueue(run_pipeline,job_timeout=900)
-    return {"job_id":job.id,"status":"queued"}
+def create_run(
+    x_manual_run_key: str | None = Header(default=None, alias="X-Manual-Run-Key"),
+):
+    try:
+        return enqueue_manual_pipeline(x_manual_run_key)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+@app.get("/v1/manual-pipeline/jobs/{job_id}")
+def manual_pipeline_job_endpoint(job_id: str):
+    try:
+        return manual_pipeline_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Manual pipeline job not found") from exc
 
 @app.get("/v1/runs")
 def runs(limit: int = 30):
