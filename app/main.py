@@ -14,6 +14,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.build_proposals import decide_build_proposal
 from app.config import settings
+from app.control_center_summary import build_control_center_summary
 from app.db import engine
 from app.db_reliability import (
     DatabaseUnavailable,
@@ -140,6 +141,10 @@ def health():
         return JSONResponse(status_code=503,content=payload)
     payload["release_approval"]="AVAILABLE"
     return payload
+
+@app.get("/v1/control-center-summary")
+def control_center_summary():
+    return build_control_center_summary()
 
 @app.post("/v1/runs", status_code=202)
 def create_run():
