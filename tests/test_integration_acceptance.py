@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine
+from app.migrate import migration_files
 from app.main import app
 from app.release_gate import decide_release_candidate, ensure_release_candidate
 from app.sandbox_execution import create_sandbox_request, execute_sandbox_request
@@ -30,23 +31,10 @@ def test_full_v02_integration_acceptance():
                 text("SELECT version FROM schema_migrations ORDER BY version")
             ).all()
         ]
-    assert versions == [
-        "001_initial.sql",
-        "002_hunter_v02.sql",
-        "003_cross_source_aggregator.sql",
-        "004_evidence_quality.sql",
-        "005_research_reports.sql",
-        "006_audit_integrity.sql",
-        "007_research_validation.sql",
-        "008_build_proposals.sql",
-        "009_sandbox_execution.sql",
-        "010_openhands_adapter.sql",
-        "011_controlled_llm_proxy.sql",
-        "012_human_release_gate.sql",
-        "013_release_review_package.sql",
-        "014_human_review_workspace.sql",
-        "015_live_acceptance_audit.sql",
-    ]
+    assert versions == migration_files()
+    assert len(versions) == 21
+    assert versions[0] == "001_initial.sql"
+    assert versions[-1] == "021_archive_recovery_fixture_restore_strict_guards.sql"
 
     assert Redis.from_url(settings.redis_url).ping() is True
 
@@ -99,6 +87,10 @@ def test_full_v02_integration_acceptance():
                  evidence_quality_score,source_diversity_score,signal_strength_score,
                  evidence_gate_passed,research_validation_score,build_readiness
           FROM digital_asset_opportunities
+          WHERE id NOT IN (
+            '00000000-0000-0000-0000-000000001701'::uuid,
+            '00000000-0000-0000-0000-000000001901'::uuid
+          )
         """)).mappings().all()
         assert len(opportunities) == 1
         opportunity=opportunities[0]
