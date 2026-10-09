@@ -44,27 +44,24 @@ app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
 @app.on_event("startup")
 def _apply_startup_migrations():
-    try:
-        migrate()
-    except DBAPIError as exc:
-        vercel_env = os.getenv("VERCEL_ENV", "").strip().lower()
-        git_ref = os.getenv("VERCEL_GIT_COMMIT_REF", "").strip()
-        is_preview = (
-            vercel_env == "preview"
-            or (
-                bool(os.getenv("VERCEL"))
-                and bool(git_ref)
-                and git_ref != "main"
-            )
+    vercel_env = os.getenv("VERCEL_ENV", "").strip().lower()
+    git_ref = os.getenv("VERCEL_GIT_COMMIT_REF", "").strip()
+    is_vercel_preview = (
+        vercel_env == "preview"
+        or (
+            bool(os.getenv("VERCEL"))
+            and bool(git_ref)
+            and git_ref != "main"
         )
-        if is_preview and is_database_unavailable(exc):
-            print(
-                "preview startup: database unavailable; "
-                "migrations skipped and read APIs remain fail-closed/degraded",
-                flush=True,
-            )
-            return
-        raise
+    )
+    if is_vercel_preview:
+        print(
+            "preview startup: repository migrations intentionally skipped; "
+            "Production main remains migration fail-closed",
+            flush=True,
+        )
+        return
+    migrate()
 
 app.mount("/review-assets", StaticFiles(directory=STATIC_DIR), name="review-assets")
 app.include_router(review_ui_router)
