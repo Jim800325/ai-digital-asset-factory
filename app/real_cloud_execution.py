@@ -246,7 +246,7 @@ def _aws_create(client) -> SacrificialResource:
 
 def _aws_sign_verify_cleanup(client, resource: SacrificialResource) -> dict[str, Any]:
     from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric import ec, utils
 
     _assert_sacrificial(resource.name)
     digest = hashlib.sha256(b"shrimp-step-10b27a-acceptance").digest()
@@ -261,7 +261,7 @@ def _aws_sign_verify_cleanup(client, resource: SacrificialResource) -> dict[str,
     key.verify(
         signed["Signature"],
         digest,
-        ec.ECDSA(hashes.SHA256()),
+        ec.ECDSA(utils.Prehashed(hashes.SHA256())),
     )
     client.disable_key(KeyId=resource.locator["key_id"])
     client.schedule_key_deletion(
