@@ -114,11 +114,8 @@
                 </div>
                 <div class="pipeline-actions">
                   <span id="runsState" class="soft-status">CHECKING</span>
-                  <button id="manualRunButton" class="button secondary" type="button" disabled>▶ 手動執行 Pipeline</button>
+                  <a class="button secondary" href="/manual-pipeline">▶ 手動執行 Pipeline</a>
                 </div>
-              </div>
-              <div id="manualRunStatus" class="manual-run-status" role="status" aria-live="polite">
-                正在檢查手動執行條件…
               </div>
               <div id="runsList" class="item-list" aria-live="polite">
                 <p class="empty">正在讀取任務…</p>
@@ -255,20 +252,6 @@
         </section>
       </main>
 
-      <dialog id="manualRunDialog" class="manual-dialog" aria-labelledby="manualRunTitle">
-        <form method="dialog" class="manual-dialog-card">
-          <div class="eyebrow">MANUAL PIPELINE</div>
-          <h2 id="manualRunTitle">確認手動執行</h2>
-          <p>這會建立一個新的 Pipeline Run，執行搜尋、抓取、證據整理、機會分析及研究刷新。此操作不會啟用 Production Provider Write、Cloud KMS 或自動發佈。</p>
-          <label for="manualRunKey">操作金鑰</label>
-          <input id="manualRunKey" name="manualRunKey" type="password" autocomplete="off" spellcheck="false" placeholder="輸入 Manual Run Key">
-          <div id="manualRunDialogMessage" class="dialog-message"></div>
-          <div class="dialog-actions">
-            <button id="manualRunCancel" class="button secondary" value="cancel">取消</button>
-            <button id="manualRunConfirm" class="button primary" type="button">確認執行</button>
-          </div>
-        </form>
-      </dialog>
 
       <footer class="footer">
         <span>AI Digital Asset Factory · Unified Control Center</span>
