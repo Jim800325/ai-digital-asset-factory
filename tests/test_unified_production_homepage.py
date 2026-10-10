@@ -16,11 +16,11 @@ def test_unified_production_homepage_route_and_security():
     assert 'lang="zh-HK"' in response.text
     assert "UNIFIED CONTROL CENTER · v1.1 UI" in response.text
     assert "PRODUCTION · READ ONLY" in response.text
-    assert "Publishing Console" in response.text
+    assert "<h3>Publishing</h3>" in response.text
     assert "Trust / KMS" in response.text
     assert "Governance" in response.text
-    assert "Operations Console" in response.text
-    assert "PREVIEW ONLY" in response.text
+    assert "<h3>Operations</h3>" in response.text
+    assert "Controlled / Preview" in response.text
 
 
 def test_production_homepage_static_assets_use_only_sanitized_summary_api():
