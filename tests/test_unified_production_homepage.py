@@ -59,7 +59,7 @@ def test_production_homepage_static_assets_use_only_sanitized_summary_api():
 
     assert "Production 未開放" in html
     assert "只會把真正完成的驗收顯示為完成" in html
-    assert "@media(max-width:750px)" in css
+    assert "@media(max-width:560px)" in css
 
 
 def test_control_center_summary_is_minimized_and_filters_test_fixtures():
