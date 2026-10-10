@@ -1,0 +1,23 @@
+.manual-page{width:min(900px,calc(100% - 32px));margin:0 auto;padding:34px 0 60px;display:grid;gap:18px}
+.manual-header{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;padding-bottom:18px;border-bottom:1px solid var(--border)}
+.manual-header h1{margin:5px 0 8px;font-size:28px;letter-spacing:-.04em}
+.manual-header p{margin:0;color:var(--muted);max-width:680px}
+.manual-readiness,.manual-execution{padding:22px}
+.readiness-grid,.result-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:14px}
+.readiness-grid>div,.result-grid>div{padding:13px;border:1px solid var(--border);border-radius:10px;background:#0d1827}
+.readiness-grid span,.result-grid dt{display:block;color:var(--muted);font-size:10px;margin-bottom:6px}
+.readiness-grid strong,.result-grid dd{margin:0;font-size:12px;overflow-wrap:anywhere}
+.manual-label{display:block;margin:16px 0 7px;font-size:11px;font-weight:800;color:#b7cae5}
+.manual-input{width:100%;border:1px solid var(--border);border-radius:9px;background:#091421;color:var(--ink);padding:11px 12px;font:inherit}
+.manual-input:focus{outline:2px solid var(--blue);outline-offset:2px}
+.confirm-row{display:flex;gap:9px;align-items:flex-start;margin:14px 0;color:#b7cae5;font-size:11px}
+.confirm-row input{margin-top:3px}
+.manual-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
+.result-grid{margin-bottom:14px}
+.manual-run-status{margin-top:13px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:#0c1726;color:var(--muted);font-size:11px}
+.manual-run-status.ready{color:var(--green);border-color:#255349;background:#102822}
+.manual-run-status.running{color:var(--blue);border-color:#315b85;background:#10233a}
+.manual-run-status.failed{color:var(--red);border-color:#673436;background:#321f22}
+.disabled-link{pointer-events:none;opacity:.55}
+@media(max-width:720px){.manual-header{flex-direction:column}.readiness-grid,.result-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:460px){.manual-page{width:min(100% - 20px,900px);padding-top:18px}.readiness-grid,.result-grid{grid-template-columns:1fr}.manual-actions .button{width:100%;justify-content:center}}
