@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="AI Digital Asset Factory — Manual Pipeline Workspace">
+  <title>Manual Pipeline · AI Digital Asset Factory</title>
+  <link rel="stylesheet" href="/review-assets/production-home.css">
+  <link rel="stylesheet" href="/review-assets/manual-pipeline.css">
+  <script defer src="/review-assets/manual-pipeline.js"></script>
+</head>
+<body>
+  <main class="manual-page">
+    <header class="manual-header">
+      <div>
+        <div class="eyebrow">CONTROLLED EXECUTION</div>
+        <h1>手動執行 Pipeline</h1>
+        <p>建立一個受控 Pipeline Run。此頁面不會啟用 Cloud KMS、Production Provider Write 或自動發佈。</p>
+      </div>
+      <a class="button secondary" href="/">← 返回 Control Center</a>
+    </header>
+
+    <section class="panel manual-readiness" aria-labelledby="readinessTitle">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">READINESS</div>
+          <h2 id="readinessTitle">執行條件</h2>
+        </div>
+        <span id="readinessBadge" class="soft-status">CHECKING</span>
+      </div>
+      <div id="readinessMessage" class="manual-run-status" role="status" aria-live="polite">
+        正在檢查 Redis、RQ Worker 與操作 Gate…
+      </div>
+      <div class="readiness-grid">
+        <div><span>Redis</span><strong id="redisState">—</strong></div>
+        <div><span>RQ Worker</span><strong id="workerState">—</strong></div>
+        <div><span>Execution Gate</span><strong id="gateState">—</strong></div>
+        <div><span>Queue</span><strong id="queueState">—</strong></div>
+      </div>
+    </section>
+
+    <section class="panel manual-execution" aria-labelledby="executeTitle">
+      <div class="eyebrow">MANUAL RUN</div>
+      <h2 id="executeTitle">確認並執行</h2>
+      <p class="muted">只有 readiness = READY 時才允許建立任務。操作金鑰只保留在本頁記憶體，不寫入瀏覽器儲存。</p>
+
+      <label class="manual-label" for="manualRunKey">操作金鑰</label>
+      <input id="manualRunKey" class="manual-input" type="password" autocomplete="off" spellcheck="false" placeholder="輸入 Manual Run Key">
+
+      <label class="confirm-row">
+        <input id="manualRunConfirmCheck" type="checkbox">
+        <span>我確認本次只執行 Pipeline，不啟用 Production Provider Write、Cloud KMS 或自動發佈。</span>
+      </label>
+
+      <div class="manual-actions">
+        <button id="refreshReadinessButton" class="button secondary" type="button">↻ 重新檢查</button>
+        <button id="manualRunButton" class="button primary" type="button" disabled>▶ 建立 Pipeline Run</button>
+      </div>
+      <div id="manualRunMessage" class="manual-run-status" role="status" aria-live="polite">尚未建立任務。</div>
+    </section>
+
+    <section class="panel" aria-labelledby="resultTitle">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">RUN STATUS</div>
+          <h2 id="resultTitle">執行結果</h2>
+        </div>
+        <span id="jobBadge" class="soft-status">IDLE</span>
+      </div>
+      <dl class="result-grid">
+        <div><dt>Job ID</dt><dd id="jobId">—</dd></div>
+        <div><dt>Run ID</dt><dd id="runId">—</dd></div>
+        <div><dt>Evidence</dt><dd id="evidenceCount">—</dd></div>
+        <div><dt>Opportunities</dt><dd id="opportunityCount">—</dd></div>
+      </dl>
+      <div class="manual-actions">
+        <a id="evidenceLink" class="button secondary disabled-link" href="/review/audits" aria-disabled="true">查看 Evidence →</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
