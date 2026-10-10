@@ -13,8 +13,8 @@ def test_unified_production_homepage_route_and_security():
     assert response.headers["cache-control"]=="no-store"
     assert "script-src 'self'" in response.headers["content-security-policy"]
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
-    assert 'lang="zh-CN"' in response.text
-    assert "Unified Control Center v1.0" in response.text
+    assert 'lang="zh-HK"' in response.text
+    assert "UNIFIED CONTROL CENTER · v1.1 UI" in response.text
     assert "PRODUCTION · READ ONLY" in response.text
     assert "Publishing Console" in response.text
     assert "Trust / KMS" in response.text
@@ -57,8 +57,8 @@ def test_production_homepage_static_assets_use_only_sanitized_summary_api():
         assert f'method: "{method}"' not in js
         assert f"method: '{method}'" not in js
 
-    assert "正式发布尚未开启" in html
-    assert "未完成的真实跨云验收不会显示为已完成" in html
+    assert "Production 未開放" in html
+    assert "只會把真正完成的驗收顯示為完成" in html
     assert "@media(max-width:750px)" in css
 
 
@@ -109,3 +109,27 @@ def test_control_center_summary_is_minimized_and_filters_test_fixtures():
     )
     for key in forbidden:
         assert key not in serialized
+
+
+def test_manual_pipeline_workspace_is_isolated_from_read_only_homepage():
+    client=TestClient(app)
+    response=client.get("/manual-pipeline")
+    assert response.status_code==200
+    assert response.headers["cache-control"]=="no-store"
+    assert 'lang="zh-HK"' in response.text
+    assert "手動執行 Pipeline" in response.text
+    assert "Production Provider Write" in response.text
+
+    root=Path(__file__).resolve().parents[1]/"app"/"static"
+    js=(root/"manual-pipeline.js").read_text(encoding="utf-8")
+    html=(root/"manual-pipeline.html").read_text(encoding="utf-8")
+
+    assert "innerHTML" not in js
+    assert "eval(" not in js
+    assert "localStorage" not in js
+    assert "sessionStorage" not in js
+    assert 'requestJson("/v1/manual-pipeline/readiness")' in js
+    assert 'method: "POST"' in js
+    assert '"X-Manual-Run-Key"' in js
+    assert "/v1/runs" in js
+    assert "MANUAL RUN" in html
