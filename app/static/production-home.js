@@ -5,8 +5,8 @@
     const node = byId(id);
     if (node) node.textContent = value === null || value === undefined ? "—" : String(value);
   };
-  const fetchJson = async (path, options = {}) => {
-    const response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...options });
+  const fetchJson = async (path) => {
+    const response = await fetch(path, { credentials: "same-origin", cache: "no-store" });
     let body = null;
     try { body = await response.json(); } catch (_) { /* preserve status */ }
     if (!response.ok) throw new Error("HTTP " + response.status);
@@ -155,127 +155,6 @@
   updateCurrentNav();
 
 
-  const manualRunButton = byId("manualRunButton");
-  const manualRunDialog = byId("manualRunDialog");
-  const manualRunKeyInput = byId("manualRunKey");
-  const manualRunConfirm = byId("manualRunConfirm");
-  const manualRunStatus = byId("manualRunStatus");
-  const manualRunDialogMessage = byId("manualRunDialogMessage");
-  let activeManualJobId = null;
-  let manualPollTimer = null;
-
-  const setManualStatus = (message, state = "") => {
-    if (!manualRunStatus) return;
-    manualRunStatus.className = "manual-run-status" + (state ? " " + state : "");
-    manualRunStatus.replaceChildren(document.createTextNode(message));
-  };
-
-  const checkManualReadiness = async () => {
-    if (!manualRunButton) return;
-    manualRunButton.disabled = true;
-    try {
-      const readiness = await fetchJson("/v1/manual-pipeline/readiness");
-      if (readiness?.status === "READY") {
-        manualRunButton.disabled = false;
-        setManualStatus(
-          "手動執行已就緒 · Redis 已連線 · Worker " +
-          String(readiness.active_worker_count ?? 0) + " 個",
-          "ready"
-        );
-      } else {
-        const blockers = Array.isArray(readiness?.blockers) ? readiness.blockers.join(" · ") : "UNKNOWN";
-        setManualStatus("手動執行目前已封鎖 · " + blockers);
-      }
-    } catch (_) {
-      setManualStatus("無法確認手動執行條件；為安全起見保持封鎖。");
-    }
-  };
-
-  const stopManualPolling = () => {
-    if (manualPollTimer) window.clearTimeout(manualPollTimer);
-    manualPollTimer = null;
-  };
-
-  const pollManualJob = async () => {
-    if (!activeManualJobId) return;
-    try {
-      const job = await fetchJson("/v1/manual-pipeline/jobs/" + encodeURIComponent(activeManualJobId));
-      const status = String(job?.status || "UNKNOWN").toUpperCase();
-      if (status === "FINISHED") {
-        stopManualPolling();
-        activeManualJobId = null;
-        const result = job?.result || {};
-        const message =
-          "執行完成 · Run " + shortId(job?.run_id) +
-          " · Evidence " + String(result.evidence ?? "—") +
-          " · Opportunities " + String(result.opportunities ?? "—");
-        setManualStatus(message, "ready");
-        if (manualRunStatus) {
-          const link = document.createElement("a");
-          link.href = "#opportunities";
-          link.textContent = "查看 Evidence →";
-          manualRunStatus.append(link);
-        }
-        await load();
-        await checkManualReadiness();
-        return;
-      }
-      if (["FAILED", "STOPPED", "CANCELED"].includes(status)) {
-        stopManualPolling();
-        activeManualJobId = null;
-        setManualStatus("手動 Pipeline 執行失敗或已停止。請查看 Worker / Pipeline 記錄。", "failed");
-        await load();
-        await checkManualReadiness();
-        return;
-      }
-      setManualStatus("Pipeline 正在執行 · Job " + shortId(activeManualJobId) + " · " + status, "running");
-      manualPollTimer = window.setTimeout(pollManualJob, 2000);
-    } catch (_) {
-      setManualStatus("暫時無法讀取 Job 狀態，將繼續重試。", "running");
-      manualPollTimer = window.setTimeout(pollManualJob, 3000);
-    }
-  };
-
-  manualRunButton?.addEventListener("click", () => {
-    if (manualRunDialogMessage) manualRunDialogMessage.textContent = "";
-    if (manualRunKeyInput) manualRunKeyInput.value = "";
-    manualRunDialog?.showModal();
-    window.setTimeout(() => manualRunKeyInput?.focus(), 0);
-  });
-
-  manualRunConfirm?.addEventListener("click", async () => {
-    const key = manualRunKeyInput?.value || "";
-    if (!key) {
-      if (manualRunDialogMessage) manualRunDialogMessage.textContent = "請輸入操作金鑰。";
-      return;
-    }
-    manualRunConfirm.disabled = true;
-    if (manualRunDialogMessage) manualRunDialogMessage.textContent = "正在建立 Pipeline Run…";
-    try {
-      const created = await fetchJson("/v1/runs", {
-        method: "POST",
-        headers: { "X-Manual-Run-Key": key }
-      });
-      if (manualRunKeyInput) manualRunKeyInput.value = "";
-      activeManualJobId = created?.job_id || null;
-      manualRunDialog?.close();
-      manualRunButton.disabled = true;
-      setManualStatus("Pipeline 已排入佇列 · Job " + shortId(activeManualJobId), "running");
-      if (activeManualJobId) pollManualJob();
-    } catch (error) {
-      if (manualRunKeyInput) manualRunKeyInput.value = "";
-      if (manualRunDialogMessage) {
-        manualRunDialogMessage.textContent =
-          error?.message === "HTTP 403"
-            ? "操作金鑰不正確。"
-            : "目前無法建立 Pipeline Run；請確認 readiness 與 Worker 狀態。";
-      }
-    } finally {
-      manualRunConfirm.disabled = false;
-    }
-  });
-
-  byId("refreshButton")?.addEventListener("click", async () => { await load(); await checkManualReadiness(); });
+  byId("refreshButton")?.addEventListener("click", load);
   load();
-  checkManualReadiness();
 })();
