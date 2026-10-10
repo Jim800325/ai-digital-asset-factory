@@ -10,3 +10,7 @@ pydantic-settings==2.10.1
 pytest==8.4.2
 
 pytest-timeout==2.4.0
+boto3==1.40.66
+google-auth==2.41.1
+google-cloud-kms==3.5.1
+cryptography==46.0.2

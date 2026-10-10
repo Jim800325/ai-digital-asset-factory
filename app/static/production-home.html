@@ -1,120 +1,263 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-HK">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="AI Digital Asset Factory — Unified Control Center v1.0">
-  <title>Unified Control Center v1.0 · AI Digital Asset Factory</title>
+  <meta name="description" content="AI Digital Asset Factory — Unified Control Center">
+  <title>Unified Control Center · AI Digital Asset Factory</title>
   <link rel="stylesheet" href="/review-assets/production-home.css">
   <script defer src="/review-assets/production-home.js"></script>
 </head>
 <body>
-  <a class="skip-link" href="#main">跳转到主内容</a>
-  <div class="shell">
-    <header class="header">
+  <a class="skip-link" href="#main">跳至主要內容</a>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="appSidebar" aria-label="控制中心導覽">
       <div class="brand">
         <div class="brand-icon" aria-hidden="true">◆</div>
-        <div><div class="eyebrow">SHRIMP ANIMATION / AI DIGITAL ASSET FACTORY</div>
-          <div class="brand-name">Unified Control Center <span class="version">v1.0</span></div>
+        <div>
+          <div class="eyebrow">AI DIGITAL ASSET FACTORY</div>
+          <div class="brand-name">Control Center</div>
         </div>
       </div>
-      <div class="header-right">
-        <span class="environment-tag">PRODUCTION · READ ONLY</span>
-        <a class="header-link" href="/review">Human Review ↗</a>
+
+      <nav class="side-nav">
+        <a class="active" href="#overview" aria-label="總覽" title="總覽"><span class="nav-icon" aria-hidden="true">◫</span><span class="nav-label">總覽</span></a>
+        <a href="#pipeline" aria-label="生產流程" title="生產流程"><span class="nav-icon" aria-hidden="true">▤</span><span class="nav-label">生產流程</span></a>
+        <a href="#opportunities" aria-label="機會研究" title="機會研究"><span class="nav-icon" aria-hidden="true">◇</span><span class="nav-label">機會研究</span></a>
+        <a href="#modules" aria-label="功能模組" title="功能模組"><span class="nav-icon" aria-hidden="true">⬡</span><span class="nav-label">功能模組</span></a>
+        <a href="#audit" aria-label="審計證據" title="審計證據"><span class="nav-icon" aria-hidden="true">✓</span><span class="nav-label">審計證據</span></a>
+      </nav>
+
+      <div class="sidebar-section">
+        <div class="eyebrow">ENVIRONMENT</div>
+        <div class="env-card">
+          <strong>PRODUCTION</strong>
+          <span>READ ONLY</span>
+        </div>
       </div>
-    </header>
 
-    <nav class="nav" aria-label="控制中心导航">
-      <a href="#system">System</a>
-      <a href="#pipeline">Pipeline</a>
-      <a href="#opportunities">Opportunities</a>
-      <a href="#modules">Modules</a>
-      <a href="#audit">Audit / Evidence</a>
-    </nav>
+      <div class="sidebar-section">
+        <div class="eyebrow">QUICK ACCESS</div>
+        <a class="side-link" href="/review">Human Review ↗</a>
+        <a class="side-link" href="/review/audits">Audit Records ↗</a>
+      </div>
 
-    <main id="main">
-      <section class="hero" id="system">
-        <div class="hero-copy">
-          <p class="eyebrow accent">OPERATIONS OVERVIEW</p>
-          <h1>一个入口，掌握数字资产生产全流程。</h1>
-          <p class="intro">实时查看系统健康、任务运行、机会研究与人工审核状态。动画生产、发布、Trust/KMS 和治理模块统一展示；未在 Production 开启的功能保持清晰标记，不伪造可用状态。</p>
-          <div class="hero-actions">
-            <button id="refreshButton" class="button primary" type="button">↻ 刷新状态</button>
-            <a class="button secondary" href="/review">前往人工审核 ↗</a>
+      <div class="sidebar-foot">
+        Provider writes disabled<br>
+        Auto publish disabled
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">UNIFIED CONTROL CENTER · v1.1 UI</div>
+          <h1>生產工作台</h1>
+        </div>
+        <div class="topbar-actions"><button id="sidebarToggle" class="icon-button" type="button" aria-controls="appSidebar" aria-expanded="true" title="摺疊側欄">☰</button>
+          <span class="environment-tag">PRODUCTION · READ ONLY</span>
+          <button id="refreshButton" class="button primary" type="button">↻ 重新整理狀態</button>
+        </div>
+      </header>
+
+      <main id="main">
+        <section id="overview" class="status-strip" aria-label="系統狀態">
+          <div class="status-primary">
+            <div class="status-kicker">SYSTEM HEALTH</div>
+            <div class="status-value-row">
+              <span class="status unknown" id="systemStatus">CHECKING</span>
+              <span id="updatedAt" class="updated" role="status" aria-live="polite">正在讀取 Production 狀態…</span>
+            </div>
           </div>
-          <p class="updated" id="updatedAt" role="status" aria-live="polite">正在读取 Production 状态…</p>
-        </div>
-        <div class="hero-status">
-          <div class="mini-label">SYSTEM STATUS</div>
-          <div class="status-row"><span>API / Database</span><span class="status unknown" id="systemStatus">CHECKING</span></div>
-          <div class="status-row"><span>Execution Mode</span><strong id="executionMode">—</strong></div>
-          <div class="status-row"><span>Migrations</span><span id="migrationStatus">—</span></div>
-          <div class="status-row"><span>Release Deployment</span><span id="releaseGate">—</span></div>
-          <div class="status-foot">从 <code>/v1/control-center-summary</code> 读取最小化只读数据；服务不可用时显示 DEGRADED，而不是绿色成功。</div>
-        </div>
-      </section>
-
-      <section class="section" aria-label="关键指标">
-        <div class="section-head"><div><div class="eyebrow">LIVE METRICS</div><h2>运行概览</h2></div><span class="muted">来自 Production 的只读 API</span></div>
-        <div class="metric-grid">
-          <div class="metric"><div class="metric-name">Pipeline Runs</div><div class="metric-value" id="runCount">—</div><div class="metric-foot">最新运行记录</div></div>
-          <div class="metric"><div class="metric-name">Opportunities</div><div class="metric-value" id="opportunityCount">—</div><div class="metric-foot">机会研究条目</div></div>
-          <div class="metric"><div class="metric-name">Human Reviews</div><div class="metric-value" id="reviewCount">—</div><div class="metric-foot">人工审核工作区</div></div>
-          <div class="metric"><div class="metric-name">Audit Records</div><div class="metric-value" id="auditCount">—</div><div class="metric-foot">Live acceptance 审计</div></div>
-        </div>
-      </section>
-
-      <div class="two-columns">
-        <section class="section panel" id="pipeline">
-          <div class="section-head"><div><div class="eyebrow">PRODUCTION PIPELINE</div><h2>最近运行</h2></div><span id="runsState" class="soft-status">CHECKING</span></div>
-          <div id="runsList" class="item-list" aria-live="polite"><p class="empty">正在读取任务…</p></div>
-          <p class="section-note">当前 Production 显示原有数字资产 Pipeline；Shrimp Animation 分镜、资产、语音、渲染等详细阶段尚未发布到 Production。</p>
+          <div class="status-cell">
+            <span>執行模式</span>
+            <strong id="executionMode">—</strong>
+          </div>
+          <div class="status-cell">
+            <span>資料庫遷移</span>
+            <strong id="migrationStatus">—</strong>
+          </div>
+          <div class="status-cell">
+            <span>發佈執行</span>
+            <strong id="releaseGate">—</strong>
+          </div>
         </section>
-        <section class="section panel" id="opportunities">
-          <div class="section-head"><div><div class="eyebrow">RESEARCH ENGINE</div><h2>最新机会</h2></div><span id="opportunitiesState" class="soft-status">CHECKING</span></div>
-          <div id="opportunitiesList" class="item-list" aria-live="polite"><p class="empty">正在读取机会…</p></div>
-          <p class="section-note">机会评分为研究信号，不代表收益保证；发布与部署仍受独立审核门控制。</p>
+
+        <section class="metric-row" aria-label="關鍵指標">
+          <article class="metric compact">
+            <span>Pipeline Runs</span>
+            <strong id="runCount">—</strong>
+          </article>
+          <article class="metric compact">
+            <span>Opportunities</span>
+            <strong id="opportunityCount">—</strong>
+          </article>
+          <article class="metric compact">
+            <span>Human Reviews</span>
+            <strong id="reviewCount">—</strong>
+          </article>
+          <article class="metric compact">
+            <span>Audit Records</span>
+            <strong id="auditCount">—</strong>
+          </article>
         </section>
-      </div>
 
-      <section class="section" id="modules">
-        <div class="section-head"><div><div class="eyebrow">UNIFIED MODULES</div><h2>统一功能入口</h2></div><span class="muted">严格区分 Production / Preview</span></div>
-        <div class="module-grid">
-          <article class="module-card">
-            <div class="module-top"><span class="module-symbol">01</span><span class="tag prod">PRODUCTION</span></div>
-            <h3>System Status</h3><p>数据库、迁移、执行模式与发布保护状态。</p><a href="#system">查看健康状态 <span aria-hidden="true">→</span></a>
-          </article>
-          <article class="module-card">
-            <div class="module-top"><span class="module-symbol">02</span><span class="tag prod">PRODUCTION</span></div>
-            <h3>Production Pipeline</h3><p>查看自动搜索、分析与机会研究的运行记录。</p><a href="#pipeline">查看 Pipeline <span aria-hidden="true">→</span></a>
-          </article>
-          <article class="module-card">
-            <div class="module-top"><span class="module-symbol">03</span><span class="tag preview">PREVIEW ONLY</span></div>
-            <h3>Publishing Console</h3><p>Bilibili 发布计划、授权、执行状态与回读。正式发布尚未开启。</p><span class="unavailable">Production 尚未开放</span>
-          </article>
-          <article class="module-card">
-            <div class="module-top"><span class="module-symbol">04</span><span class="tag preview">PREVIEW ONLY</span></div>
-            <h3>Trust / KMS</h3><p>签名密钥、证书与跨云验证记录。真实云执行保持关闭。</p><span class="unavailable">Production 尚未开放</span>
-          </article>
-          <article class="module-card">
-            <div class="module-top"><span class="module-symbol">05</span><span class="tag preview">PREVIEW ONLY</span></div>
-            <h3>Governance</h3><p>审核、变更批准、策略与认证治理记录。</p><span class="unavailable">Production 尚未开放</span>
-          </article>
-          <article class="module-card">
-            <div class="module-top"><span class="module-symbol">06</span><span class="tag preview">PREVIEW ONLY</span></div>
-            <h3>Operations Console</h3><p>可靠性、熔断、恢复、告警与运营事件。</p><span class="unavailable">Production 尚未开放</span>
-          </article>
+        <div class="main-grid">
+          <div class="main-column">
+            <section class="section panel" id="pipeline">
+              <div class="section-head pipeline-head">
+                <div>
+                  <div class="eyebrow">PRODUCTION PIPELINE</div>
+                  <h2>最近執行</h2>
+                </div>
+                <div class="pipeline-actions">
+                  <span id="runsState" class="soft-status">CHECKING</span>
+                  <a class="button secondary" href="/manual-pipeline">▶ 手動執行 Pipeline</a>
+                </div>
+              </div>
+              <div id="runsList" class="item-list" aria-live="polite">
+                <p class="empty">正在讀取任務…</p>
+              </div>
+              <p class="section-note">此處只顯示目前 Production 的數碼資產 Pipeline；動畫生產詳細階段仍維持 Preview 隔離。</p>
+            </section>
+
+            <section class="section panel" id="opportunities">
+              <div class="section-head">
+                <div>
+                  <div class="eyebrow">RESEARCH ENGINE</div>
+                  <h2>最新機會</h2>
+                </div>
+                <span id="opportunitiesState" class="soft-status">CHECKING</span>
+              </div>
+              <div id="opportunitiesList" class="item-list" aria-live="polite">
+                <p class="empty">正在讀取機會…</p>
+              </div>
+              <p class="section-note">機會評分只代表研究訊號，不代表收益保證；發佈及部署仍須經過獨立審核。</p>
+            </section>
+          </div>
+
+          <aside class="context-column" aria-label="目前階段與安全邊界">
+            <section class="context-card">
+              <div class="eyebrow">CURRENT STAGE</div>
+              <h2>Step 10B.27A</h2>
+              <p>Real Cloud Account Execution</p>
+              <div class="stage-list">
+                <div><span>Foundation</span><strong class="done">DONE</strong></div>
+                <div><span>Preview Gate</span><strong class="done">DONE</strong></div>
+                <div><span>Cloud Identity</span><strong class="pending">NEXT</strong></div>
+                <div><span>Real Execution</span><strong class="blocked">BLOCKED</strong></div>
+              </div>
+            </section>
+
+            <section class="context-card safety-card">
+              <div class="eyebrow">SAFETY BOUNDARIES</div>
+              <ul>
+                <li>Production provider writes：關閉</li>
+                <li>Automatic publish：關閉</li>
+                <li>Real cloud execution：Preview only</li>
+                <li>Secrets：不會在工作台顯示</li>
+              </ul>
+            </section>
+
+            <section class="context-card">
+              <div class="eyebrow">DATA SOURCE</div>
+              <p class="small">首頁只讀取最小化唯讀摘要。</p>
+              <code>/v1/control-center-summary</code>
+            </section>
+          </aside>
         </div>
-      </section>
 
-      <section class="section audit-panel" id="audit">
-        <div><div class="eyebrow">AUDIT / EVIDENCE</div><h2>可追溯的证据，而不是装饰性绿色指标。</h2><p>Production 当前支持基础 Live Acceptance 审计；完整 Cloud Ceremony、DSSE、HSM 与证据浏览器仍在隔离 Preview。未完成的真实跨云验收不会显示为已完成。</p></div>
-        <div class="audit-side"><span class="tag prod">READ ONLY</span><a href="/review/audits" class="button secondary">查看现有审计 ↗</a><span class="small">密钥、令牌和凭证不在此页展示</span></div>
-      </section>
-    </main>
+        <section class="section" id="modules">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">MODULES</div>
+              <h2>功能入口</h2>
+            </div>
+            <span class="muted">先 Production，後受控 Preview</span>
+          </div>
 
-    <footer class="footer"><span>AI Digital Asset Factory · Unified Control Center v1.0</span><span>Production Homepage Foundation · No Provider Writes · No Auto-Publish</span></footer>
+          <div class="module-group">
+            <div class="module-group-head">
+              <span>Production</span>
+              <small>目前可用</small>
+            </div>
+            <div class="module-grid production-grid">
+              <article class="module-card">
+                <div class="module-top"><span class="module-symbol">01</span><span class="tag prod">PRODUCTION</span></div>
+                <h3>System Status</h3>
+                <p>資料庫、遷移、執行模式及發佈保護狀態。</p>
+                <a href="#overview">查看狀態 →</a>
+              </article>
+              <article class="module-card">
+                <div class="module-top"><span class="module-symbol">02</span><span class="tag prod">PRODUCTION</span></div>
+                <h3>Production Pipeline</h3>
+                <p>搜尋、分析、機會研究及 Pipeline 執行記錄。</p>
+                <a href="#pipeline">查看 Pipeline →</a>
+              </article>
+              <article class="module-card">
+                <div class="module-top"><span class="module-symbol">03</span><span class="tag prod">PRODUCTION</span></div>
+                <h3>Human Review</h3>
+                <p>人工審核、Release Review 及審查工作區。</p>
+                <a href="/review">進入審核 →</a>
+              </article>
+            </div>
+          </div>
+
+          <div class="module-group preview-group">
+            <div class="module-group-head">
+              <span>Controlled / Preview</span>
+              <small>未開放 Production 寫入</small>
+            </div>
+            <div class="module-grid preview-grid">
+              <article class="module-card subdued">
+                <div class="module-top"><span class="module-symbol">P1</span><span class="tag preview">PREVIEW</span></div>
+                <h3>Publishing</h3>
+                <p>Bilibili 發佈計劃、授權、執行及回讀。</p>
+                <span class="unavailable">Production 未開放</span>
+              </article>
+              <article class="module-card subdued">
+                <div class="module-top"><span class="module-symbol">P2</span><span class="tag preview">PREVIEW</span></div>
+                <h3>Trust / KMS</h3>
+                <p>簽署金鑰、憑證、跨雲驗證及 Cloud Ceremony。</p>
+                <span class="unavailable">10B.27A 進行中</span>
+              </article>
+              <article class="module-card subdued">
+                <div class="module-top"><span class="module-symbol">P3</span><span class="tag preview">PREVIEW</span></div>
+                <h3>Governance</h3>
+                <p>策略、認證、變更批准及治理記錄。</p>
+                <span class="unavailable">Production 未開放</span>
+              </article>
+              <article class="module-card subdued">
+                <div class="module-top"><span class="module-symbol">P4</span><span class="tag preview">PREVIEW</span></div>
+                <h3>Operations</h3>
+                <p>Incident、Circuit、Recovery 及可靠性操作。</p>
+                <span class="unavailable">Production 未開放</span>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section audit-panel" id="audit">
+          <div>
+            <div class="eyebrow">AUDIT / EVIDENCE</div>
+            <h2>審計證據</h2>
+            <p>只會把真正完成的驗收顯示為完成；Cloud Ceremony、DSSE、HSM 等未完成階段繼續維持 Preview 隔離。</p>
+          </div>
+          <div class="audit-actions">
+            <span class="tag prod">READ ONLY</span>
+            <a href="/review/audits" class="button secondary">查看現有審計 ↗</a>
+          </div>
+        </section>
+      </main>
+
+
+      <footer class="footer">
+        <span>AI Digital Asset Factory · Unified Control Center</span>
+        <span>No Provider Writes · No Auto-Publish</span>
+      </footer>
+    </div>
   </div>
 </body>
 </html>

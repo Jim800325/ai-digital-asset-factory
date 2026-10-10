@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     github_results_per_query: int = 10
     human_approval_key: str = ""
     human_release_key: str = ""
+    manual_pipeline_execution_enabled: bool = False
+    manual_pipeline_execution_key: str = ""
     sandbox_execution_enabled: bool = False
     sandbox_workspace_root: str = "/tmp/asset-factory-workspaces"
     sandbox_image: str = "python:3.12-slim"
@@ -37,6 +39,18 @@ class Settings(BaseSettings):
     openhands_max_cost_usd: float = 0.25
     openhands_input_cost_per_1m_usd: float = 0.0
     openhands_output_cost_per_1m_usd: float = 0.0
+    real_cloud_execution_enabled: bool = False
+    real_cloud_cleanup_enabled: bool = False
+    real_cloud_execution_key: str = ""
+    real_cloud_allowed_name_prefix: str = ""
+    real_cloud_selected_providers: str = "AWS_KMS,GCP_KMS"
+    real_cloud_aws_role_arn: str = ""
+    real_cloud_aws_region: str = ""
+    real_cloud_gcp_workload_identity_audience: str = ""
+    real_cloud_gcp_service_account: str = ""
+    real_cloud_gcp_project_id: str = ""
+    real_cloud_gcp_location: str = ""
+    real_cloud_gcp_key_ring: str = ""
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",

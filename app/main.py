@@ -24,11 +24,21 @@ from app.db_reliability import (
     read_with_retry,
 )
 from app.release_gate import decide_release_candidate, ensure_release_candidate
+from app.real_cloud_execution import (
+    RealCloudExecutionBlocked,
+    execute_real_cloud_acceptance,
+    real_cloud_readiness,
+)
 from app.release_integrity_gate import list_release_integrity_blocks
 from app.release_review import ensure_release_review_package
 from app.review_ui import STATIC_DIR, router as review_ui_router
 from app.review_workspace import get_review_workspace, list_review_workspace
 from app.migrate import migrate, migration_status
+from app.manual_pipeline import (
+    enqueue_manual_pipeline,
+    manual_pipeline_job,
+    manual_pipeline_readiness,
+)
 from app.live_acceptance_registry import (
     get_live_acceptance_audit,
     list_live_acceptance_audits,
@@ -146,11 +156,27 @@ def health():
 def control_center_summary():
     return build_control_center_summary()
 
+@app.get("/v1/manual-pipeline/readiness")
+def manual_pipeline_readiness_endpoint():
+    return manual_pipeline_readiness()
+
 @app.post("/v1/runs", status_code=202)
-def create_run():
-    q=Queue("asset-factory",connection=Redis.from_url(settings.redis_url))
-    job=q.enqueue(run_pipeline,job_timeout=900)
-    return {"job_id":job.id,"status":"queued"}
+def create_run(
+    x_manual_run_key: str | None = Header(default=None, alias="X-Manual-Run-Key"),
+):
+    try:
+        return enqueue_manual_pipeline(x_manual_run_key)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+@app.get("/v1/manual-pipeline/jobs/{job_id}")
+def manual_pipeline_job_endpoint(job_id: str):
+    try:
+        return manual_pipeline_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Manual pipeline job not found") from exc
 
 @app.get("/v1/runs")
 def runs(limit: int = 30):
@@ -702,3 +728,37 @@ def internal_live_acceptance(trigger_token: str, request: Request):
         raise HTTPException(status_code=403,detail=str(exc)) from exc
     except LiveAcceptanceError as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get(
+    "/internal/real-cloud-execution/readiness",
+    include_in_schema=False,
+)
+def internal_real_cloud_execution_readiness(request: Request):
+    return real_cloud_readiness(
+        request.headers.get("x-vercel-oidc-token")
+    )
+
+
+@app.post(
+    "/internal/real-cloud-execution/execute",
+    include_in_schema=False,
+)
+def internal_real_cloud_execution(
+    request: Request,
+    x_cloud_execution_key: str | None = Header(
+        default=None,
+        alias="X-Cloud-Execution-Key",
+    ),
+):
+    try:
+        return execute_real_cloud_acceptance(
+            execution_key=x_cloud_execution_key,
+            oidc_token=request.headers.get("x-vercel-oidc-token"),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except RealCloudExecutionBlocked as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
