@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
+from app.config import settings
 from app.db import engine
 from app.db_reliability import DatabaseUnavailable, database_health, read_with_retry
 from app.manual_pipeline import manual_pipeline_readiness
@@ -73,7 +74,14 @@ def _bottleneck(metrics: dict) -> dict:
 
 def build_workbench_summary() -> dict:
     db_state = database_health()
-    pipeline = manual_pipeline_readiness()
+    pipeline = (
+        manual_pipeline_readiness()
+        if settings.manual_pipeline_execution_enabled
+        else {
+            "status": "DISABLED",
+            "active_worker_count": 0,
+        }
+    )
     base = {
         "status": "ok" if db_state["available"] else "degraded",
         "product": "SIDE_BUSINESS_WORKBENCH",
@@ -108,7 +116,7 @@ def build_workbench_summary() -> dict:
         "top_opportunities": [],
         "latest_run": None,
         "system": {
-            "status": "READY" if db_state["available"] and pipeline["status"] == "READY" else "DEGRADED",
+            "status": "READY" if db_state["available"] else "DEGRADED",
             "database": db_state.get("status"),
             "migrations": "DB_UNAVAILABLE",
             "pipeline": pipeline["status"],
@@ -132,6 +140,8 @@ def build_workbench_summary() -> dict:
 
     migrations = migration_status()
     base["system"]["migrations"] = migrations.get("status")
+    if migrations.get("status") != "CURRENT":
+        base["system"]["status"] = "DEGRADED"
 
     def _load() -> dict:
         with engine.connect() as conn:
