@@ -9,7 +9,13 @@ SOURCE_CLASS_WEIGHTS = {
     "unknown": 50.0,
 }
 
-COMMUNITY_DOMAINS = {"reddit.com", "news.ycombinator.com", "stackoverflow.com"}
+COMMUNITY_DOMAINS = {
+    "reddit.com",
+    "news.ycombinator.com",
+    "stackoverflow.com",
+    "softwareengineering.stackexchange.com",
+    "superuser.com",
+}
 CODE_DOMAINS = {"github.com", "gitlab.com"}
 PRODUCT_DOMAINS = {"producthunt.com", "g2.com", "capterra.com"}
 
@@ -24,7 +30,7 @@ def source_class_for(source_type: str, url: str) -> str:
     st=(source_type or "").upper()
     if "GITHUB" in st or domain in CODE_DOMAINS:
         return "code"
-    if domain in COMMUNITY_DOMAINS:
+    if st.startswith("COMMUNITY_") or domain in COMMUNITY_DOMAINS:
         return "community"
     if domain in PRODUCT_DOMAINS:
         return "product"

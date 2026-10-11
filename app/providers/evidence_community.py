@@ -62,8 +62,17 @@ def search_hacker_news(query: str, limit: int) -> list[dict]:
     return out
 
 
-def search_stackoverflow(query: str, limit: int) -> list[dict]:
+STACK_SITES = {
+    "stackoverflow":"stackoverflow.com",
+    "softwareengineering":"softwareengineering.stackexchange.com",
+    "superuser":"superuser.com",
+}
+
+def search_stackexchange(query: str, limit: int, site: str = "stackoverflow") -> list[dict]:
     safe_limit=min(max(int(limit),1),10)
+    expected_domain=STACK_SITES.get(site)
+    if not expected_domain:
+        raise ValueError("Unsupported Stack Exchange site")
     with httpx.Client(
         timeout=settings.request_timeout_seconds,
         headers={"User-Agent":settings.user_agent},
@@ -72,7 +81,7 @@ def search_stackoverflow(query: str, limit: int) -> list[dict]:
         response=client.get(
             STACK_API,
             params={
-                "site":"stackoverflow",
+                "site":site,
                 "q":query[:180],
                 "order":"desc",
                 "sort":"relevance",
@@ -86,7 +95,7 @@ def search_stackoverflow(query: str, limit: int) -> list[dict]:
     out=[]
     for item in payload.get("items",[])[:safe_limit]:
         link=str(item.get("link") or "").strip()
-        if normalized_domain(link)!="stackoverflow.com":
+        if normalized_domain(link)!=expected_domain:
             continue
         title=_plain(item.get("title"),500)
         if not title:
@@ -94,8 +103,8 @@ def search_stackoverflow(query: str, limit: int) -> list[dict]:
         tags=" ".join(str(tag) for tag in item.get("tags") or [])
         text=" ".join(filter(None,[title,tags,_plain(item.get("body"),10000)]))
         out.append({
-            "provider":"STACKEXCHANGE_API",
-            "source_type":"COMMUNITY_STACKOVERFLOW",
+            "provider":f"STACKEXCHANGE_API:{site}",
+            "source_type":f"COMMUNITY_STACKEXCHANGE_{site.upper()}",
             "source_class":"community",
             "url":link,
             "title":title,
@@ -104,15 +113,22 @@ def search_stackoverflow(query: str, limit: int) -> list[dict]:
     return out
 
 
-def search_community(query: str, limit: int) -> list[dict]:
+def search_stackoverflow(query: str, limit: int) -> list[dict]:
+    return search_stackexchange(query,limit,"stackoverflow")
+
+def search_community(query: str, limit: int) -> tuple[list[dict],list[dict]]:
     results=[]
     errors=[]
-    for name,fn in (
-        ("HACKER_NEWS_ALGOLIA",search_hacker_news),
-        ("STACKEXCHANGE_API",search_stackoverflow),
-    ):
+    providers=[
+        ("HACKER_NEWS_ALGOLIA",lambda: search_hacker_news(query,limit)),
+    ]
+    providers.extend(
+        (f"STACKEXCHANGE_API:{site}",lambda site=site: search_stackexchange(query,limit,site))
+        for site in STACK_SITES
+    )
+    for name,fn in providers:
         try:
-            results.extend(fn(query,limit))
+            results.extend(fn())
         except Exception as exc:
             errors.append({"provider":name,"error":type(exc).__name__})
     unique={}

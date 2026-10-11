@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     evidence_expansion_max_queries: int = 4
     evidence_expansion_results_per_query: int = 5
     evidence_expansion_max_accepted: int = 1
+    validation_expansion_enabled: bool = False
+    validation_expansion_key: str = ""
+    validation_expansion_max_queries: int = 8
+    validation_expansion_results_per_query: int = 5
+    validation_expansion_max_accepted: int = 3
     sandbox_execution_enabled: bool = False
     sandbox_workspace_root: str = "/tmp/asset-factory-workspaces"
     sandbox_image: str = "python:3.12-slim"

@@ -23,6 +23,13 @@ from app.evidence_expansion_queue import (
     evidence_expansion_readiness,
     get_evidence_expansion_run,
 )
+from app.validation_search_plan import build_validation_search_plan
+from app.validation_expansion_queue import (
+    enqueue_validation_expansion,
+    validation_expansion_job,
+    validation_expansion_readiness,
+)
+from app.validation_expansion import get_validation_expansion_run
 from app.db_reliability import (
     DatabaseUnavailable,
     database_health,
@@ -92,6 +99,9 @@ app.include_router(review_ui_router)
 
 
 class EvidenceExpansionRequest(BaseModel):
+    requested_by: str = Field(default="controlled-api",min_length=1,max_length=200)
+
+class ValidationExpansionRequest(BaseModel):
     requested_by: str = Field(default="controlled-api",min_length=1,max_length=200)
 
 class BuildProposalDecision(BaseModel):
@@ -267,6 +277,57 @@ def evidence_expansion_run_endpoint(run_id: UUID):
         return get_evidence_expansion_run(run_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+@app.get("/v1/validation-search-plans/{opportunity_id}")
+def validation_search_plan_endpoint(opportunity_id: UUID):
+    try:
+        return build_validation_search_plan(opportunity_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DatabaseUnavailable as exc:
+        raise HTTPException(status_code=503,detail="Validation search plan database unavailable") from exc
+
+@app.get("/v1/validation-expansion/readiness")
+def validation_expansion_readiness_endpoint():
+    return validation_expansion_readiness()
+
+@app.post("/v1/validation-expansions/{opportunity_id}", status_code=202)
+def create_validation_expansion(
+    opportunity_id: UUID,
+    payload: ValidationExpansionRequest,
+    x_validation_expansion_key: str | None = Header(
+        default=None,
+        alias="X-Validation-Expansion-Key",
+    ),
+):
+    try:
+        return enqueue_validation_expansion(
+            opportunity_id,
+            provided_key=x_validation_expansion_key,
+            requested_by=payload.requested_by,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403,detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DatabaseUnavailable as exc:
+        raise HTTPException(status_code=503,detail="Validation expansion database unavailable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+@app.get("/v1/validation-expansion/jobs/{job_id}")
+def validation_expansion_job_endpoint(job_id: str):
+    try:
+        return validation_expansion_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404,detail="Validation expansion job not found") from exc
+
+@app.get("/v1/validation-expansion/runs/{run_id}")
+def validation_expansion_run_endpoint(run_id: UUID):
+    try:
+        return get_validation_expansion_run(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
 
 @app.get("/v1/manual-pipeline/readiness")
 def manual_pipeline_readiness_endpoint():
