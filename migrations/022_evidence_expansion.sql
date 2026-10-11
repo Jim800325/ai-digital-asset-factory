@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS evidence_expansion_runs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  opportunity_id uuid NOT NULL REFERENCES digital_asset_opportunities(id) ON DELETE CASCADE,
+  opportunity_id uuid REFERENCES digital_asset_opportunities(id) ON DELETE SET NULL,
   plan_version text NOT NULL,
   run_status text NOT NULL DEFAULT 'RUNNING',
   requested_by text NOT NULL DEFAULT 'controlled-api',
