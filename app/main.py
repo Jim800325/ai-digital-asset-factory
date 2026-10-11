@@ -3,7 +3,7 @@ import secrets
 from typing import Literal
 from uuid import UUID
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -34,6 +34,10 @@ from app.release_review import ensure_release_review_package
 from app.review_ui import STATIC_DIR, router as review_ui_router
 from app.review_workspace import get_review_workspace, list_review_workspace
 from app.migrate import migrate, migration_status
+from app.opportunity_workspace import (
+    get_opportunity_workspace,
+    list_opportunity_workspace,
+)
 from app.manual_pipeline import (
     enqueue_manual_pipeline,
     manual_pipeline_job,
@@ -160,6 +164,48 @@ def control_center_summary():
 @app.get("/v1/workbench-summary")
 def workbench_summary():
     return build_workbench_summary()
+
+@app.get("/v1/opportunity-workspace")
+def opportunity_workspace_list(
+    q: str | None = Query(default=None, max_length=120),
+    stage: str | None = Query(default=None, max_length=40),
+    asset_type: str | None = Query(default=None, max_length=60),
+    gate: str | None = Query(default=None, max_length=20),
+    build_readiness: str | None = Query(default=None, max_length=30),
+    min_score: float | None = Query(default=None, ge=0, le=100),
+    min_sources: int | None = Query(default=None, ge=0, le=1000),
+    sort: str = Query(default="priority", max_length=40),
+    order: str = Query(default="desc", max_length=10),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    try:
+        return list_opportunity_workspace(
+            q=q,
+            stage=stage,
+            asset_type=asset_type,
+            gate=gate,
+            build_readiness=build_readiness,
+            min_score=min_score,
+            min_sources=min_sources,
+            sort=sort,
+            order=order,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DatabaseUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Opportunity workspace database unavailable") from exc
+
+@app.get("/v1/opportunity-workspace/{opportunity_id}")
+def opportunity_workspace_detail(opportunity_id: UUID):
+    try:
+        return get_opportunity_workspace(opportunity_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DatabaseUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Opportunity workspace database unavailable") from exc
 
 @app.get("/v1/manual-pipeline/readiness")
 def manual_pipeline_readiness_endpoint():
