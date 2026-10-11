@@ -16,6 +16,7 @@ from app.build_proposals import decide_build_proposal
 from app.config import settings
 from app.control_center_summary import build_control_center_summary
 from app.db import engine
+from app.evidence_search_plan import build_evidence_search_plan
 from app.db_reliability import (
     DatabaseUnavailable,
     database_health,
@@ -206,6 +207,15 @@ def opportunity_workspace_detail(opportunity_id: UUID):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except DatabaseUnavailable as exc:
         raise HTTPException(status_code=503, detail="Opportunity workspace database unavailable") from exc
+
+@app.get("/v1/evidence-search-plans/{opportunity_id}")
+def evidence_search_plan(opportunity_id: UUID):
+    try:
+        return build_evidence_search_plan(opportunity_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DatabaseUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Evidence search plan database unavailable") from exc
 
 @app.get("/v1/manual-pipeline/readiness")
 def manual_pipeline_readiness_endpoint():
