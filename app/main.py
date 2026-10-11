@@ -17,6 +17,12 @@ from app.config import settings
 from app.control_center_summary import build_control_center_summary
 from app.db import engine
 from app.evidence_search_plan import build_evidence_search_plan
+from app.evidence_expansion_queue import (
+    enqueue_evidence_expansion,
+    evidence_expansion_job,
+    evidence_expansion_readiness,
+    get_evidence_expansion_run,
+)
 from app.db_reliability import (
     DatabaseUnavailable,
     database_health,
@@ -84,6 +90,9 @@ def _apply_startup_migrations():
 app.mount("/review-assets", StaticFiles(directory=STATIC_DIR), name="review-assets")
 app.include_router(review_ui_router)
 
+
+class EvidenceExpansionRequest(BaseModel):
+    requested_by: str = Field(default="controlled-api",min_length=1,max_length=200)
 
 class BuildProposalDecision(BaseModel):
     decision: Literal["APPROVE","REJECT"]
@@ -216,6 +225,48 @@ def evidence_search_plan(opportunity_id: UUID):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except DatabaseUnavailable as exc:
         raise HTTPException(status_code=503, detail="Evidence search plan database unavailable") from exc
+
+@app.get("/v1/evidence-expansion/readiness")
+def evidence_expansion_readiness_endpoint():
+    return evidence_expansion_readiness()
+
+@app.post("/v1/evidence-expansions/{opportunity_id}", status_code=202)
+def create_evidence_expansion(
+    opportunity_id: UUID,
+    payload: EvidenceExpansionRequest,
+    x_evidence_expansion_key: str | None = Header(
+        default=None,
+        alias="X-Evidence-Expansion-Key",
+    ),
+):
+    try:
+        return enqueue_evidence_expansion(
+            opportunity_id,
+            provided_key=x_evidence_expansion_key,
+            requested_by=payload.requested_by,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DatabaseUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Evidence expansion database unavailable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+@app.get("/v1/evidence-expansion/jobs/{job_id}")
+def evidence_expansion_job_endpoint(job_id: str):
+    try:
+        return evidence_expansion_job(job_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Evidence expansion job not found") from exc
+
+@app.get("/v1/evidence-expansion/runs/{run_id}")
+def evidence_expansion_run_endpoint(run_id: UUID):
+    try:
+        return get_evidence_expansion_run(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 @app.get("/v1/manual-pipeline/readiness")
 def manual_pipeline_readiness_endpoint():
