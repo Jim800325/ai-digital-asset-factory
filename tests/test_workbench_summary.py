@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+import app.workbench_summary as workbench
 from app.workbench_actions import build_workbench_actions
 
 
@@ -102,3 +103,16 @@ def test_workbench_actions_surface_human_approvals():
     types = [item["type"] for item in actions]
     assert "BUILD_APPROVAL" in types
     assert "RELEASE_REVIEW" in types
+
+
+def test_disabled_manual_pipeline_does_not_degrade_platform_health(monkeypatch):
+    monkeypatch.setattr(workbench.settings, "manual_pipeline_execution_enabled", False)
+
+    def should_not_probe():
+        raise AssertionError("manual pipeline readiness should not be probed when disabled")
+
+    monkeypatch.setattr(workbench, "manual_pipeline_readiness", should_not_probe)
+
+    payload = workbench.build_workbench_summary()
+    assert payload["system"]["pipeline"] == "DISABLED"
+    assert payload["system"]["status"] == "READY"
