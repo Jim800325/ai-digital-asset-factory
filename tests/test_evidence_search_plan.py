@@ -102,3 +102,11 @@ def test_evidence_search_plan_404_for_unknown_or_test_only_opportunity():
         "/v1/evidence-search-plans/00000000-0000-0000-0000-000000000000"
     )
     assert response.status_code==404
+
+
+def test_search_seed_preserves_request_response_terms():
+    row={
+        "title":"eat: request history with request/response pairs stored next to response bodies",
+        "canonical_title":"bodies eat history next pairs request response stored",
+    }
+    assert _search_seed(row)=="request history response pairs"
