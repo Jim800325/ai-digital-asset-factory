@@ -109,6 +109,27 @@
     return card;
   };
 
+  const hydrateFromLocation = () => {
+    const params = new URLSearchParams(window.location.search);
+    const mapping = [
+      ["q","filterQuery"],
+      ["stage","filterStage"],
+      ["asset_type","filterAssetType"],
+      ["gate","filterGate"],
+      ["min_score","filterMinScore"],
+      ["min_sources","filterMinSources"],
+      ["sort","filterSort"],
+      ["order","filterOrder"]
+    ];
+    for (const [key,id] of mapping) {
+      const raw = params.get(key);
+      const node = byId(id);
+      if (!raw || !node) continue;
+      const value = ["stage","asset_type","gate"].includes(key) ? raw.toUpperCase() : raw;
+      node.value = value;
+    }
+  };
+
   const queryParams = () => {
     const params = new URLSearchParams();
     const mapping = [
@@ -236,5 +257,6 @@
     }
   });
   byId("refreshButton")?.addEventListener("click", load);
+  hydrateFromLocation();
   load();
 })();
