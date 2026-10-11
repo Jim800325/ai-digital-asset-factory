@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     human_release_key: str = ""
     manual_pipeline_execution_enabled: bool = False
     manual_pipeline_execution_key: str = ""
+    evidence_expansion_enabled: bool = False
+    evidence_expansion_key: str = ""
+    evidence_expansion_max_queries: int = 4
+    evidence_expansion_results_per_query: int = 5
+    evidence_expansion_max_accepted: int = 1
     sandbox_execution_enabled: bool = False
     sandbox_workspace_root: str = "/tmp/asset-factory-workspaces"
     sandbox_image: str = "python:3.12-slim"
