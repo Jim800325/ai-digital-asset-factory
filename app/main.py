@@ -13,6 +13,11 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from app.build_proposals import decide_build_proposal
+from app.build_authorization import (
+    build_authorization_readiness,
+    decide_build_authorization,
+    get_build_authorization,
+)
 from app.config import settings
 from app.control_center_summary import build_control_center_summary
 from app.db import engine
@@ -109,6 +114,12 @@ class BuildProposalDecision(BaseModel):
     reason: str = Field(min_length=3,max_length=4000)
     actor: str = Field(default="human-api",min_length=1,max_length=200)
 
+class BuildAuthorizationDecision(BaseModel):
+    decision: Literal["AUTHORIZE","REJECT"]
+    reason: str = Field(min_length=3,max_length=4000)
+    actor: str = Field(default="human-build-authorizer",min_length=1,max_length=200)
+    executor_kind: Literal["OPENHANDS","ACCEPTANCE"] = "OPENHANDS"
+
 class ReleaseDecision(BaseModel):
     decision: Literal["APPROVE","REJECT"]
     reason: str = Field(min_length=3,max_length=4000)
@@ -140,7 +151,7 @@ def health():
     db_state=database_health()
     migrations = migration_status() if db_state["available"] else {
         "status": "DB_UNAVAILABLE",
-        "expected_count": 16,
+        "expected_count": 24,
         "applied_count": None,
         "latest_version": None,
         "pending": None,
@@ -156,6 +167,7 @@ def health():
         "release_review_package":"ENABLED",
         "human_review_workspace":"ENABLED",
         "build_execution":"DISABLED",
+        "build_authorization":"ENABLED" if settings.build_authorization_enabled else "DISABLED",
         "sandbox_execution":"ENABLED" if settings.sandbox_execution_enabled else "DISABLED",
         "openhands_adapter":"ENABLED" if settings.openhands_enabled else "DISABLED",
         "openhands_runtime":settings.openhands_runtime,
@@ -531,10 +543,66 @@ def build_proposal_decision(
         raise HTTPException(status_code=422,detail=str(exc)) from exc
 
 
+@app.get("/v1/build-authorizations/{proposal_id}/readiness")
+def build_authorization_readiness_endpoint(
+    proposal_id: UUID,
+    executor_kind: Literal["OPENHANDS","ACCEPTANCE"] = Query(default="OPENHANDS"),
+):
+    try:
+        return build_authorization_readiness(
+            proposal_id,
+            executor_kind=executor_kind,
+        )
+    except DatabaseUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Build authorization database unavailable",
+        ) from exc
+
+@app.get("/v1/build-authorizations/{proposal_id}")
+def build_authorization_endpoint(proposal_id: UUID):
+    try:
+        return get_build_authorization(proposal_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except DatabaseUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Build authorization database unavailable",
+        ) from exc
+
+@app.post("/v1/build-authorizations/{proposal_id}/decision")
+def build_authorization_decision_endpoint(
+    proposal_id: UUID,
+    payload: BuildAuthorizationDecision,
+    x_build_authorization_key: str | None = Header(
+        default=None,
+        alias="X-Build-Authorization-Key",
+    ),
+):
+    try:
+        return decide_build_authorization(
+            proposal_id,
+            decision=payload.decision,
+            reason=payload.reason,
+            actor=payload.actor,
+            executor_kind=payload.executor_kind,
+            provided_key=x_build_authorization_key,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403,detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
 @app.get("/v1/sandbox-requests")
 def sandbox_requests(limit: int = 50):
     sql=text("""
-      SELECT sbr.id,sbr.proposal_id,sbr.proposal_revision,sbr.executor_kind,
+      SELECT sbr.id,sbr.authorization_id,sbr.proposal_id,sbr.proposal_revision,sbr.executor_kind,
              sbr.request_status,sbr.workspace_id,sbr.sandbox_image,
              sbr.network_policy,sbr.workspace_policy,sbr.external_side_effects,
              sbr.requested_by,sbr.requested_at,sbr.policy_checked_at,
