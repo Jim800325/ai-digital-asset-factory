@@ -209,7 +209,7 @@
       setText("researchStatus","NOT GENERATED");
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = "尚未生成 Research Report；必须先通过 Evidence Gate 进入 CANDIDATE。";
+      empty.textContent = "尚未生成 Research Report；必須先通過 Evidence Gate 進入 CANDIDATE。";
       root.replaceChildren(empty);
       return;
     }
@@ -246,7 +246,7 @@
       setText("validationStatus","NOT STARTED");
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.textContent = "尚未进入商業驗證；Research Report 生成后才会执行。";
+      empty.textContent = "尚未进入商業驗證；Research Report 生成後才會執行。";
       root.replaceChildren(empty);
       return;
     }
@@ -277,8 +277,8 @@
       const empty = document.createElement("div");
       empty.className = "empty-state";
       empty.textContent = ready
-        ? "BUILD_READY 已满足，但目前尚未生成 Build Proposal。"
-        : "尚未满足 BUILD_READY；不会生成 Build Proposal。";
+        ? "BUILD_READY 已滿足，但目前尚未生成 Build Proposal。"
+        : "尚未滿足 BUILD_READY；不会生成 Build Proposal。";
       root.replaceChildren(empty);
       return;
     }
