@@ -26,7 +26,7 @@ PATTERNS = {
         ("buyer_role", re.compile(r"\b(customers?|users?|developers?|teams?|companies|businesses|founders?|analysts?|agencies|marketers?|creators?|sellers?|operators?)\b", re.I)),
     ],
     "competitors": [
-        ("alternative", re.compile(r"\b(alternatives?|competitors?|replacement|replace|switch(?:ed|ing)?\s+from|versus|vs\.?)\b", re.I)),
+        ("alternative", re.compile(r"\b(alternatives?|competitors?|replacement|replace|switch(?:ed|ing)?\s+from|versus|vs\.?|instead\s+of|instead|compared?\s+to|compare\s+with|migrate\s+from)\b", re.I)),
     ],
     "pricing": [
         ("currency_amount", re.compile(r"(?:[$€£]\s?\d+(?:\.\d{1,2})?|\b(?:usd|eur|gbp)\s?\d+(?:\.\d{1,2})?)", re.I)),
@@ -34,13 +34,14 @@ PATTERNS = {
         ("pricing_term", re.compile(r"\b(pricing|price|cost|subscription|plan)\b", re.I)),
     ],
     "willingness_to_pay": [
-        ("willing_to_pay", re.compile(r"\b(willing\s+to\s+pay|would\s+pay|can\s+pay|budget)\b", re.I)),
+        ("willing_to_pay", re.compile(r"\b(willing\s+to\s+(?:pay|spend)|would\s+pay|can\s+pay|budget)\b", re.I)),
         ("active_payment", re.compile(r"\b(?:we|i|our\s+team|customers?)\s+(?:currently\s+)?pay\b", re.I)),
-        ("paid_signal", re.compile(r"\b(paid|paying|subscribe|subscribed|too\s+expensive|worth\s+(?:it|[$€£]))\b", re.I)),
+        ("billing_commitment", re.compile(r"\b(credit\s+card|billing\s+limit|spending\s+limit|paid\s+plan)\b", re.I)),
+        ("paid_signal", re.compile(r"\b(paid|paying|subscribe|subscribed|too\s+expensive|extra\s+costs?|additional\s+costs?|not\s+free|isn['’]?t\s+free|aren['’]?t\s+free|worth\s+(?:it|[$€£]))\b", re.I)),
     ],
     "market_gap": [
         ("manual_pain", re.compile(r"\b(manual|manually|time[- ]consuming|hours?\s+to|too\s+slow|difficult|painful)\b", re.I)),
-        ("unmet_need", re.compile(r"\b(need|wish|missing|feature\s+request|no\s+way\s+to|cannot|can't|doesn't\s+support|problem)\b", re.I)),
+        ("unmet_need", re.compile(r"\b(need|wish|missing|feature\s+request|no\s+way\s+to|cannot|can't|doesn't\s+support|problem|unable|blocked|error|fails?|not\s+working|doesn't\s+work)\b", re.I)),
     ],
 }
 
