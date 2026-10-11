@@ -103,7 +103,8 @@ ASSET_INTENTS = {
 
 STOPWORDS = {
     "the","and","for","with","from","this","that","into","next","stored","today",
-    "github","issue","issues","request","requests","feature","new","links","repositories",
+    "github","issue","issues","feature","new","links","repositories",
+    "bodies","body","eat",
 }
 
 
@@ -112,7 +113,7 @@ def _number(value) -> float:
 
 
 def _search_seed(row: dict) -> str:
-    raw = row.get("canonical_title") or row.get("title") or ""
+    raw = row.get("title") or row.get("canonical_title") or ""
     tokens = re.findall(r"[A-Za-z0-9][A-Za-z0-9+.#_-]*", raw.lower())
     meaningful = [
         token for token in tokens
