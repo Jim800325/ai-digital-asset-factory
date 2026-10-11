@@ -62,10 +62,11 @@ def test_production_homepage_static_assets_use_only_workbench_summary_api():
         assert f"method: '{method}'" not in js
 
     assert "SIDE-BUSINESS WORKBENCH · v2.0" in html
-    assert "SBW-2 NEXT" in html
+    assert 'href="/opportunities"' in html
     assert "Trust / KMS" not in html
     assert "Governance" not in html
     assert "Operations" not in html
+    assert '/opportunities/' in js
     assert "@media(max-width:560px)" in css
 
 def test_control_center_summary_is_minimized_and_filters_test_fixtures():

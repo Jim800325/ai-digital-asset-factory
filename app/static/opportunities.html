@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="AI Digital Asset Factory — Opportunity Workspace">
+  <title>機會池 · Side-Business Workbench</title>
+  <link rel="stylesheet" href="/review-assets/opportunities.css">
+  <script defer src="/review-assets/opportunities.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳至主要內容</a>
+  <div class="layout">
+    <aside class="sidebar">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">◆</span>
+        <span><small>AI DIGITAL ASSET FACTORY</small><strong>Side-Business</strong></span>
+      </a>
+
+      <nav class="nav" aria-label="副業工作台導覽">
+        <a href="/"><span>▣</span>總覽</a>
+        <a class="active" href="/opportunities"><span>◇</span>機會池</a>
+        <span class="planned"><span>◎</span>研究驗證<em>SBW-3</em></span>
+        <span class="planned"><span>◆</span>BUILD_READY<em>SBW-4</em></span>
+        <span class="planned"><span>⚙</span>構建<em>SBW-4</em></span>
+        <span class="planned"><span>↗</span>發佈與變現<em>SBW-5</em></span>
+        <span class="planned"><span>$</span>收益與復盤<em>SBW-6</em></span>
+      </nav>
+
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-label">SYSTEM</div>
+      <nav class="nav compact">
+        <a href="/system"><span>◉</span>系統狀態</a>
+        <a href="/review/audits"><span>✓</span>Audit / Evidence</a>
+      </nav>
+
+      <div class="env-card"><strong>PREVIEW</strong><span>READ ONLY</span></div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">SBW-2 · OPPORTUNITY WORKSPACE</div>
+          <h1>機會池</h1>
+          <p>把發現結果變成可篩選、可比較、可追蹤下一步的副業候選清單。</p>
+        </div>
+        <div class="top-actions">
+          <a href="/" class="button secondary">← 總覽</a>
+          <button id="refreshButton" type="button" class="button primary">↻ 重新整理</button>
+        </div>
+      </header>
+
+      <main id="main">
+        <section class="summary-grid" aria-label="機會池摘要">
+          <article><span>全部機會</span><strong id="totalCount">—</strong><small>真實 Opportunity</small></article>
+          <article><span>RESEARCH</span><strong id="researchCount">—</strong><small>需要補充 Evidence</small></article>
+          <article><span>WATCH</span><strong id="watchCount">—</strong><small>弱訊號觀察</small></article>
+          <article><span>Gate PASS</span><strong id="gatePassCount">—</strong><small>已通過 Evidence Gate</small></article>
+          <article class="warning"><span>Gate BLOCKED</span><strong id="gateBlockedCount">—</strong><small>目前業務瓶頸</small></article>
+        </section>
+
+        <section class="panel filters-panel">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">FILTER / SORT</div>
+              <h2>找出最值得行動的機會</h2>
+            </div>
+            <span id="loadState" class="status-pill">CHECKING</span>
+          </div>
+
+          <form id="filterForm" class="filters">
+            <label class="search-field">
+              <span>搜尋</span>
+              <input id="filterQuery" name="q" type="search" maxlength="120" placeholder="標題、Problem、Buyer…">
+            </label>
+
+            <label>
+              <span>階段</span>
+              <select id="filterStage" name="stage">
+                <option value="">全部</option>
+                <option value="RESEARCH">RESEARCH</option>
+                <option value="WATCH">WATCH</option>
+                <option value="CANDIDATE">CANDIDATE</option>
+              </select>
+            </label>
+
+            <label>
+              <span>資產類型</span>
+              <select id="filterAssetType" name="asset_type">
+                <option value="">全部</option>
+                <option value="MICRO_SAAS_TOOL">Micro-SaaS</option>
+                <option value="DATASET_API">Dataset / API</option>
+                <option value="INTELLIGENCE_REPORT">Intelligence Report</option>
+                <option value="TEMPLATE_WORKFLOW">Template / Workflow</option>
+                <option value="CONTENT_IP">Content IP</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Evidence Gate</span>
+              <select id="filterGate" name="gate">
+                <option value="">全部</option>
+                <option value="BLOCKED">BLOCKED</option>
+                <option value="PASS">PASS</option>
+              </select>
+            </label>
+
+            <label>
+              <span>最低 Score</span>
+              <input id="filterMinScore" name="min_score" type="number" min="0" max="100" step="1" placeholder="0">
+            </label>
+
+            <label>
+              <span>最低 Sources</span>
+              <input id="filterMinSources" name="min_sources" type="number" min="0" max="1000" step="1" placeholder="0">
+            </label>
+
+            <label>
+              <span>排序</span>
+              <select id="filterSort" name="sort">
+                <option value="priority">最可行動</option>
+                <option value="score">Score</option>
+                <option value="evidence_quality">Evidence Quality</option>
+                <option value="sources">Sources</option>
+                <option value="validation_score">Validation Score</option>
+                <option value="updated">最近更新</option>
+              </select>
+            </label>
+
+            <label>
+              <span>方向</span>
+              <select id="filterOrder" name="order">
+                <option value="desc">高 → 低</option>
+                <option value="asc">低 → 高</option>
+              </select>
+            </label>
+
+            <div class="filter-actions">
+              <button class="button primary" type="submit">套用</button>
+              <button class="button secondary" id="resetFilters" type="button">重設</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="section-head result-head">
+            <div>
+              <div class="eyebrow">OPPORTUNITY BOARD</div>
+              <h2><span id="resultCount">—</span> 個符合條件</h2>
+              <p id="resultSummary">正在讀取機會…</p>
+            </div>
+            <div id="activeFilters" class="active-filters" aria-live="polite"></div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="opportunity-table">
+              <thead>
+                <tr>
+                  <th>Opportunity</th>
+                  <th>類型</th>
+                  <th>Score</th>
+                  <th>Sources</th>
+                  <th>Evidence</th>
+                  <th>Gate</th>
+                  <th>階段</th>
+                  <th>下一步</th>
+                </tr>
+              </thead>
+              <tbody id="opportunityRows">
+                <tr><td class="empty-cell" colspan="8">正在讀取機會…</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mobile-list" id="opportunityCards"></div>
+
+          <div class="pagination">
+            <button id="prevPage" class="button secondary" type="button" disabled>← 上一頁</button>
+            <span id="pageState">—</span>
+            <button id="nextPage" class="button secondary" type="button" disabled>下一頁 →</button>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <span>Opportunity Workspace · Read Only</span>
+        <span>SBW-3 才會啟動 Evidence Expansion Engine</span>
+      </footer>
+    </div>
+  </div>
+</body>
+</html>

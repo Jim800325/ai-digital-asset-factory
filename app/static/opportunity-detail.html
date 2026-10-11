@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="AI Digital Asset Factory — Opportunity Detail">
+  <title>Opportunity Detail · Side-Business Workbench</title>
+  <link rel="stylesheet" href="/review-assets/opportunity-detail.css">
+  <script defer src="/review-assets/opportunity-detail.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳至主要內容</a>
+  <main id="main" class="detail-page">
+    <header class="detail-header">
+      <div>
+        <a href="/opportunities" class="back-link">← 返回機會池</a>
+        <div class="eyebrow">SBW-2 · OPPORTUNITY DETAIL</div>
+        <h1 id="opportunityTitle">正在讀取 Opportunity…</h1>
+        <p id="opportunityProblem">正在整理機會背景、Evidence Gate 與下一步。</p>
+      </div>
+      <div class="header-status">
+        <span id="stageBadge" class="badge neutral">CHECKING</span>
+        <span id="gateBadge" class="badge neutral">GATE —</span>
+      </div>
+    </header>
+
+    <section class="hero-grid">
+      <article class="hero-card primary">
+        <div class="eyebrow">OPPORTUNITY</div>
+        <div class="hero-metrics">
+          <div><span>Score</span><strong id="scoreValue">—</strong></div>
+          <div><span>類型</span><strong id="assetType">—</strong></div>
+          <div><span>Sources</span><strong id="sourceCount">—</strong></div>
+          <div><span>Evidence</span><strong id="evidenceCount">—</strong></div>
+          <div><span>Validation</span><strong id="validationScore">—</strong></div>
+          <div><span>Build</span><strong id="buildReadiness">—</strong></div>
+        </div>
+      </article>
+
+      <article class="hero-card next-card">
+        <div class="eyebrow">NEXT ACTION</div>
+        <h2 id="nextActionLabel">正在分析…</h2>
+        <p id="nextActionReason">系統會根據目前 Gate 狀態給出下一步。</p>
+        <span id="nextActionTarget" class="target-chip">—</span>
+      </article>
+    </section>
+
+    <section class="panel lifecycle-panel">
+      <div class="section-head">
+        <div><div class="eyebrow">LIFECYCLE</div><h2>機會生命週期</h2></div>
+        <span id="updatedAt" class="muted">—</span>
+      </div>
+      <div id="lifecycle" class="lifecycle"></div>
+    </section>
+
+    <div class="two-column">
+      <section class="panel">
+        <div class="section-head">
+          <div><div class="eyebrow">WHY THIS MATTERS</div><h2>為什麼值得關注</h2></div>
+        </div>
+        <div id="worthList" class="worth-list"></div>
+        <div class="scorecard" id="scorecard"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <div><div class="eyebrow">EVIDENCE GATE</div><h2>為什麼還不能做</h2></div>
+          <span id="gateState" class="badge neutral">CHECKING</span>
+        </div>
+        <div id="gateChecks" class="gate-checks"></div>
+      </section>
+    </div>
+
+    <section class="panel evidence-panel">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">EVIDENCE</div>
+          <h2>證據來源</h2>
+          <p id="evidenceSummary">正在讀取 Evidence…</p>
+        </div>
+        <a id="primarySourceLink" class="button secondary" href="#" target="_blank" rel="noopener noreferrer">原始來源 ↗</a>
+      </div>
+      <div id="sourceClassSummary" class="source-summary"></div>
+      <div id="evidenceItems" class="evidence-list"></div>
+    </section>
+
+    <div class="two-column research-grid">
+      <section class="panel">
+        <div class="section-head">
+          <div><div class="eyebrow">RESEARCH</div><h2>Research Report</h2></div>
+          <span id="researchStatus" class="status-label">—</span>
+        </div>
+        <div id="researchBody" class="research-body"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <div><div class="eyebrow">VALIDATION</div><h2>商業驗證</h2></div>
+          <span id="validationStatus" class="status-label">—</span>
+        </div>
+        <div id="validationBody" class="validation-body"></div>
+      </section>
+    </div>
+
+    <section class="panel build-panel">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">BUILD DECISION</div>
+          <h2>BUILD_READY / Proposal</h2>
+          <p>SBW-2 只讀取狀態；真正 Build / Human Approval 仍屬於 SBW-4。</p>
+        </div>
+        <span id="buildBadge" class="badge neutral">NOT READY</span>
+      </div>
+      <div id="buildBody" class="build-body"></div>
+    </section>
+
+    <section class="panel alias-panel">
+      <div class="section-head">
+        <div><div class="eyebrow">CLUSTER / ALIASES</div><h2>合併來源名稱</h2></div>
+      </div>
+      <div id="aliases" class="alias-list"></div>
+    </section>
+
+    <footer>
+      <span>Opportunity Detail · Read Only</span>
+      <a href="/system">System Workspace →</a>
+    </footer>
+  </main>
+</body>
+</html>
