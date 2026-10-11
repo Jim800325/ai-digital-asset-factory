@@ -71,3 +71,9 @@ def test_stack_exchange_provider_set_is_fixed():
         "softwareengineering":"softwareengineering.stackexchange.com",
         "superuser":"superuser.com",
     }
+
+
+def test_validation_plan_uses_database_retry_contract():
+    root=Path(__file__).resolve().parents[1]
+    source=(root/"app"/"validation_search_plan.py").read_text(encoding="utf-8")
+    assert 'read_with_retry("validation_search_plan",_load)' in source
