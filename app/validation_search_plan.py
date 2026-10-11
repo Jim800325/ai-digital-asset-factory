@@ -27,24 +27,26 @@ PRIORITY={
 }
 QUERY_TEMPLATES={
     "buyer":[
-        "{seed} developers teams customers users",
-        "{seed} who uses workflow teams",
+        "{seed} developers",
+        "{seed} teams",
     ],
     "competitors":[
-        "{seed} alternative competitor replacement vs",
-        "{seed} alternatives gitpod cloud development",
+        "{seed} alternative",
+        "{seed} gitpod",
     ],
     "pricing":[
-        "{seed} pricing cost monthly per month",
-        "{seed} price subscription plan cost",
+        "{seed} pricing",
+        "{seed} cost",
     ],
     "willingness_to_pay":[
-        "{seed} too expensive paid paying budget worth",
-        "{seed} willing to pay cost expensive",
+        "{seed} billing",
+        "{seed} expensive",
+        "{seed} cost",
     ],
     "market_gap":[
-        "{seed} problem need missing manual slow painful",
-        "{seed} cannot support feature request workflow pain",
+        "{seed} problem",
+        "{seed} missing",
+        "{seed} workflow",
     ],
 }
 GOALS={
@@ -85,9 +87,13 @@ def _dimension_state(snapshot: dict, name: str, current_status: str) -> dict:
 
 
 def _queries(seed: str, dimension: str) -> list[str]:
+    tokens=seed.split()
+    primary_seed=tokens[0] if tokens else seed
+    if primary_seed in {"request","feature","trending","links"} and len(tokens)>1:
+        primary_seed=" ".join(tokens[:2])
     out=[]
     for template in QUERY_TEMPLATES[dimension]:
-        q=" ".join(template.format(seed=seed).split())[:180]
+        q=" ".join(template.format(seed=primary_seed).split())[:180]
         if q and q not in out:
             out.append(q)
     return out
