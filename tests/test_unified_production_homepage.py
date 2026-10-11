@@ -168,4 +168,6 @@ def test_system_workspace_separates_platform_modules_from_business_home():
         assert f"method: '{method}'" not in js
 
     assert "Provider writes 預設關閉" in html
-    assert "副業主流程" not in html
+    assert "SIDE-BUSINESS FUNNEL" not in html
+    assert "今天該做什麼" not in html
+    assert "TOP OPPORTUNITIES" not in html
