@@ -61,7 +61,8 @@ def test_build_authorization_migration_is_immutable_and_single_use():
     root=Path(__file__).resolve().parents[1]
     sql=(root/"migrations"/"024_build_authorization.sql").read_text(encoding="utf-8")
     assert "CREATE TABLE IF NOT EXISTS sandbox_build_authorizations" in sql
-    assert "UNIQUE(proposal_id, proposal_revision)" in sql
+    assert "idx_sandbox_build_authorizations_proposal" in sql
+    assert "UNIQUE(proposal_id, proposal_revision)" not in sql
     assert "authorization_status IN ('AUTHORIZED','REJECTED','CONSUMED','STALE')" in sql
     assert "ADD COLUMN IF NOT EXISTS authorization_id uuid" in sql
     assert "ON DELETE RESTRICT" in sql
