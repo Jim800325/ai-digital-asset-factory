@@ -25,9 +25,6 @@ def _policy_payload(executor_kind: str) -> dict:
         sandbox_image=image,
     )
     payload["authorization_contract"]="SBW4_BUILD_AUTHORIZATION_V1"
-    payload["sandbox_execution_enabled_at_authorization"]=bool(
-        settings.sandbox_execution_enabled
-    )
     if executor=="OPENHANDS":
         payload["openhands"]={
             "runtime":settings.openhands_runtime.strip().lower(),
