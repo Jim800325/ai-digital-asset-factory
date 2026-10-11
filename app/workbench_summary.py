@@ -15,6 +15,7 @@ _REAL_OPPORTUNITY = "COALESCE(o.title, '') NOT LIKE '[TEST_ONLY]%'"
 def _empty_funnel() -> dict:
     return {
         "discovered": 0,
+        "watch": 0,
         "research": 0,
         "candidate": 0,
         "validating": 0,
@@ -80,6 +81,7 @@ def build_workbench_summary() -> dict:
         "funnel": _empty_funnel(),
         "stage_availability": {
             "discovered": "ACTIVE",
+            "watch": "ACTIVE",
             "research": "ACTIVE",
             "candidate": "ACTIVE",
             "validating": "ACTIVE",
@@ -289,6 +291,7 @@ def build_workbench_summary() -> dict:
 
     funnel = {
         "discovered": int(data["funnel"]["discovered"] or 0),
+        "watch": int(data["funnel"]["watch"] or 0),
         "research": int(data["funnel"]["research"] or 0),
         "candidate": int(data["funnel"]["candidate"] or 0),
         "validating": int(data["funnel"]["validating"] or 0),
