@@ -12,6 +12,7 @@ MANUAL_PIPELINE_HTML=STATIC_DIR/"manual-pipeline.html"
 SYSTEM_HTML=STATIC_DIR/"system.html"
 OPPORTUNITIES_HTML=STATIC_DIR/"opportunities.html"
 OPPORTUNITY_DETAIL_HTML=STATIC_DIR/"opportunity-detail.html"
+BUILD_READY_HTML=STATIC_DIR/"build-ready.html"
 
 router=APIRouter(include_in_schema=False)
 
@@ -63,6 +64,10 @@ def opportunity_workspace_page():
 @router.get("/opportunities/{opportunity_id}")
 def opportunity_detail_page(opportunity_id:UUID):
     return _html_file(OPPORTUNITY_DETAIL_HTML)
+
+@router.get("/build-ready")
+def build_ready_workspace_page():
+    return _html_file(BUILD_READY_HTML)
 
 @router.get("/review")
 def review_workspace_page():

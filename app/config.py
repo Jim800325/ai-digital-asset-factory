@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     validation_expansion_max_queries: int = 8
     validation_expansion_results_per_query: int = 5
     validation_expansion_max_accepted: int = 3
+    build_authorization_enabled: bool = False
+    build_authorization_key: str = ""
     sandbox_execution_enabled: bool = False
     sandbox_workspace_root: str = "/tmp/asset-factory-workspaces"
     sandbox_image: str = "python:3.12-slim"

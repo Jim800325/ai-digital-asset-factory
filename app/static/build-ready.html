@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="AI Digital Asset Factory — BUILD_READY Review Workspace">
+  <title>BUILD_READY Review · AI Digital Asset Factory</title>
+  <link rel="stylesheet" href="/review-assets/production-home.css">
+  <link rel="stylesheet" href="/review-assets/build-ready.css">
+  <script defer src="/review-assets/build-ready.js"></script>
+</head>
+<body>
+  <main class="build-page">
+    <header class="build-header">
+      <div>
+        <div class="eyebrow">SBW-4 · HUMAN BUILD GATE</div>
+        <h1>BUILD_READY 人工審核</h1>
+        <p>先審核 Build Proposal，再獨立授權 Sandbox Build。AUTHORIZE 只建立執行許可，不會啟動 Agent、不會部署、不會發佈。</p>
+      </div>
+      <a class="button secondary" href="/">← 返回 Control Center</a>
+    </header>
+
+    <section class="safety-banner" aria-label="安全邊界">
+      <strong>雙重人工 Gate</strong>
+      <span>Proposal APPROVE ≠ Sandbox AUTHORIZE ≠ Execute</span>
+      <span>Production Execution：DISABLED</span>
+      <span>External Side Effects：DENY</span>
+    </section>
+
+    <div class="build-layout">
+      <aside class="panel proposal-list-panel" aria-labelledby="proposalListTitle">
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">BUILD PROPOSALS</div>
+            <h2 id="proposalListTitle">待審核項目</h2>
+          </div>
+          <button id="refreshButton" class="button secondary" type="button">↻</button>
+        </div>
+        <div id="proposalList" class="proposal-list" aria-live="polite">
+          <p class="empty">正在讀取 Build Proposal…</p>
+        </div>
+      </aside>
+
+      <div class="build-main">
+        <section class="panel" aria-labelledby="proposalTitle">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">PROPOSAL SNAPSHOT</div>
+              <h2 id="proposalTitle">選擇一個 Proposal</h2>
+            </div>
+            <span id="proposalStatus" class="soft-status">IDLE</span>
+          </div>
+
+          <dl class="detail-grid">
+            <div><dt>Proposal ID</dt><dd id="proposalId">—</dd></div>
+            <div><dt>Revision</dt><dd id="proposalRevision">—</dd></div>
+            <div><dt>Artifact</dt><dd id="artifactType">—</dd></div>
+            <div><dt>Validation</dt><dd id="validationScore">—</dd></div>
+          </dl>
+
+          <div class="review-block">
+            <h3>目標</h3>
+            <p id="proposalObjective">—</p>
+          </div>
+
+          <div class="review-columns">
+            <div class="review-block">
+              <h3>Success Criteria</h3>
+              <ul id="successCriteria"><li>—</li></ul>
+            </div>
+            <div class="review-block">
+              <h3>Constraints</h3>
+              <ul id="constraints"><li>—</li></ul>
+            </div>
+          </div>
+
+          <div class="policy-strip">
+            <div><span>Network</span><strong id="policyNetwork">—</strong></div>
+            <div><span>Deployment</span><strong id="policyDeployment">—</strong></div>
+            <div><span>Side Effects</span><strong id="policySideEffects">—</strong></div>
+            <div><span>Human Release</span><strong id="policyHumanRelease">—</strong></div>
+          </div>
+        </section>
+
+        <section class="panel gate-panel" aria-labelledby="proposalDecisionTitle">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">GATE 1</div>
+              <h2 id="proposalDecisionTitle">Build Proposal 決策</h2>
+              <p>這一步只判斷「是否值得進入受控構建」。APPROVE 不會執行 Sandbox。</p>
+            </div>
+            <span id="approvalGateBadge" class="soft-status">WAITING</span>
+          </div>
+
+          <label class="field-label" for="approvalKey">Human Approval Key</label>
+          <input id="approvalKey" class="build-input" type="password" autocomplete="off" spellcheck="false" placeholder="輸入 Approval Key">
+
+          <label class="field-label" for="approvalReason">決策理由</label>
+          <textarea id="approvalReason" class="build-input build-textarea" maxlength="4000" placeholder="例如：商業驗證已達標，允許進入隔離 Sandbox 構建審查。"></textarea>
+
+          <label class="confirm-row">
+            <input id="approvalConfirm" type="checkbox">
+            <span>我確認此決策不代表允許 Production Deployment、Publishing、Payment、Outreach 或任何外部副作用。</span>
+          </label>
+
+          <div class="build-actions">
+            <button id="rejectProposalButton" class="button danger" type="button" disabled>REJECT</button>
+            <button id="approveProposalButton" class="button primary" type="button" disabled>APPROVE</button>
+          </div>
+          <div id="approvalMessage" class="gate-message" role="status" aria-live="polite">等待選擇 Proposal。</div>
+        </section>
+
+        <section class="panel gate-panel" aria-labelledby="authorizationTitle">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">GATE 2</div>
+              <h2 id="authorizationTitle">Sandbox Build Authorization</h2>
+              <p>只有 Gate 1 已 APPROVED 才能進入。AUTHORIZE 只寫入不可變授權記錄，不建立 Sandbox Request，也不啟動 OpenHands。</p>
+            </div>
+            <span id="authorizationBadge" class="soft-status">LOCKED</span>
+          </div>
+
+          <div class="readiness-grid">
+            <div><span>Authorization Gate</span><strong id="authorizationGateState">—</strong></div>
+            <div><span>Source Snapshot</span><strong id="sourceState">—</strong></div>
+            <div><span>Executor</span><strong id="executorState">OPENHANDS</strong></div>
+            <div><span>Sandbox Execution</span><strong id="sandboxExecutionState">DISABLED</strong></div>
+          </div>
+
+          <label class="field-label" for="authorizationKey">Build Authorization Key</label>
+          <input id="authorizationKey" class="build-input" type="password" autocomplete="off" spellcheck="false" placeholder="輸入 Build Authorization Key">
+
+          <label class="field-label" for="executorKind">Executor</label>
+          <select id="executorKind" class="build-input">
+            <option value="OPENHANDS">OPENHANDS</option>
+            <option value="ACCEPTANCE">ACCEPTANCE</option>
+          </select>
+
+          <label class="field-label" for="authorizationReason">授權理由</label>
+          <textarea id="authorizationReason" class="build-input build-textarea" maxlength="4000" placeholder="說明為何允許建立下一階段的隔離 Sandbox 執行許可。"></textarea>
+
+          <label class="confirm-row">
+            <input id="authorizationConfirm" type="checkbox">
+            <span>我確認本次 AUTHORIZE 不會建立或執行 Sandbox Request；真正執行仍需獨立 Execution Gate。</span>
+          </label>
+
+          <div class="build-actions">
+            <button id="rejectAuthorizationButton" class="button danger" type="button" disabled>REJECT AUTHORIZATION</button>
+            <button id="authorizeButton" class="button primary" type="button" disabled>AUTHORIZE SANDBOX BUILD</button>
+          </div>
+          <div id="authorizationMessage" class="gate-message" role="status" aria-live="polite">Gate 1 尚未 APPROVED。</div>
+        </section>
+
+        <section class="panel" aria-labelledby="auditTitle">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">AUDIT</div>
+              <h2 id="auditTitle">決策證據</h2>
+            </div>
+            <span id="auditBadge" class="soft-status">READ ONLY</span>
+          </div>
+          <div id="auditList" class="audit-list">
+            <p class="empty">尚未有決策記錄。</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
