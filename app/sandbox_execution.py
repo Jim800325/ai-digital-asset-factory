@@ -9,6 +9,7 @@ from pathlib import Path
 from sqlalchemy import text
 
 from app.build_proposals import _current_source_state, _is_build_ready, _proposal_payload
+from app.build_authorization import current_authorization_policy
 from app.config import settings
 from app.db import engine
 from app.sandbox_policy import validate_execution_policy, workspace_path_for
@@ -173,17 +174,24 @@ def _capture_artifacts(run_id, workspace: Path) -> int:
 def create_sandbox_request(
     proposal_id,
     *,
+    authorization_id,
     requested_by: str = "human",
     executor_kind: str = "OPENHANDS",
     sandbox_image: str | None = None,
 ):
     executor=executor_kind.upper().strip()
-    default_image=(
-        settings.openhands_cli_image if executor=="OPENHANDS"
-        else settings.sandbox_image
-    )
-    image=sandbox_image or default_image
+    policy_data=current_authorization_policy(executor)
+    authorized_policy=policy_data["policy"]
+    authorized_image=authorized_policy["sandbox_image"]
+    if sandbox_image is not None and sandbox_image!=authorized_image:
+        raise RuntimeError("Sandbox image differs from authorized policy snapshot")
+    image=authorized_image
+
+    # This is the actual execution-preparation gate. It intentionally requires
+    # SANDBOX_EXECUTION_ENABLED in addition to the earlier human authorization.
     policy=validate_execution_policy(executor_kind=executor,sandbox_image=image)
+    if current_authorization_policy(executor)["policy_fingerprint"]!=policy_data["policy_fingerprint"]:
+        raise RuntimeError("Sandbox policy changed while preparing execution")
     workspace_id=uuid.uuid4()
 
     with engine.begin() as db:
@@ -203,6 +211,31 @@ def create_sandbox_request(
         if proposal["execution_enabled"]:
             raise RuntimeError("Production execution flag must remain disabled")
 
+        authorization=db.execute(text("""
+          SELECT id,proposal_id,proposal_revision,source_fingerprint,
+                 executor_kind,authorization_status,policy_snapshot,
+                 policy_fingerprint
+          FROM sandbox_build_authorizations
+          WHERE id=CAST(:id AS uuid)
+          FOR UPDATE
+        """),{"id":authorization_id}).mappings().one_or_none()
+        if authorization is None:
+            raise LookupError("Sandbox build authorization not found")
+        if authorization["authorization_status"]!="AUTHORIZED":
+            raise RuntimeError("Sandbox build authorization is not AUTHORIZED")
+        if authorization["proposal_id"]!=proposal["id"]:
+            raise RuntimeError("Authorization belongs to a different proposal")
+        if int(authorization["proposal_revision"])!=int(proposal["revision"]):
+            raise RuntimeError("Authorization proposal revision mismatch")
+        if authorization["source_fingerprint"]!=proposal["source_fingerprint"]:
+            raise RuntimeError("Authorization source fingerprint mismatch")
+        if authorization["executor_kind"]!=executor:
+            raise RuntimeError("Authorization executor mismatch")
+        if authorization["policy_fingerprint"]!=policy_data["policy_fingerprint"]:
+            raise RuntimeError("Authorization policy fingerprint is stale")
+        if authorization["policy_snapshot"]!=policy_data["policy"]:
+            raise RuntimeError("Authorization policy snapshot is stale")
+
         opportunity,report,validation=_current_source_state(db,proposal["opportunity_id"])
         if not _is_build_ready(opportunity,report,validation):
             raise RuntimeError("BUILD_READY is no longer current")
@@ -212,16 +245,18 @@ def create_sandbox_request(
 
         request_id=db.execute(text("""
           INSERT INTO sandbox_build_requests(
-            proposal_id,proposal_revision,source_fingerprint,executor_kind,
-            request_status,policy_snapshot,workspace_id,sandbox_image,
-            network_policy,workspace_policy,external_side_effects,
-            requested_by,policy_checked_at)
+            authorization_id,proposal_id,proposal_revision,source_fingerprint,
+            executor_kind,request_status,policy_snapshot,workspace_id,
+            sandbox_image,network_policy,workspace_policy,
+            external_side_effects,requested_by,policy_checked_at)
           VALUES(
-            :proposal_id,:revision,:fingerprint,:executor,
-            'POLICY_PASSED',CAST(:policy AS jsonb),:workspace_id,:image,
-            :network_policy,'ISOLATED_RW','DENY',:requested_by,now())
+            :authorization_id,:proposal_id,:revision,:fingerprint,
+            :executor,'POLICY_PASSED',CAST(:policy AS jsonb),:workspace_id,
+            :image,:network_policy,'ISOLATED_RW',
+            'DENY',:requested_by,now())
           RETURNING id
         """),{
+            "authorization_id":authorization["id"],
             "proposal_id":proposal["id"],
             "revision":proposal["revision"],
             "fingerprint":proposal["source_fingerprint"],
@@ -233,29 +268,65 @@ def create_sandbox_request(
             "requested_by":(requested_by or "human")[:200],
         }).scalar_one()
 
+        db.execute(text("""
+          UPDATE sandbox_build_authorizations
+          SET authorization_status='CONSUMED',consumed_at=now()
+          WHERE id=:id
+        """),{"id":authorization["id"]})
+
     return {
         "request_id":str(request_id),
+        "authorization_id":str(authorization_id),
         "proposal_id":str(proposal_id),
         "workspace_id":str(workspace_id),
         "request_status":"POLICY_PASSED",
         "executor_kind":executor,
         "policy":policy,
+        "execution_started":False,
     }
 
 def execute_sandbox_request(request_id):
     dispatch_openhands=False
     with engine.begin() as db:
         request=db.execute(text("""
-          SELECT id,proposal_id,proposal_revision,source_fingerprint,
-                 executor_kind,request_status,workspace_id,sandbox_image
-          FROM sandbox_build_requests
-          WHERE id=CAST(:id AS uuid)
-          FOR UPDATE
+          SELECT sbr.id,sbr.authorization_id,sbr.proposal_id,
+                 sbr.proposal_revision,sbr.source_fingerprint,
+                 sbr.executor_kind,sbr.request_status,sbr.workspace_id,
+                 sbr.sandbox_image,
+                 sba.authorization_status,sba.policy_fingerprint,
+                 bp.opportunity_id,bp.proposal_status,bp.execution_enabled
+          FROM sandbox_build_requests sbr
+          JOIN sandbox_build_authorizations sba
+            ON sba.id=sbr.authorization_id
+          JOIN build_proposals bp
+            ON bp.id=sbr.proposal_id
+          WHERE sbr.id=CAST(:id AS uuid)
+          FOR UPDATE OF sbr,sba,bp
         """),{"id":request_id}).mappings().one_or_none()
         if request is None:
             raise LookupError("Sandbox build request not found")
         if request["request_status"]!="POLICY_PASSED":
             raise RuntimeError("Sandbox request is not POLICY_PASSED")
+        if request["authorization_id"] is None:
+            raise RuntimeError("Sandbox request has no build authorization")
+        if request["authorization_status"]!="CONSUMED":
+            raise RuntimeError("Sandbox build authorization is not CONSUMED")
+        if request["proposal_status"]!="APPROVED" or request["execution_enabled"]:
+            raise RuntimeError("Approved non-production proposal invariant failed")
+        policy_data=current_authorization_policy(request["executor_kind"])
+        if request["policy_fingerprint"]!=policy_data["policy_fingerprint"]:
+            raise RuntimeError("Sandbox execution policy changed; execution denied")
+
+        opportunity,report,validation=_current_source_state(
+            db,
+            request["opportunity_id"],
+        )
+        if not _is_build_ready(opportunity,report,validation):
+            raise RuntimeError("BUILD_READY is no longer current")
+        current=_proposal_payload(dict(opportunity),dict(report),dict(validation))
+        if current["source_fingerprint"]!=request["source_fingerprint"]:
+            raise RuntimeError("Proposal source state changed; sandbox execution denied")
+
         if request["executor_kind"]=="OPENHANDS":
             dispatch_openhands=True
         else:
