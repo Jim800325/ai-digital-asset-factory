@@ -10,7 +10,7 @@ from sqlalchemy import text
 from app.build_proposals import _current_source_state, _is_build_ready, _proposal_payload
 from app.config import settings
 from app.db import engine
-from app.sandbox_policy import execution_policy_snapshot
+from app.sandbox_policy import validate_execution_policy
 
 
 def _policy_payload(executor_kind: str) -> dict:
@@ -20,9 +20,10 @@ def _policy_payload(executor_kind: str) -> dict:
         if executor=="OPENHANDS"
         else settings.sandbox_image
     )
-    payload=execution_policy_snapshot(
+    payload=validate_execution_policy(
         executor_kind=executor,
         sandbox_image=image,
+        require_execution_enabled=False,
     )
     payload["authorization_contract"]="SBW4_BUILD_AUTHORIZATION_V1"
     if executor=="OPENHANDS":
@@ -164,8 +165,13 @@ def build_authorization_readiness(
                 blockers.append("AUTHORIZATION_ALREADY_DECIDED")
 
     policy_data=None
+    policy_error=None
     if executor in {"OPENHANDS","ACCEPTANCE"}:
-        policy_data=current_authorization_policy(executor)
+        try:
+            policy_data=current_authorization_policy(executor)
+        except RuntimeError as exc:
+            policy_error=str(exc)
+            blockers.append("EXECUTOR_POLICY_NOT_READY")
 
     return {
         "status":"READY" if not blockers else "BLOCKED",
@@ -189,6 +195,7 @@ def build_authorization_readiness(
         ),
         "blockers":blockers,
         "policy":policy_data,
+        "policy_error":policy_error,
         "safety":{
             "creates_sandbox_request":False,
             "executes_build":False,
