@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.build_proposals import decide_build_proposal, ensure_build_proposal
+from app.build_authorization import decide_build_authorization
 from app.db import engine
 from app.migrate import migration_files
 from app.main import app
@@ -25,7 +26,9 @@ def _item(source_type: str, url: str, title: str, body: str):
         ).hexdigest(),
     }
 
-def test_full_v02_integration_acceptance():
+def test_full_v02_integration_acceptance(monkeypatch):
+    monkeypatch.setattr(settings,"build_authorization_enabled",True)
+    monkeypatch.setattr(settings,"build_authorization_key","ci-build-authorization")
     with engine.connect() as db:
         versions=[
             row[0] for row in db.execute(
@@ -38,6 +41,7 @@ def test_full_v02_integration_acceptance():
     assert versions[0] == "001_initial.sql"
     assert versions[-1] == expected[-1]
     assert "022_evidence_expansion.sql" in versions
+    assert "024_build_authorization.sql" in versions
 
     assert Redis.from_url(settings.redis_url).ping() is True
 
@@ -195,8 +199,21 @@ def test_full_v02_integration_acceptance():
         assert final["execution_enabled"] is False
         assert final["decisions"] == 1
 
+    authorization=decide_build_authorization(
+        proposal["id"],
+        decision="AUTHORIZE",
+        reason="CI acceptance sandbox authorization",
+        actor="ci-human-build-authorizer",
+        executor_kind="ACCEPTANCE",
+        provided_key=settings.build_authorization_key,
+    )
+    assert authorization["authorization_status"]=="AUTHORIZED"
+    assert authorization["creates_sandbox_request"] is False
+    assert authorization["executes_build"] is False
+
     sandbox_request=create_sandbox_request(
         proposal["id"],
+        authorization_id=authorization["authorization_id"],
         requested_by="ci-human",
         executor_kind="ACCEPTANCE",
     )
@@ -247,7 +264,9 @@ def test_full_v02_integration_acceptance():
         assert sandbox["passed_tests"] == 1
 
 
-def test_openhands_real_cli_adapter_from_approved_proposal():
+def test_openhands_real_cli_adapter_from_approved_proposal(monkeypatch):
+    monkeypatch.setattr(settings,"build_authorization_enabled",True)
+    monkeypatch.setattr(settings,"build_authorization_key","ci-build-authorization")
     with engine.connect() as db:
         opportunity_id=db.execute(text("""
           SELECT o.id
@@ -276,8 +295,19 @@ def test_openhands_real_cli_adapter_from_approved_proposal():
     else:
         assert proposal_state["proposal_status"]=="APPROVED"
 
+    authorization=decide_build_authorization(
+        proposal,
+        decision="AUTHORIZE",
+        reason="CI OpenHands sandbox authorization",
+        actor="ci-human-build-authorizer",
+        executor_kind="OPENHANDS",
+        provided_key=settings.build_authorization_key,
+    )
+    assert authorization["authorization_status"]=="AUTHORIZED"
+
     request=create_sandbox_request(
         proposal,
+        authorization_id=authorization["authorization_id"],
         requested_by="ci-human",
         executor_kind="OPENHANDS",
     )
