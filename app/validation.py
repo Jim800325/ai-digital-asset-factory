@@ -44,6 +44,16 @@ PATTERNS = {
     ],
 }
 
+def validation_signals(material: str) -> dict[str,list[str]]:
+    text_value=(material or "")[:12000]
+    return {
+        dimension:[
+            label for label,pattern in patterns
+            if pattern.search(text_value)
+        ]
+        for dimension,patterns in PATTERNS.items()
+    }
+
 def _match_dimension(rows: list[dict], dimension: str) -> dict:
     matches=[]
     domains=set()
@@ -55,7 +65,7 @@ def _match_dimension(rows: list[dict], dimension: str) -> dict:
         if float(row.get("signal_strength") or 0) < 45:
             continue
         material=((row.get("content") or "") + " " + (row.get("excerpt") or ""))[:12000]
-        labels=[label for label,pattern in patterns if pattern.search(material)]
+        labels=validation_signals(material)[dimension]
         if not labels:
             continue
         domain=normalized_domain(row.get("source_url") or "") or (row.get("source_domain") or "").lower()
