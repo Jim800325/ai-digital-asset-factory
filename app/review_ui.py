@@ -9,6 +9,7 @@ REVIEW_HTML=STATIC_DIR/"review.html"
 AUDITS_HTML=STATIC_DIR/"audits.html"
 CONTROL_CENTER_HOME_HTML=STATIC_DIR/"production-home.html"
 MANUAL_PIPELINE_HTML=STATIC_DIR/"manual-pipeline.html"
+SYSTEM_HTML=STATIC_DIR/"system.html"
 
 router=APIRouter(include_in_schema=False)
 
@@ -48,6 +49,10 @@ def unified_control_center_homepage():
 @router.get("/manual-pipeline")
 def manual_pipeline_workspace_page():
     return _html_file(MANUAL_PIPELINE_HTML)
+
+@router.get("/system")
+def system_workspace_page():
+    return _html_file(SYSTEM_HTML)
 
 @router.get("/review")
 def review_workspace_page():

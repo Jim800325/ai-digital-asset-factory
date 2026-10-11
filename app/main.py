@@ -51,6 +51,7 @@ from app.vercel_live_acceptance import (
     run_vercel_live_acceptance,
 )
 from app.workers.pipeline import run_pipeline
+from app.workbench_summary import build_workbench_summary
 
 app = FastAPI(title="AI Digital Asset Factory", version="0.3.0")
 
@@ -155,6 +156,10 @@ def health():
 @app.get("/v1/control-center-summary")
 def control_center_summary():
     return build_control_center_summary()
+
+@app.get("/v1/workbench-summary")
+def workbench_summary():
+    return build_workbench_summary()
 
 @app.get("/v1/manual-pipeline/readiness")
 def manual_pipeline_readiness_endpoint():

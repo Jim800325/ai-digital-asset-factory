@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="AI Digital Asset Factory — System Workspace">
+  <title>System Workspace · AI Digital Asset Factory</title>
+  <link rel="stylesheet" href="/review-assets/system.css">
+  <script defer src="/review-assets/system.js"></script>
+</head>
+<body>
+  <main class="system-page">
+    <header class="system-header">
+      <div>
+        <div class="eyebrow">PLATFORM / SYSTEM INFRASTRUCTURE</div>
+        <h1>System Workspace</h1>
+        <p>Worker、Database、Deployments、Publishing Infrastructure、Trust / KMS、Governance 與 Audit 統一放在系統層，不再干擾副業主流程。</p>
+      </div>
+      <a href="/" class="button">← 返回副業工作台</a>
+    </header>
+
+    <section class="health-strip">
+      <div>
+        <span>Platform</span>
+        <strong id="platformStatus">CHECKING</strong>
+      </div>
+      <div>
+        <span>Database</span>
+        <strong id="databaseStatus">—</strong>
+      </div>
+      <div>
+        <span>Migrations</span>
+        <strong id="migrationStatus">—</strong>
+      </div>
+      <div>
+        <span>Pipeline</span>
+        <strong id="pipelineStatus">—</strong>
+      </div>
+      <div>
+        <span>Worker</span>
+        <strong id="workerCount">—</strong>
+      </div>
+    </section>
+
+    <section class="module-grid">
+      <article class="module-card">
+        <div class="module-top"><span>01</span><em>ACTIVE</em></div>
+        <h2>Runtime / Queue</h2>
+        <p>RQ Worker、Redis Queue、Manual Pipeline readiness 與受控操作入口。</p>
+        <div class="facts">
+          <div><span>Queue</span><strong id="queueName">—</strong></div>
+          <div><span>Redis</span><strong id="redisStatus">—</strong></div>
+          <div><span>Execution Gate</span><strong id="executionGate">—</strong></div>
+        </div>
+        <a href="/manual-pipeline">Manual Pipeline →</a>
+      </article>
+
+      <article class="module-card">
+        <div class="module-top"><span>02</span><em>ACTIVE</em></div>
+        <h2>Database / Migrations</h2>
+        <p>業務數據儲存、遷移狀態與副業漏斗的數據來源。</p>
+        <div class="facts">
+          <div><span>Database</span><strong id="databaseCardStatus">—</strong></div>
+          <div><span>Migrations</span><strong id="migrationCardStatus">—</strong></div>
+        </div>
+        <span class="read-only">READ ONLY</span>
+      </article>
+
+      <article class="module-card">
+        <div class="module-top"><span>03</span><em>CONTROLLED</em></div>
+        <h2>Deployments</h2>
+        <p>Vercel Preview / Production 與 Railway Worker Runtime 的部署基礎設施。</p>
+        <span class="note">部署與 Promotion 不在副業首頁執行。</span>
+      </article>
+
+      <article class="module-card">
+        <div class="module-top"><span>04</span><em>CONTROLLED</em></div>
+        <h2>Publishing Infrastructure</h2>
+        <p>Bilibili / future channels 的授權、執行、回讀與發佈安全邊界。</p>
+        <span class="note">Provider writes 預設關閉。</span>
+      </article>
+
+      <article class="module-card">
+        <div class="module-top"><span>05</span><em>PREVIEW</em></div>
+        <h2>Trust / KMS</h2>
+        <p>AWS / GCP、簽署金鑰、Cloud Ceremony、DSSE、Rekor 與信任鏈。</p>
+        <span class="note">Real Cloud Execution 維持獨立安全 Gate。</span>
+      </article>
+
+      <article class="module-card">
+        <div class="module-top"><span>06</span><em>PLATFORM</em></div>
+        <h2>Governance / Operations</h2>
+        <p>Certification、Incident、Circuit、Recovery 與可靠性治理。</p>
+        <span class="note">不再作為副業業務一級導覽。</span>
+      </article>
+
+      <article class="module-card audit-card">
+        <div class="module-top"><span>07</span><em>READ ONLY</em></div>
+        <h2>Audit / Evidence</h2>
+        <p>審計記錄、驗收證據與歷史追蹤。</p>
+        <a href="/review/audits">查看 Audit / Evidence →</a>
+      </article>
+
+      <article class="module-card">
+        <div class="module-top"><span>08</span><em>HUMAN GATE</em></div>
+        <h2>Human Review</h2>
+        <p>Build / Release 的人工審批與受控審核工作區。</p>
+        <a href="/review">進入 Human Review →</a>
+      </article>
+    </section>
+
+    <section class="boundary">
+      <div>
+        <div class="eyebrow">SAFETY BOUNDARY</div>
+        <h2>系統頁只提供狀態與入口，不放寬任何執行權限</h2>
+      </div>
+      <ul>
+        <li>Production Provider Write：關閉</li>
+        <li>Automatic Publish：關閉</li>
+        <li>Secrets：不在頁面返回</li>
+        <li>所有寫入繼續走獨立人工 Gate</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

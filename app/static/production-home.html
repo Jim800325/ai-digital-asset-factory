@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="AI Digital Asset Factory — Unified Control Center">
-  <title>Unified Control Center · AI Digital Asset Factory</title>
+  <meta name="description" content="AI Digital Asset Factory — Side-Business Workbench">
+  <title>Side-Business Workbench · AI Digital Asset Factory</title>
   <link rel="stylesheet" href="/review-assets/production-home.css">
   <script defer src="/review-assets/production-home.js"></script>
 </head>
@@ -13,35 +13,38 @@
   <a class="skip-link" href="#main">跳至主要內容</a>
 
   <div class="app-shell">
-    <aside class="sidebar" id="appSidebar" aria-label="控制中心導覽">
+    <aside class="sidebar" id="appSidebar" aria-label="副業工作台導覽">
       <div class="brand">
-        <div class="brand-icon" aria-hidden="true">◆</div>
+        <div class="brand-mark" aria-hidden="true">◆</div>
         <div>
           <div class="eyebrow">AI DIGITAL ASSET FACTORY</div>
-          <div class="brand-name">Control Center</div>
+          <div class="brand-name">Side-Business</div>
         </div>
       </div>
 
-      <nav class="side-nav">
-        <a class="active" href="#overview" aria-label="總覽" title="總覽"><span class="nav-icon" aria-hidden="true">◫</span><span class="nav-label">總覽</span></a>
-        <a href="#pipeline" aria-label="生產流程" title="生產流程"><span class="nav-icon" aria-hidden="true">▤</span><span class="nav-label">生產流程</span></a>
-        <a href="#opportunities" aria-label="機會研究" title="機會研究"><span class="nav-icon" aria-hidden="true">◇</span><span class="nav-label">機會研究</span></a>
-        <a href="#modules" aria-label="功能模組" title="功能模組"><span class="nav-icon" aria-hidden="true">⬡</span><span class="nav-label">功能模組</span></a>
-        <a href="#audit" aria-label="審計證據" title="審計證據"><span class="nav-icon" aria-hidden="true">✓</span><span class="nav-label">審計證據</span></a>
+      <nav class="side-nav" aria-label="主要業務導覽">
+        <a class="active" href="#overview"><span class="nav-icon">▣</span><span>總覽</span></a>
+        <a href="#opportunities"><span class="nav-icon">◇</span><span>機會池</span></a>
+        <span class="nav-planned" aria-disabled="true"><span class="nav-icon">◎</span><span>研究驗證</span><small>SBW-3</small></span>
+        <span class="nav-planned" aria-disabled="true"><span class="nav-icon">◆</span><span>BUILD_READY</span><small>SBW-4</small></span>
+        <span class="nav-planned" aria-disabled="true"><span class="nav-icon">⚙</span><span>構建</span><small>SBW-4</small></span>
+        <span class="nav-planned" aria-disabled="true"><span class="nav-icon">↗</span><span>發佈與變現</span><small>SBW-5</small></span>
+        <span class="nav-planned" aria-disabled="true"><span class="nav-icon">$</span><span>收益與復盤</span><small>SBW-6</small></span>
       </nav>
 
-      <div class="sidebar-section">
-        <div class="eyebrow">ENVIRONMENT</div>
-        <div class="env-card">
-          <strong>PRODUCTION</strong>
-          <span>READ ONLY</span>
-        </div>
-      </div>
+      <div class="sidebar-divider"></div>
+      <div class="eyebrow">SYSTEM</div>
+      <nav class="side-nav system-nav" aria-label="系統導覽">
+        <a href="/system"><span class="nav-icon">◉</span><span>系統狀態</span></a>
+        <a href="/review/audits"><span class="nav-icon">✓</span><span>Audit / Evidence</span></a>
+      </nav>
 
-      <div class="sidebar-section">
-        <div class="eyebrow">QUICK ACCESS</div>
-        <a class="side-link" href="/review">Human Review ↗</a>
-        <a class="side-link" href="/review/audits">Audit Records ↗</a>
+      <div class="env-card">
+        <div>
+          <span>ENVIRONMENT</span>
+          <strong>PRODUCTION</strong>
+        </div>
+        <em>READ ONLY</em>
       </div>
 
       <div class="sidebar-foot">
@@ -53,209 +56,227 @@
     <div class="workspace">
       <header class="topbar">
         <div>
-          <div class="eyebrow">UNIFIED CONTROL CENTER · v1.1 UI</div>
-          <h1>生產工作台</h1>
+          <div class="eyebrow">SIDE-BUSINESS WORKBENCH · v2.0</div>
+          <h1>副業經營總覽</h1>
+          <p>從機會發現、證據驗證到構建與變現，只保留一條清晰主線。</p>
         </div>
-        <div class="topbar-actions"><button id="sidebarToggle" class="icon-button" type="button" aria-controls="appSidebar" aria-expanded="true" title="摺疊側欄">☰</button>
-          <span class="environment-tag">PRODUCTION · READ ONLY</span>
-          <button id="refreshButton" class="button primary" type="button">↻ 重新整理狀態</button>
+        <div class="topbar-actions">
+          <a class="button secondary" href="/manual-pipeline">▶ 執行 Pipeline</a>
+          <button id="refreshButton" class="button primary" type="button">↻ 重新整理</button>
         </div>
       </header>
 
       <main id="main">
-        <section id="overview" class="status-strip" aria-label="系統狀態">
-          <div class="status-primary">
-            <div class="status-kicker">SYSTEM HEALTH</div>
-            <div class="status-value-row">
-              <span class="status unknown" id="systemStatus">CHECKING</span>
-              <span id="updatedAt" class="updated" role="status" aria-live="polite">正在讀取 Production 狀態…</span>
-            </div>
+        <section id="overview" class="hero panel">
+          <div class="hero-copy">
+            <div class="eyebrow">TODAY / CURRENT BUSINESS STATE</div>
+            <h2 id="businessHeadline">正在讀取副業工作台…</h2>
+            <p id="businessSummary">系統會根據真實漏斗狀態指出目前瓶頸與下一步。</p>
           </div>
-          <div class="status-cell">
-            <span>執行模式</span>
-            <strong id="executionMode">—</strong>
-          </div>
-          <div class="status-cell">
-            <span>資料庫遷移</span>
-            <strong id="migrationStatus">—</strong>
-          </div>
-          <div class="status-cell">
-            <span>發佈執行</span>
-            <strong id="releaseGate">—</strong>
+          <div class="hero-status">
+            <span class="status unknown" id="systemStatus">CHECKING</span>
+            <span id="updatedAt" class="updated" role="status" aria-live="polite">正在讀取安全摘要…</span>
           </div>
         </section>
 
-        <section class="metric-row" aria-label="關鍵指標">
-          <article class="metric compact">
-            <span>Pipeline Runs</span>
-            <strong id="runCount">—</strong>
-          </article>
-          <article class="metric compact">
+        <section class="metric-row" aria-label="副業核心指標">
+          <article class="metric">
             <span>Opportunities</span>
-            <strong id="opportunityCount">—</strong>
+            <strong id="metricDiscovered">—</strong>
+            <small id="metricOpportunityMeta">總機會</small>
           </article>
-          <article class="metric compact">
-            <span>Human Reviews</span>
-            <strong id="reviewCount">—</strong>
+          <article class="metric">
+            <span>Evidence</span>
+            <strong id="metricEvidence">—</strong>
+            <small id="metricEvidenceMeta">可驗證證據</small>
           </article>
-          <article class="metric compact">
-            <span>Audit Records</span>
-            <strong id="auditCount">—</strong>
+          <article class="metric">
+            <span>CANDIDATE</span>
+            <strong id="metricCandidate">—</strong>
+            <small>已通過 Evidence Gate</small>
+          </article>
+          <article class="metric">
+            <span>BUILD_READY</span>
+            <strong id="metricBuildReady">—</strong>
+            <small>已滿足開發條件</small>
           </article>
         </section>
 
-        <div class="main-grid">
-          <div class="main-column">
-            <section class="section panel" id="pipeline">
-              <div class="section-head pipeline-head">
-                <div>
-                  <div class="eyebrow">PRODUCTION PIPELINE</div>
-                  <h2>最近執行</h2>
-                </div>
-                <div class="pipeline-actions">
-                  <span id="runsState" class="soft-status">CHECKING</span>
-                  <a class="button secondary" href="/manual-pipeline">▶ 手動執行 Pipeline</a>
-                </div>
-              </div>
-              <div id="runsList" class="item-list" aria-live="polite">
-                <p class="empty">正在讀取任務…</p>
-              </div>
-              <p class="section-note">此處只顯示目前 Production 的數碼資產 Pipeline；動畫生產詳細階段仍維持 Preview 隔離。</p>
-            </section>
-
-            <section class="section panel" id="opportunities">
-              <div class="section-head">
-                <div>
-                  <div class="eyebrow">RESEARCH ENGINE</div>
-                  <h2>最新機會</h2>
-                </div>
-                <span id="opportunitiesState" class="soft-status">CHECKING</span>
-              </div>
-              <div id="opportunitiesList" class="item-list" aria-live="polite">
-                <p class="empty">正在讀取機會…</p>
-              </div>
-              <p class="section-note">機會評分只代表研究訊號，不代表收益保證；發佈及部署仍須經過獨立審核。</p>
-            </section>
-          </div>
-
-          <aside class="context-column" aria-label="目前階段與安全邊界">
-            <section class="context-card">
-              <div class="eyebrow">CURRENT STAGE</div>
-              <h2>Step 10B.27A</h2>
-              <p>Real Cloud Account Execution</p>
-              <div class="stage-list">
-                <div><span>Foundation</span><strong class="done">DONE</strong></div>
-                <div><span>Preview Gate</span><strong class="done">DONE</strong></div>
-                <div><span>Cloud Identity</span><strong class="pending">NEXT</strong></div>
-                <div><span>Real Execution</span><strong class="blocked">BLOCKED</strong></div>
-              </div>
-            </section>
-
-            <section class="context-card safety-card">
-              <div class="eyebrow">SAFETY BOUNDARIES</div>
-              <ul>
-                <li>Production provider writes：關閉</li>
-                <li>Automatic publish：關閉</li>
-                <li>Real cloud execution：Preview only</li>
-                <li>Secrets：不會在工作台顯示</li>
-              </ul>
-            </section>
-
-            <section class="context-card">
-              <div class="eyebrow">DATA SOURCE</div>
-              <p class="small">首頁只讀取最小化唯讀摘要。</p>
-              <code>/v1/control-center-summary</code>
-            </section>
-          </aside>
-        </div>
-
-        <section class="section" id="modules">
+        <section id="funnel" class="section panel">
           <div class="section-head">
             <div>
-              <div class="eyebrow">MODULES</div>
-              <h2>功能入口</h2>
+              <div class="eyebrow">SIDE-BUSINESS FUNNEL</div>
+              <h2>副業主流程</h2>
+              <p>每個節點只顯示後端目前能真實證明的狀態；尚未建立的市場與收益階段標記為 PLANNED。</p>
             </div>
-            <span class="muted">先 Production，後受控 Preview</span>
+            <span class="soft-status" id="funnelState">CHECKING</span>
           </div>
 
-          <div class="module-group">
-            <div class="module-group-head">
-              <span>Production</span>
-              <small>目前可用</small>
-            </div>
-            <div class="module-grid production-grid">
-              <article class="module-card">
-                <div class="module-top"><span class="module-symbol">01</span><span class="tag prod">PRODUCTION</span></div>
-                <h3>System Status</h3>
-                <p>資料庫、遷移、執行模式及發佈保護狀態。</p>
-                <a href="#overview">查看狀態 →</a>
-              </article>
-              <article class="module-card">
-                <div class="module-top"><span class="module-symbol">02</span><span class="tag prod">PRODUCTION</span></div>
-                <h3>Production Pipeline</h3>
-                <p>搜尋、分析、機會研究及 Pipeline 執行記錄。</p>
-                <a href="#pipeline">查看 Pipeline →</a>
-              </article>
-              <article class="module-card">
-                <div class="module-top"><span class="module-symbol">03</span><span class="tag prod">PRODUCTION</span></div>
-                <h3>Human Review</h3>
-                <p>人工審核、Release Review 及審查工作區。</p>
-                <a href="/review">進入審核 →</a>
-              </article>
-            </div>
+          <div class="funnel-track" aria-label="副業漏斗">
+            <article class="funnel-step active-stage">
+              <span class="step-number">01</span>
+              <strong id="funnelDiscovered">—</strong>
+              <h3>發現</h3>
+              <p>全部真實機會</p>
+            </article>
+            <div class="funnel-arrow" aria-hidden="true">→</div>
+            <article class="funnel-step">
+              <span class="step-number">02</span>
+              <strong id="funnelWatch">—</strong>
+              <h3>WATCH</h3>
+              <p>弱訊號觀察</p>
+            </article>
+            <div class="funnel-arrow" aria-hidden="true">→</div>
+            <article class="funnel-step current-stage">
+              <span class="step-number">03</span>
+              <strong id="funnelResearch">—</strong>
+              <h3>RESEARCH</h3>
+              <p>補充證據</p>
+            </article>
+            <div class="funnel-arrow" aria-hidden="true">→</div>
+            <article class="funnel-step">
+              <span class="step-number">04</span>
+              <strong id="funnelCandidate">—</strong>
+              <h3>CANDIDATE</h3>
+              <p>Evidence Gate PASS</p>
+            </article>
+            <div class="funnel-arrow" aria-hidden="true">→</div>
+            <article class="funnel-step">
+              <span class="step-number">05</span>
+              <strong id="funnelValidating">—</strong>
+              <h3>VALIDATING</h3>
+              <p>商業驗證</p>
+            </article>
+            <div class="funnel-arrow" aria-hidden="true">→</div>
+            <article class="funnel-step">
+              <span class="step-number">06</span>
+              <strong id="funnelBuildReady">—</strong>
+              <h3>BUILD_READY</h3>
+              <p>可以進入構建</p>
+            </article>
+            <div class="funnel-arrow" aria-hidden="true">→</div>
+            <article class="funnel-step">
+              <span class="step-number">07</span>
+              <strong id="funnelBuilding">—</strong>
+              <h3>BUILDING</h3>
+              <p>Sandbox / Agent</p>
+            </article>
+            <div class="funnel-arrow" aria-hidden="true">→</div>
+            <article class="funnel-step planned-stage">
+              <span class="step-number">08</span>
+              <strong id="funnelPublished">—</strong>
+              <h3>MARKET</h3>
+              <p id="publishedAvailability">PLANNED</p>
+            </article>
+            <div class="funnel-arrow" aria-hidden="true">→</div>
+            <article class="funnel-step planned-stage">
+              <span class="step-number">09</span>
+              <strong id="funnelProfitable">—</strong>
+              <h3>PROFITABLE</h3>
+              <p id="profitAvailability">PLANNED</p>
+            </article>
           </div>
 
-          <div class="module-group preview-group">
-            <div class="module-group-head">
-              <span>Controlled / Preview</span>
-              <small>未開放 Production 寫入</small>
+          <div class="bottleneck-card">
+            <div>
+              <div class="eyebrow">CURRENT BOTTLENECK</div>
+              <h3 id="bottleneckTitle">正在分析…</h3>
+              <p id="bottleneckReason">正在讀取目前最主要的業務阻塞。</p>
             </div>
-            <div class="module-grid preview-grid">
-              <article class="module-card subdued">
-                <div class="module-top"><span class="module-symbol">P1</span><span class="tag preview">PREVIEW</span></div>
-                <h3>Publishing</h3>
-                <p>Bilibili 發佈計劃、授權、執行及回讀。</p>
-                <span class="unavailable">Production 未開放</span>
-              </article>
-              <article class="module-card subdued">
-                <div class="module-top"><span class="module-symbol">P2</span><span class="tag preview">PREVIEW</span></div>
-                <h3>Trust / KMS</h3>
-                <p>簽署金鑰、憑證、跨雲驗證及 Cloud Ceremony。</p>
-                <span class="unavailable">10B.27A 進行中</span>
-              </article>
-              <article class="module-card subdued">
-                <div class="module-top"><span class="module-symbol">P3</span><span class="tag preview">PREVIEW</span></div>
-                <h3>Governance</h3>
-                <p>策略、認證、變更批准及治理記錄。</p>
-                <span class="unavailable">Production 未開放</span>
-              </article>
-              <article class="module-card subdued">
-                <div class="module-top"><span class="module-symbol">P4</span><span class="tag preview">PREVIEW</span></div>
-                <h3>Operations</h3>
-                <p>Incident、Circuit、Recovery 及可靠性操作。</p>
-                <span class="unavailable">Production 未開放</span>
-              </article>
+            <div class="bottleneck-count">
+              <strong id="bottleneckCount">—</strong>
+              <span>待處理</span>
             </div>
           </div>
         </section>
 
-        <section class="section audit-panel" id="audit">
+        <div class="business-grid">
+          <section id="actions" class="section panel">
+            <div class="section-head">
+              <div>
+                <div class="eyebrow">ACTION CENTER</div>
+                <h2>今天該做什麼</h2>
+                <p>由真實 Gate 狀態生成下一步，不需要從技術模組中自行判斷。</p>
+              </div>
+              <span class="soft-status" id="actionsState">CHECKING</span>
+            </div>
+            <div id="actionsList" class="action-list" aria-live="polite">
+              <p class="empty">正在計算下一步…</p>
+            </div>
+          </section>
+
+          <section id="latest-run" class="section panel">
+            <div class="section-head">
+              <div>
+                <div class="eyebrow">LATEST PIPELINE</div>
+                <h2>最近一次執行</h2>
+                <p>副業工作台只呈現真正影響機會漏斗的執行結果。</p>
+              </div>
+              <span class="soft-status" id="runState">CHECKING</span>
+            </div>
+            <div class="run-card" id="latestRunCard">
+              <div><span>Run</span><strong id="latestRunId">—</strong></div>
+              <div><span>Status</span><strong id="latestRunStatus">—</strong></div>
+              <div><span>Crawled</span><strong id="latestRunCrawled">—</strong></div>
+              <div><span>Evidence</span><strong id="latestRunEvidence">—</strong></div>
+              <div><span>Opportunities</span><strong id="latestRunOpportunities">—</strong></div>
+              <div><span>Finished</span><strong id="latestRunFinished">—</strong></div>
+            </div>
+          </section>
+        </div>
+
+        <section id="opportunities" class="section panel opportunities-panel">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">TOP OPPORTUNITIES</div>
+              <h2>最值得優先驗證的機會</h2>
+              <p>不只看 Score；同時顯示來源、Evidence Gate、目前階段與下一步。</p>
+            </div>
+            <span class="soft-status" id="opportunitiesState">CHECKING</span>
+          </div>
+          <div class="table-wrap">
+            <table class="opportunity-table">
+              <thead>
+                <tr>
+                  <th>Opportunity</th>
+                  <th>類型</th>
+                  <th>Score</th>
+                  <th>Sources</th>
+                  <th>Gate</th>
+                  <th>階段</th>
+                  <th>下一步</th>
+                </tr>
+              </thead>
+              <tbody id="opportunitiesTableBody">
+                <tr><td colspan="7" class="table-empty">正在讀取機會…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="opportunity-foot">
+            <p>SBW-2 將把這個摘要擴展成完整 Opportunity Workspace、篩選、排序與 Detail Lifecycle。</p>
+            <span class="planned-chip">SBW-2 NEXT</span>
+          </div>
+        </section>
+
+        <section class="system-strip" aria-label="簡化系統健康">
           <div>
-            <div class="eyebrow">AUDIT / EVIDENCE</div>
-            <h2>審計證據</h2>
-            <p>只會把真正完成的驗收顯示為完成；Cloud Ceremony、DSSE、HSM 等未完成階段繼續維持 Preview 隔離。</p>
+            <div class="eyebrow">SYSTEM HEALTH</div>
+            <h2>平台健康只保留必要訊號</h2>
+            <p>雲端執行、信任治理與可靠性操作已移出副業主頁，統一收納到 System Workspace。</p>
           </div>
-          <div class="audit-actions">
-            <span class="tag prod">READ ONLY</span>
-            <a href="/review/audits" class="button secondary">查看現有審計 ↗</a>
+          <div class="system-facts">
+            <div><span>Database</span><strong id="systemDatabase">—</strong></div>
+            <div><span>Migrations</span><strong id="systemMigrations">—</strong></div>
+            <div><span>Pipeline</span><strong id="systemPipeline">—</strong></div>
+            <div><span>Worker</span><strong id="systemWorker">—</strong></div>
           </div>
+          <a href="/system" class="button secondary">進入 System Workspace →</a>
         </section>
       </main>
 
-
       <footer class="footer">
-        <span>AI Digital Asset Factory · Unified Control Center</span>
-        <span>No Provider Writes · No Auto-Publish</span>
+        <span>AI Digital Asset Factory · Side-Business Workbench v2.0</span>
+        <span>OBSERVE · READ ONLY · No Provider Writes · No Auto-Publish</span>
       </footer>
     </div>
   </div>
