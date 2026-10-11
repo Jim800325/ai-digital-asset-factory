@@ -13,6 +13,7 @@ def test_workbench_summary_contract_is_business_first_and_read_only():
     assert payload["mode"] == "OBSERVE"
     assert set(payload["funnel"]) == {
         "discovered",
+        "watch",
         "research",
         "candidate",
         "validating",
