@@ -130,7 +130,7 @@ def build_validation_search_plan(opportunity_id: UUID) -> dict:
             })
             return {"row":dict(row),"evidence_domains":evidence_domains}
 
-    loaded=read_with_retry(_load,operation="validation_search_plan")
+    loaded=read_with_retry("validation_search_plan",_load)
     if not loaded:
         raise LookupError("Opportunity not found")
 
