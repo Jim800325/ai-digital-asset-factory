@@ -14,16 +14,19 @@ def test_unified_production_homepage_route_and_security():
     assert "script-src 'self'" in response.headers["content-security-policy"]
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
     assert 'lang="zh-HK"' in response.text
-    assert "UNIFIED CONTROL CENTER · v1.1 UI" in response.text
-    assert "PRODUCTION · READ ONLY" in response.text
-    assert "<h3>Publishing</h3>" in response.text
-    assert "Trust / KMS" in response.text
-    assert "Governance" in response.text
-    assert "<h3>Operations</h3>" in response.text
-    assert "Controlled / Preview" in response.text
+    assert "SIDE-BUSINESS WORKBENCH · v2.0" in response.text
+    assert "副業經營總覽" in response.text
+    assert "副業主流程" in response.text
+    assert "今天該做什麼" in response.text
+    assert "最值得優先驗證的機會" in response.text
+    assert "PRODUCTION" in response.text
+    assert "READ ONLY" in response.text
+    assert "Step 10B.27A" not in response.text
+    assert "Trust / KMS" not in response.text
+    assert "Governance" not in response.text
+    assert "Cloud Ceremony" not in response.text
 
-
-def test_production_homepage_static_assets_use_only_sanitized_summary_api():
+def test_production_homepage_static_assets_use_only_workbench_summary_api():
     client=TestClient(app)
     for path, media in (
         ("/review-assets/production-home.css", "text/css"),
@@ -42,7 +45,8 @@ def test_production_homepage_static_assets_use_only_sanitized_summary_api():
     assert "eval(" not in js
     assert "localStorage" not in js
     assert "sessionStorage" not in js
-    assert 'fetchJson("/v1/control-center-summary")' in js
+    assert 'fetchJson("/v1/workbench-summary")' in js
+    assert "/v1/control-center-summary" not in js
 
     for raw_path in (
         "/health",
@@ -57,10 +61,12 @@ def test_production_homepage_static_assets_use_only_sanitized_summary_api():
         assert f'method: "{method}"' not in js
         assert f"method: '{method}'" not in js
 
-    assert "Production 未開放" in html
-    assert "只會把真正完成的驗收顯示為完成" in html
+    assert "SIDE-BUSINESS WORKBENCH · v2.0" in html
+    assert "SBW-2 NEXT" in html
+    assert "Trust / KMS" not in html
+    assert "Governance" not in html
+    assert "Operations" not in html
     assert "@media(max-width:560px)" in css
-
 
 def test_control_center_summary_is_minimized_and_filters_test_fixtures():
     client=TestClient(app)
@@ -133,3 +139,33 @@ def test_manual_pipeline_workspace_is_isolated_from_read_only_homepage():
     assert '"X-Manual-Run-Key"' in js
     assert "/v1/runs" in js
     assert "MANUAL RUN" in html
+
+
+def test_system_workspace_separates_platform_modules_from_business_home():
+    client=TestClient(app)
+    response=client.get("/system")
+    assert response.status_code==200
+    assert response.headers["cache-control"]=="no-store"
+    assert 'lang="zh-HK"' in response.text
+    assert "System Workspace" in response.text
+    assert "Trust / KMS" in response.text
+    assert "Governance / Operations" in response.text
+    assert "Publishing Infrastructure" in response.text
+    assert "Audit / Evidence" in response.text
+
+    root=Path(__file__).resolve().parents[1]/"app"/"static"
+    js=(root/"system.js").read_text(encoding="utf-8")
+    html=(root/"system.html").read_text(encoding="utf-8")
+
+    assert "innerHTML" not in js
+    assert "eval(" not in js
+    assert "localStorage" not in js
+    assert "sessionStorage" not in js
+    assert 'fetchJson("/v1/workbench-summary")' in js
+    assert 'fetchJson("/v1/manual-pipeline/readiness")' in js
+    for method in ("POST","PUT","PATCH","DELETE"):
+        assert f'method: "{method}"' not in js
+        assert f"method: '{method}'" not in js
+
+    assert "Provider writes 默认关闭" in html
+    assert "副業主流程" not in html
