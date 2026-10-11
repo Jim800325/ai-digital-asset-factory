@@ -156,13 +156,27 @@ def build_authorization_readiness(
               FROM sandbox_build_authorizations
               WHERE proposal_id=:proposal_id
                 AND proposal_revision=:revision
+              ORDER BY created_at DESC,id DESC
+              LIMIT 1
             """),{
                 "proposal_id":proposal_id,
                 "revision":proposal["revision"],
             }).mappings().one_or_none()
             existing=dict(row) if row else None
-            if existing is not None:
-                blockers.append("AUTHORIZATION_ALREADY_DECIDED")
+            outstanding=db.execute(text("""
+              SELECT id
+              FROM sandbox_build_authorizations
+              WHERE proposal_id=:proposal_id
+                AND proposal_revision=:revision
+                AND authorization_status='AUTHORIZED'
+              ORDER BY created_at DESC,id DESC
+              LIMIT 1
+            """),{
+                "proposal_id":proposal_id,
+                "revision":proposal["revision"],
+            }).scalar_one_or_none()
+            if outstanding is not None:
+                blockers.append("AUTHORIZATION_OUTSTANDING")
 
     policy_data=None
     policy_error=None
@@ -280,6 +294,9 @@ def decide_build_authorization(
           FROM sandbox_build_authorizations
           WHERE proposal_id=:proposal_id
             AND proposal_revision=:revision
+            AND authorization_status='AUTHORIZED'
+          ORDER BY created_at DESC,id DESC
+          LIMIT 1
           FOR UPDATE
         """),{
             "proposal_id":proposal_id,
@@ -287,7 +304,7 @@ def decide_build_authorization(
         }).mappings().one_or_none()
         if existing is not None:
             raise RuntimeError(
-                "Build authorization for this proposal revision is already decided"
+                "An unconsumed build authorization already exists for this proposal revision"
             )
 
         authorization_id=db.execute(text("""
@@ -346,7 +363,7 @@ def get_build_authorization(proposal_id: UUID) -> dict:
           LEFT JOIN sandbox_build_requests sbr
             ON sbr.authorization_id=sba.id
           WHERE sba.proposal_id=:proposal_id
-          ORDER BY sba.proposal_revision DESC
+          ORDER BY sba.proposal_revision DESC,sba.created_at DESC,sba.id DESC
           LIMIT 1
         """),{"proposal_id":proposal_id}).mappings().one_or_none()
     if row is None:
