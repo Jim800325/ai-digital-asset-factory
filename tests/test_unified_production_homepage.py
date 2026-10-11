@@ -167,5 +167,5 @@ def test_system_workspace_separates_platform_modules_from_business_home():
         assert f'method: "{method}"' not in js
         assert f"method: '{method}'" not in js
 
-    assert "Provider writes 默认关闭" in html
+    assert "Provider writes 預設關閉" in html
     assert "副業主流程" not in html
