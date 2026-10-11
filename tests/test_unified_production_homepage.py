@@ -63,6 +63,7 @@ def test_production_homepage_static_assets_use_only_workbench_summary_api():
 
     assert "SIDE-BUSINESS WORKBENCH · v2.0" in html
     assert 'href="/opportunities"' in html
+    assert 'href="/build-ready"' in html
     assert "Trust / KMS" not in html
     assert "Governance" not in html
     assert "Operations" not in html
