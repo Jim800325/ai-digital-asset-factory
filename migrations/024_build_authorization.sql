@@ -17,9 +17,11 @@ CREATE TABLE IF NOT EXISTS sandbox_build_authorizations (
   CHECK (proposal_revision >= 1),
   CHECK (executor_kind IN ('OPENHANDS','ACCEPTANCE')),
   CHECK (authorization_status IN ('AUTHORIZED','REJECTED','CONSUMED','STALE')),
-  CHECK (char_length(reason) >= 3),
-  UNIQUE(proposal_id, proposal_revision)
+  CHECK (char_length(reason) >= 3)
 );
+
+CREATE INDEX IF NOT EXISTS idx_sandbox_build_authorizations_proposal
+  ON sandbox_build_authorizations(proposal_id, proposal_revision, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_sandbox_build_authorizations_status
   ON sandbox_build_authorizations(authorization_status, created_at DESC);
