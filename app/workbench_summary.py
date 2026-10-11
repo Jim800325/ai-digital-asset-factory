@@ -140,6 +140,7 @@ def build_workbench_summary() -> dict:
                     f"""
                     SELECT
                       count(*) FILTER (WHERE {_REAL_OPPORTUNITY}) AS discovered,
+                      count(*) FILTER (WHERE {_REAL_OPPORTUNITY} AND o.status='WATCH') AS watch,
                       count(*) FILTER (WHERE {_REAL_OPPORTUNITY} AND o.status='RESEARCH') AS research,
                       count(*) FILTER (WHERE {_REAL_OPPORTUNITY} AND o.status='CANDIDATE') AS candidate,
                       count(*) FILTER (
