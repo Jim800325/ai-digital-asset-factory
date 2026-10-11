@@ -43,7 +43,7 @@
     card.append(priority, copy, count);
 
     const href = String(entry.href || "");
-    if (href && !href.startsWith("/opportunities")) {
+    if (href) {
       const link = document.createElement("a");
       link.className = "action-link";
       link.href = href;
@@ -52,7 +52,7 @@
     } else {
       const next = document.createElement("span");
       next.className = "action-link";
-      next.textContent = "SBW-2 / SBW-3 將在機會工作區直接處理";
+      next.textContent = "目前沒有可導覽的處理入口";
       card.append(next);
     }
     return card;
@@ -62,8 +62,9 @@
     const row = document.createElement("tr");
 
     const opportunity = document.createElement("td");
-    const title = document.createElement("div");
+    const title = document.createElement("a");
     title.className = "opportunity-title";
+    title.href = "/opportunities/" + encodeURIComponent(entry.id);
     title.textContent = entry.title || "未命名機會";
     const quality = document.createElement("div");
     quality.className = "opportunity-sub";
