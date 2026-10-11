@@ -5,7 +5,11 @@ ASSET_RULES = [
     ("TEMPLATE_WORKFLOW", ["template","workflow","playbook","prompt","checklist"]),
     ("CONTENT_IP", ["newsletter","guide","course","tutorial","content","video"]),
 ]
-PAIN = ["manual","expensive","alternative","problem","need","wish","slow","difficult","hours","missing"]
+PAIN = [
+    "manual","expensive","alternative","problem","need","wish","slow","difficult",
+    "hours","missing","cost","costs","billing","paid","paying","budget",
+    "unable","blocked","error","credit card","willing to spend","willing to pay",
+]
 
 def classify(title: str, content: str):
     hay=(title+" "+content[:12000]).lower()
