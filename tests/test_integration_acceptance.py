@@ -6,6 +6,7 @@ from redis import Redis
 from sqlalchemy import text
 
 from app.config import settings
+from app.build_proposals import decide_build_proposal, ensure_build_proposal
 from app.db import engine
 from app.migrate import migration_files
 from app.main import app
@@ -31,10 +32,12 @@ def test_full_v02_integration_acceptance():
                 text("SELECT version FROM schema_migrations ORDER BY version")
             ).all()
         ]
-    assert versions == migration_files()
-    assert len(versions) == 21
+    expected=migration_files()
+    assert versions == expected
+    assert len(versions) == len(expected)
     assert versions[0] == "001_initial.sql"
-    assert versions[-1] == "021_archive_recovery_fixture_restore_strict_guards.sql"
+    assert versions[-1] == expected[-1]
+    assert "022_evidence_expansion.sql" in versions
 
     assert Redis.from_url(settings.redis_url).ping() is True
 
@@ -246,13 +249,32 @@ def test_full_v02_integration_acceptance():
 
 def test_openhands_real_cli_adapter_from_approved_proposal():
     with engine.connect() as db:
-        proposal=db.execute(text("""
-          SELECT id
-          FROM build_proposals
-          WHERE proposal_status='APPROVED'
-          ORDER BY updated_at DESC
+        opportunity_id=db.execute(text("""
+          SELECT o.id
+          FROM digital_asset_opportunities o
+          JOIN research_reports rr ON rr.opportunity_id=o.id
+          JOIN research_validations rv ON rv.opportunity_id=o.id
+          WHERE o.build_readiness='BUILD_READY'
+            AND rr.report_status='GENERATED'
+            AND rv.validation_status='CURRENT'
+            AND rv.validation_gate_passed=true
+          ORDER BY o.updated_at DESC
           LIMIT 1
         """)).scalar_one()
+
+    proposal_state=ensure_build_proposal(opportunity_id)
+    assert proposal_state is not None
+    proposal=proposal_state["proposal_id"]
+    if proposal_state["proposal_status"]=="PENDING_APPROVAL":
+        approved=decide_build_proposal(
+            proposal,
+            decision="APPROVE",
+            reason="OpenHands integration acceptance",
+            actor="ci-human",
+        )
+        assert approved["proposal_status"]=="APPROVED"
+    else:
+        assert proposal_state["proposal_status"]=="APPROVED"
 
     request=create_sandbox_request(
         proposal,
