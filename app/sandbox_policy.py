@@ -50,9 +50,14 @@ def _validate_upstream_url(value:str)->None:
     if parsed.username or parsed.password:
         raise RuntimeError("OpenHands upstream LLM URL must not contain credentials")
 
-def validate_execution_policy(*,executor_kind:str,sandbox_image:str)->dict:
+def validate_execution_policy(
+    *,
+    executor_kind:str,
+    sandbox_image:str,
+    require_execution_enabled:bool=True,
+)->dict:
     executor=executor_kind.upper().strip()
-    if not settings.sandbox_execution_enabled:
+    if require_execution_enabled and not settings.sandbox_execution_enabled:
         raise RuntimeError("Sandbox execution is disabled")
     if executor not in ALLOWED_EXECUTORS:
         raise RuntimeError("Unsupported sandbox executor")
