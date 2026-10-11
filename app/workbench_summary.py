@@ -166,7 +166,7 @@ def build_workbench_summary() -> dict:
                     JOIN build_proposals bp ON bp.id=sbr.proposal_id
                     JOIN digital_asset_opportunities o ON o.id=bp.opportunity_id
                     WHERE COALESCE(o.title,'') NOT LIKE '[TEST_ONLY]%'
-                      AND sbr.request_status NOT IN ('FAILED','REJECTED','CANCELLED','FINISHED')
+                      AND sbr.request_status IN ('POLICY_PASSED','RUNNING')
                     """
                 )
             ).scalar_one()
